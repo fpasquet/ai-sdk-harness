@@ -1,0 +1,96 @@
+import { ImageResponse } from 'next/og';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { SITE_NAME } from '@/lib/constants';
+
+export const OG_IMAGE_SIZE = { width: 1200, height: 630 };
+
+const MAX_DESCRIPTION_LENGTH = 140;
+
+const FONTS_DIR = join(process.cwd(), 'assets/fonts');
+
+// Satori only ships a regular weight, so every bold style below silently
+// rendered at 400 until both Geist faces were registered explicitly.
+const fonts = [
+  {
+    name: 'Geist',
+    data: await readFile(join(FONTS_DIR, 'Geist-Regular.ttf')),
+    weight: 400 as const,
+    style: 'normal' as const,
+  },
+  {
+    name: 'Geist',
+    data: await readFile(join(FONTS_DIR, 'Geist-Bold.ttf')),
+    weight: 700 as const,
+    style: 'normal' as const,
+  },
+];
+
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+export function renderOGImage({
+  title,
+  description,
+}: {
+  description?: string;
+  title: string;
+}): ImageResponse {
+  // Long page titles need a smaller headline to stay within the 1200×630 frame.
+  const titleFontSize = title.length > 40 ? 56 : 72;
+
+  return new ImageResponse(
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        backgroundColor: '#000000',
+        backgroundImage:
+          'radial-gradient(circle at 20% 20%, rgba(0,112,243,0.22), transparent 45%)',
+        padding: '72px',
+        color: '#ffffff',
+        fontFamily: 'Geist',
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            fontSize: 34,
+            fontWeight: 700,
+            color: '#3291ff',
+          }}
+        >
+          {SITE_NAME}
+        </div>
+        <div style={{ display: 'flex', fontSize: titleFontSize, fontWeight: 700, lineHeight: 1.1 }}>
+          {title}
+        </div>
+        {description ? (
+          <div style={{ display: 'flex', fontSize: 30, color: '#a1a1a1', maxWidth: '900px' }}>
+            {truncate(description, MAX_DESCRIPTION_LENGTH)}
+          </div>
+        ) : null}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: 26,
+          color: '#8f8f8f',
+        }}
+      >
+        Open source, by{' '}
+        <span style={{ color: '#ffffff', fontWeight: 700, marginLeft: '8px' }}>Fabien Pasquet</span>
+      </div>
+    </div>,
+    { ...OG_IMAGE_SIZE, fonts },
+  );
+}

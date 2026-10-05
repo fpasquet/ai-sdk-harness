@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
+    "onlyUpdatePeerDependentsWhenOutOfRange": true
+  },
+  "ignore": [
+    "docs",
+    "example-next-chat",
+    "@repo/build",
+    "@repo/eslint-config",
+    "@repo/prettier-config",
+    "@repo/typescript-config",
+    "@repo/vitest-config"
+  ]
+}

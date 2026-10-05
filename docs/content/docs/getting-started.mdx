@@ -1,0 +1,86 @@
+---
+title: Getting started
+description: Run a first Claude Code turn in a local Docker Sandbox.
+---
+
+<Steps>
+<Step>
+
+### Install Docker Sandboxes
+
+Follow the [Docker Sandboxes guide](https://docs.docker.com/ai/sandboxes/get-started/) to install the `sbx` CLI, then sign in:
+
+```bash
+sbx login
+sbx ls   # should answer without an error
+```
+
+</Step>
+<Step>
+
+### Install the packages
+
+```bash
+pnpm add ai-sdk-sandbox-sbx @ai-sdk/harness @ai-sdk/harness-claude-code
+```
+
+</Step>
+<Step>
+
+### Provide a credential
+
+The Claude Code harness reads it from the environment:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=...   # `claude setup-token`, for a Claude subscription
+# or
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Only a placeholder of it ever enters the sandbox: the Docker Sandboxes proxy swaps the real value in on the way to Anthropic.
+
+</Step>
+<Step>
+
+### Run a turn
+
+```ts title="index.ts"
+import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { createSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
+
+const agent = new HarnessAgent({ harness: createClaudeCode(), model: 'claude-haiku-4-5' });
+
+const sandboxSession = await createSbxNetworkSandboxSession({
+  ports: [4000],
+  setup: ['npm install --global --silent pnpm@10'],
+  template: await agent.getSandboxTemplate(),
+});
+const session = await agent.createSession({ sandboxSession });
+
+try {
+  const { text } = await agent.generate({
+    session,
+    prompt: 'Write a script that prints the first ten primes, then run it.',
+  });
+  console.log(text);
+} finally {
+  await session.destroy();
+  await sandboxSession.destroy();
+}
+```
+
+```bash
+npx tsx index.ts
+```
+
+The first run installs Claude Code in a sandbox and saves it as a template image, which takes a minute or two. The next ones start from it in seconds.
+
+</Step>
+</Steps>
+
+## Next steps
+
+- [Resume a sandbox](/docs/packages/sandbox-sbx#resuming-a-sandbox) across processes instead of creating one per run.
+- [Mount your project](/docs/packages/sandbox-sbx#working-on-your-files) so the agent works on your files.
+- Look at the [Next.js chat example](/docs/examples/next-chat) for a streamed, multi-turn conversation.

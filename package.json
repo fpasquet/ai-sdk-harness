@@ -1,0 +1,78 @@
+{
+  "name": "ai-sdk-harness-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Community packages for the AI SDK harnesses: a pnpm + Turbo monorepo, starting with ai-sdk-sandbox-sbx (Docker Sandboxes).",
+  "license": "MIT",
+  "author": {
+    "name": "Fabien Pasquet",
+    "url": "https://github.com/fpasquet"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fpasquet/ai-sdk-harness.git"
+  },
+  "homepage": "https://github.com/fpasquet/ai-sdk-harness#readme",
+  "bugs": {
+    "url": "https://github.com/fpasquet/ai-sdk-harness/issues"
+  },
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "prettier": "@repo/prettier-config",
+  "scripts": {
+    "build": "turbo run build",
+    "docs:build": "pnpm --filter docs build",
+    "docs:dev": "pnpm --filter docs dev",
+    "example:dev": "turbo run dev --filter=example-next-chat",
+    "example:start": "turbo run build --filter=example-next-chat && pnpm --filter=example-next-chat start",
+    "screenshots": "tsx scripts/generate-screenshots.ts",
+    "clean": "turbo run clean && rm -rf node_modules .turbo coverage",
+    "changeset": "changeset",
+    "format": "prettier --write \".github/**/*.{md,yml,json}\" \".changeset/*.{json,md}\" \"*.{json,md,mjs,yaml}\" \"scripts/**/*.{json,md,ts}\" && turbo run format",
+    "format:check": "prettier --check \".github/**/*.{md,yml,json}\" \".changeset/*.{json,md}\" \"*.{json,md,mjs,yaml}\" \"scripts/**/*.{json,md,ts}\" && turbo run format:check",
+    "lint": "turbo run lint",
+    "pack:dry-run": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec npm pack --dry-run",
+    "publint": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec publint",
+    "attw": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec attw --pack --profile esm-only",
+    "release": "changeset publish",
+    "test": "turbo run test",
+    "test:cov": "turbo run test:cov",
+    "test:e2e": "turbo run test:e2e",
+    "typecheck": "turbo run typecheck",
+    "version-packages": "changeset version",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@changesets/cli": "^3.0.3",
+    "@commitlint/cli": "^21.2.0",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/prettier-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24.13.5",
+    "eslint": "^10.9.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "playwright-core": "^1.63.0",
+    "prettier": "^3.9.7",
+    "publint": "^0.3.24",
+    "tsx": "^4.23.13",
+    "turbo": "^2.10.13",
+    "typescript": "^6.0.3"
+  },
+  "keywords": [
+    "ai",
+    "ai-sdk",
+    "ai-sdk-harness",
+    "harness",
+    "sandbox",
+    "docker-sandboxes",
+    "sbx",
+    "claude-code",
+    "coding-agent"
+  ]
+}

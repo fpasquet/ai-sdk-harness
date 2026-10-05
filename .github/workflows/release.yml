@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    branches: ['main']
+
+permissions:
+  contents: write
+  pull-requests: write
+  # Required for npm trusted publishing (OIDC), no NPM_TOKEN needed. Also covers provenance.
+  id-token: write
+
+concurrency:
+  # Never cancel an in-flight release: a half-published run must finish.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Disable Husky hooks: the release commit created by changesets/action
+  # (chore(release): version packages) must bypass the local lint-staged /
+  # commitlint hooks: the CI gates validate it instead.
+  HUSKY: 0
+
+jobs:
+  release:
+    name: Version or publish packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Trusted publishing (OIDC) requires npm CLI >= 11.5.1.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Create release PR or publish
+        uses: changesets/action@v2
+        with:
+          # v2 reads the token from this input only; the GITHUB_TOKEN env var is ignored.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-script: pnpm version-packages
+          publish-script: pnpm release
+          # Conventional-Commit message/title for the changeset-release PR so the
+          # required commitlint and semantic-PR-title checks accept the squash merge.
+          commit-message: 'chore(release): version packages'
+          pr-title: 'chore(release): version packages'
+          # Both default to false in v2; v1 created releases and pushed tags on every publish.
+          create-github-releases: true
+          push-git-tags: true
+        env:
+          # No NPM_TOKEN: the publish authenticates via npm trusted publishing (OIDC),
+          # which also attaches build provenance to every package (needs id-token: write).
+          NPM_CONFIG_PROVENANCE: true

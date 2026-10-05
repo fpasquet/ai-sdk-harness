@@ -1,0 +1,16 @@
+---
+title: ai-sdk-sandbox-sbx
+description: The options of createSbxNetworkSandboxSession and resumeSbxNetworkSandboxSession, generated from the source.
+---
+
+## `createSbxNetworkSandboxSession(options)`
+
+Creates a Docker Sandbox and returns an `SbxNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable path="packages/sandbox-sbx/src/sbx-settings.ts" name="SbxCreationSettings" />
+
+## `resumeSbxNetworkSandboxSession(options)`
+
+Reattaches to an existing sandbox. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `SbxSandboxNotFoundError` when no sandbox has that name.
+
+<AutoTypeTable path="packages/sandbox-sbx/src/sbx-settings.ts" name="SbxConnectionSettings" />

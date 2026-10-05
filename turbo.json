@@ -1,0 +1,86 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["NEXT_PUBLIC_*"],
+      "inputs": [
+        "app/**",
+        "components/**",
+        "content/**",
+        "lib/**",
+        "public/**",
+        "src/**",
+        "next.config.ts",
+        "source.config.ts",
+        "tsconfig.json",
+        "tsconfig.build.json",
+        "package.json"
+      ],
+      "outputs": [".next/**", "!.next/cache/**", ".source/**", "dist/**"]
+    },
+    "clean": {
+      "cache": false
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "PORT",
+        "NODE_ENV",
+        "ANTHROPIC_API_KEY",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "SBX_*",
+        "EXAMPLE_*"
+      ],
+      "cache": false,
+      "persistent": true
+    },
+    "format": {
+      "cache": false
+    },
+    "format:check": {
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "app/**",
+        "components/**",
+        "content/**",
+        "lib/**",
+        "src/**",
+        "test/**",
+        "eslint.config.mjs",
+        "package.json"
+      ]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "test/**", "vitest.config.ts", "package.json"]
+    },
+    "test:cov": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "test/**", "vitest.config.ts", "package.json"],
+      "outputs": ["coverage/**"]
+    },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": ["SBX_*"],
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "app/**",
+        "components/**",
+        "content/**",
+        "lib/**",
+        "src/**",
+        "test/**",
+        "tsconfig.json",
+        "package.json"
+      ]
+    }
+  }
+}

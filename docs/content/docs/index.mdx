@@ -1,0 +1,47 @@
+---
+title: Introduction
+description: Community packages for the Vercel AI SDK harnesses, starting with Docker Sandboxes.
+seo:
+  title: Community packages for AI SDK harnesses
+---
+
+The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. The agent runs in a **sandbox**, and a sandbox comes from a package that knows how to create one.
+
+This project publishes such packages, under the `fpasquet` npm account. The first one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud.
+
+<Cards>
+  <Card
+    href="/docs/getting-started"
+    title="Getting started"
+    description="Install the package and run a first Claude Code turn in a Docker Sandbox."
+  />
+  <Card
+    href="/docs/packages/sandbox-sbx"
+    title="ai-sdk-sandbox-sbx"
+    description="Templates, resuming, workspaces, credentials, ports: the whole package."
+  />
+  <Card
+    href="/docs/examples/next-chat"
+    title="Next.js chat"
+    description="A useChat page streaming Claude Code turns from a Docker Sandbox."
+  />
+  <Card
+    href="/docs/api-reference/sandbox-sbx"
+    title="API reference"
+    description="Every option, generated from the source."
+  />
+</Cards>
+
+## Packages
+
+| Package                                            | Sandbox                                                                                    | Status                                 |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------- |
+| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx) | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs | Preview, 0.x (cloud mode experimental) |
+
+## Versioning
+
+Every package is released on its own with [Changesets](https://github.com/changesets/changesets), and is in its **0.x** series: its API settles with the feedback of the people trying it, before a 1.0.0. The public API is what a package exports from its entry point. Until 1.0.0, a minor release (0.1 → 0.2) may break it, and its changelog says how with a `BREAKING:` note; a patch release (0.1.0 → 0.1.1) never does. The caret range npm installs by default, `^0.1.0`, therefore stays on 0.1.x. The AI SDK harnesses are themselves experimental: when their `HarnessV1` interfaces break, the packages follow in their next minor.
+
+From 1.0.0 on, the packages will follow [Semantic Versioning](https://semver.org): breaking changes in a major only, except a feature documented as experimental, such as the cloud mode of `ai-sdk-sandbox-sbx`, which may change in a minor release and says so.
+
+Feedback is what gets the packages to 1.0.0: open an [issue](https://github.com/fpasquet/ai-sdk-harness/issues) for what works, what does not, and what is missing.

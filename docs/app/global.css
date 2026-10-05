@@ -1,0 +1,73 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/black.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* The Vercel palette, as the AI SDK site uses it: white and near-black surfaces, black (white in
+   the dark) for what is primary, hairline gray borders, and Vercel blue as the one accent. */
+@theme {
+  --color-fd-background: #ffffff;
+  --color-fd-foreground: #171717;
+  --color-fd-muted: #fafafa;
+  --color-fd-muted-foreground: #666666;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #171717;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #171717;
+  --color-fd-border: #ebebeb;
+  --color-fd-primary: #171717;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f2f2f2;
+  --color-fd-secondary-foreground: #171717;
+  --color-fd-accent: #f2f2f2;
+  --color-fd-accent-foreground: #171717;
+  --color-fd-ring: #0070f3;
+  --color-vercel-blue: #0070f3;
+}
+
+.dark {
+  --color-fd-background: #0a0a0a;
+  --color-fd-foreground: #ededed;
+  --color-fd-muted: #111111;
+  --color-fd-muted-foreground: #a1a1a1;
+  --color-fd-popover: #0a0a0a;
+  --color-fd-popover-foreground: #ededed;
+  --color-fd-card: #0a0a0a;
+  --color-fd-card-foreground: #ededed;
+  --color-fd-border: #2e2e2e;
+  --color-fd-primary: #ededed;
+  --color-fd-primary-foreground: #0a0a0a;
+  --color-fd-secondary: #1a1a1a;
+  --color-fd-secondary-foreground: #ededed;
+  --color-fd-accent: #1f1f1f;
+  --color-fd-accent-foreground: #ededed;
+  --color-fd-ring: #3291ff;
+  --color-vercel-blue: #3291ff;
+}
+
+/* Geist is loaded by `next/font` in app/layout.tsx, which only exposes the
+   `--font-geist-*` variables - Tailwind and Fumadocs read `--font-sans` /
+   `--font-mono`, so the two have to be wired together here. */
+@theme {
+  --font-sans:
+    var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    'Noto Sans', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Links in the prose take the accent, the way Vercel's documentation draws them. */
+.prose a:not([data-card]) {
+  color: var(--color-vercel-blue);
+  text-decoration-color: color-mix(in oklab, var(--color-vercel-blue) 40%, transparent);
+}
+
+/* The home page's backdrop: a faint grid fading out from the top, as on vercel.com. */
+@utility grid-backdrop {
+  background-image:
+    linear-gradient(to right, var(--color-fd-border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-fd-border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 75%);
+}

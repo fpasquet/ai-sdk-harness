@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM"],
+    "declaration": true,
+    "verbatimModuleSyntax": true,
+    "incremental": true,
+    "sourceMap": false
+  }
+}

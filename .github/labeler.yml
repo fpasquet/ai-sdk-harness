@@ -1,0 +1,36 @@
+# PR auto-labelling by changed path (actions/labeler).
+# Label definitions live in .github/labels.yml; this file only maps paths to them.
+
+'scope: packages':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/*/**'
+          - '!packages/configs/**'
+
+'scope: docs':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+
+'scope: examples':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'examples/**'
+
+'scope: ci':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - '.husky/**'
+          - 'packages/configs/**'
+          - 'scripts/**'
+          - 'turbo.json'
+          - 'package.json'
+          - 'pnpm-workspace.yaml'
+          - 'commitlint.config.mjs'
+          - 'lint-staged.config.mjs'
+
+'package: sandbox-sbx':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/sandbox-sbx/**'

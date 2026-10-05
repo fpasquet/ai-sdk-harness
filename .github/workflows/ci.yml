@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: ['main']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (format, lint, typecheck, build, Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        # Type-aware ESLint is memory-heavy: one process per package on a
+        # 2-core runner starves the largest one (docs).
+        run: pnpm lint
+        env:
+          TURBO_CONCURRENCY: 2
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24, 26]
+    env:
+      # At job level so the upload step's `if` can see it: the upload is skipped without one.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Unit tests only: they run against a fake `sbx`. The e2e suite needs Docker Sandboxes,
+      # which GitHub-hosted runners do not have (see MAINTAINERS.md).
+      - name: Test with coverage
+        run: pnpm test:cov
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.node-version == 24 && env.CODECOV_TOKEN != ''
+        run: |
+          set -euo pipefail
+          curl -Os https://cli.codecov.io/latest/linux/codecov
+          chmod +x codecov
+          for dir in packages/*/; do
+            name=$(basename "${dir%/}")
+            file="${dir}coverage/lcov.info"
+            [ -f "$file" ] || continue
+            echo "Uploading coverage for $name"
+            ./codecov upload-process \
+              --disable-search \
+              --flag "$name" \
+              --file "$file" \
+              --fail-on-error \
+              --token "$CODECOV_TOKEN"
+          done
+
+  commitlint:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate PR commits
+        run: >-
+          pnpm exec commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose
+
+  ci:
+    # Stable required status check, whatever the Node matrix of `test` reports.
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: always()
+    steps:
+      - name: Check required jobs succeeded
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
+            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }})."
+            exit 1
+          fi
+          echo "All CI jobs passed."

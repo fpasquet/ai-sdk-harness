@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a new feature or improvement.
+title: 'feat: '
+labels: ['enhancement', 'needs triage']
+body:
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - 'ai-sdk-sandbox-sbx'
+        - 'example-next-chat'
+        - 'Documentation'
+        - 'Other'
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should this feature solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: breaking
+    attributes:
+      label: Breaking change
+      options:
+        - label: This proposal may require a breaking change
