@@ -18,7 +18,7 @@
         "tsconfig.build.json",
         "package.json"
       ],
-      "outputs": [".next/**", "!.next/cache/**", ".source/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", ".source/**", "out/**", "dist/**"]
     },
     "clean": {
       "cache": false

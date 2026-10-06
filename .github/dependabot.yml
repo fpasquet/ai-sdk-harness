@@ -103,6 +103,7 @@ updates:
           - '@arethetypeswrong/*'
           - 'husky'
           - 'lint-staged'
+          - 'wrangler'
         update-types:
           - 'minor'
           - 'patch'

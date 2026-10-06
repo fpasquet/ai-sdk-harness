@@ -1,21 +1,21 @@
 import { notFound } from 'next/navigation';
 
 import { getLLMText } from '@/lib/get-llm-text';
-import { source } from '@/lib/source';
+import { getPageMarkdownSegments, getPageSlugs, source } from '@/lib/source';
 
 interface RouteContext {
-  params: Promise<{ slug?: string[] }>;
+  params: Promise<{ slug: string[] }>;
 }
 
 export const revalidate = false;
 
 export function generateStaticParams() {
-  return source.generateParams();
+  return source.getPages().map((page) => ({ slug: getPageMarkdownSegments(page.slugs) }));
 }
 
 export async function GET(_req: Request, { params }: RouteContext) {
   const { slug } = await params;
-  const page = source.getPage(slug);
+  const page = source.getPage(getPageSlugs(slug));
   if (!page) notFound();
 
   return new Response(await getLLMText(page), {

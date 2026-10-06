@@ -104,7 +104,7 @@ function remarkLocalScreenshots() {
  * GitHub. Inside the site, strip our own origin so those links navigate
  * in-site, in the same tab.
  */
-const OWN_ORIGINS = Array.from(new Set(['https://ai-sdk-harness.vercel.app', SITE_URL]));
+const OWN_ORIGINS = Array.from(new Set(['https://ai-sdk-harness.pages.dev', SITE_URL]));
 function remarkInternalLinks() {
   return (tree: MdastNode): void => {
     const visit = (node: MdastNode): void => {

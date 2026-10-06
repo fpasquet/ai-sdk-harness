@@ -80,7 +80,7 @@
     "url": "git+https://github.com/fpasquet/ai-sdk-harness.git",
     "directory": "packages/sandbox-sbx"
   },
-  "homepage": "https://github.com/fpasquet/ai-sdk-harness/tree/main/packages/sandbox-sbx#readme",
+  "homepage": "https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx",
   "bugs": {
     "url": "https://github.com/fpasquet/ai-sdk-harness/issues"
   }

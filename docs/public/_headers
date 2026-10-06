@@ -1,0 +1,8 @@
+# Cloudflare Pages response headers. The static export writes these two files
+# without an extension, so their Content-Type has to be set explicitly.
+
+/opengraph-image
+  Content-Type: image/png
+
+/api/search
+  Content-Type: application/json

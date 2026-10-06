@@ -12,7 +12,7 @@ Everything needed to release, automate, and administer this monorepo. Day-to-day
 | Lint/format/types  | `@repo/*` presets                 | `packages/configs/*`                               |
 | Tests              | Vitest (`@repo/vitest-config`)    | `vitest.config.ts`, `vitest.e2e.config.ts`         |
 | Package gates      | publint, `npm pack` dry-run, attw | `pnpm publint` / `pnpm pack:dry-run` / `pnpm attw` |
-| Docs site          | Fumadocs (Next.js)                | `docs/`, deployed by Vercel's Git integration      |
+| Docs site          | Fumadocs (Next.js static export)  | `docs/`, deployed to Cloudflare Pages (`docs.yml`) |
 
 ## Quality gates
 
@@ -36,7 +36,7 @@ The e2e suite needs Docker Sandboxes, which GitHub-hosted runners do not have: r
 pnpm test:e2e
 ```
 
-CI maps the rest to workflows: **CI** (`ci.yml`: check + a Node 24/26 test matrix, with an aggregate `CI` gate), **Quality** (`quality.yml`: publint + pack + attw), **CodeQL** (`codeql.yml`, informational), plus **Validate commit messages** and **Semantic PR title** gates. Require `CI`, `Package quality checks`, `Validate commit messages`, and `Semantic PR title` in the branch ruleset.
+CI maps the rest to workflows: **CI** (`ci.yml`: check + a Node 24/26 test matrix, with an aggregate `CI` gate), **Quality** (`quality.yml`: publint + pack + attw), **CodeQL** (`codeql.yml`, informational), **Docs** (`docs.yml`, deploys the documentation site), plus **Validate commit messages** and **Semantic PR title** gates. Require `CI`, `Package quality checks`, `Validate commit messages`, and `Semantic PR title` in the branch ruleset.
 
 ## Releasing
 
@@ -85,7 +85,7 @@ There is no alpha or beta channel: the 0.x series is where the packages get trie
 - **Settings → General**: allow squash merging only, with the PR title as the commit message; enable auto-merge and automatic deletion of head branches.
 - **Settings → Rules**: a ruleset on `main` requiring the status checks above and a pull request.
 - **Settings → Actions → General**: workflow permissions _Read and write_, and _Allow GitHub Actions to create and approve pull requests_ (the release PR).
-- **Settings → Secrets**: `CODECOV_TOKEN`, optional (the coverage upload is skipped without it).
+- **Settings → Secrets**: `CODECOV_TOKEN`, optional (the coverage upload is skipped without it); `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the docs deployment (see [Docs deployment](#docs-deployment)).
 
 ### Labels (declarative, auto-synced)
 
@@ -101,4 +101,22 @@ Edit `.github/labels.yml` and open a PR. On merge to `main`, `repo-config.yml` s
 
 ## Docs deployment
 
-`docs/` is a standalone Fumadocs (Next.js) app, deployed by **Vercel's Git integration** with `docs` as the root directory. There is no workflow for it in this repo. Set `NEXT_PUBLIC_SITE_URL` to the production URL. Validate locally with `pnpm docs:build`.
+`docs/` is a standalone Fumadocs (Next.js) app built as a **static export** (`output: 'export'`, written to `docs/out`) and deployed to **Cloudflare Pages** by `docs.yml`, on every push to `main` that touches the docs, a package (its README and the sources `<AutoTypeTable>` reads) or an example README. Manual run: **Actions → Docs → Run workflow**.
+
+Static export means no server at runtime: every route is prerendered, the search index is exported at build time (`/api/search`) and queried in the browser, and the Open Graph images and per-page Markdown are files (`/og/docs/<slug>/image.png`, `/llms.mdx/docs/<slug>/content.md`). `docs/public/_headers` sets the Content-Type of the two outputs that have no extension. Validate locally with `pnpm docs:build`, then `pnpm --filter docs exec wrangler pages dev out`, which serves `docs/out` the way Pages does.
+
+One-time setup:
+
+1. Create the Pages project, with `main` as its production branch. It is served at `https://<project>.pages.dev` (Cloudflare appends a suffix when the name is taken):
+
+   ```bash
+   pnpm --filter docs exec wrangler login
+   pnpm --filter docs exec wrangler pages project create ai-sdk-harness --production-branch=main
+   ```
+
+2. On Cloudflare, **My Profile → API Tokens → Create Token**, with the **Account → Cloudflare Pages → Edit** permission on this account only.
+3. In the repository, **Settings → Secrets and variables → Actions**:
+   - secrets `CLOUDFLARE_API_TOKEN` (the token above) and `CLOUDFLARE_ACCOUNT_ID` (shown by `pnpm --filter docs exec wrangler whoami`);
+   - variables, both optional: `NEXT_PUBLIC_SITE_URL` (defaults to `https://ai-sdk-harness.pages.dev`, set it if the project URL differs or a custom domain is attached) and `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`.
+
+The project name lives in `docs.yml` (`CLOUDFLARE_PAGES_PROJECT`). A custom domain is attached on Cloudflare (**Workers & Pages → the project → Custom domains**); update `NEXT_PUBLIC_SITE_URL` to match.

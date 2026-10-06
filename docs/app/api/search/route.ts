@@ -2,6 +2,9 @@ import { createFromSource } from 'fumadocs-core/search/server';
 
 import { source } from '@/lib/source';
 
-// Self-hosted, free full-text search powered by Orama. Indexes the docs `source`
-// (i18n-aware) and serves results at /api/search for the Fumadocs search dialog.
-export const { GET } = createFromSource(source);
+export const revalidate = false;
+
+// Self-hosted, free full-text search. The site is a static export, so the whole
+// index is exported at build time and queried in the browser by the search
+// dialog (`components/search.tsx`).
+export const { staticGET: GET } = createFromSource(source);

@@ -8,10 +8,11 @@ export const AUTHOR_URL = 'https://github.com/fpasquet';
 
 /**
  * Public base URL of the deployed documentation site. Override with the
- * NEXT_PUBLIC_SITE_URL environment variable to point at a different domain.
+ * NEXT_PUBLIC_SITE_URL environment variable to point at a different domain
+ * (an empty value, as CI passes for an unset variable, keeps the default).
  */
 export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ai-sdk-harness.vercel.app'
+  process.env.NEXT_PUBLIC_SITE_URL || 'https://ai-sdk-harness.pages.dev'
 ).replace(/\/$/, '');
 
 export const GOOGLE_SITE_VERIFICATION = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ?? '';

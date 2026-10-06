@@ -15,7 +15,7 @@ import { Footer } from '@/components/footer';
 import { FramedImage } from '@/components/framed-image';
 import { DOCS_BASE_PATH, SITE_NAME } from '@/lib/constants';
 import { breadcrumbJsonLd, JsonLd, techArticleJsonLd } from '@/lib/json-ld';
-import { source } from '@/lib/source';
+import { getPageImageSegments, getPageMarkdownSegments, source } from '@/lib/source';
 
 interface PageProps {
   params: Promise<{ slug?: string[] }>;
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = page.data.seo?.title ?? page.data.title;
   const description = page.data.seo?.description ?? page.data.description;
   const ogImage = {
-    url: `/og/docs/${(slug ?? []).join('/')}`,
+    url: `/og/docs/${getPageImageSegments(page.slugs).join('/')}`,
     width: 1200,
     height: 630,
     alt: title,
@@ -68,7 +68,7 @@ export default async function Page({ params }: PageProps) {
   if (!page) notFound();
 
   const MDX = page.data.body;
-  const markdownUrl = `/llms.mdx/docs/${(slug ?? []).join('/')}`;
+  const markdownUrl = `/llms.mdx/docs/${getPageMarkdownSegments(page.slugs).join('/')}`;
 
   const rawBreadcrumbs = getBreadcrumbItems(page.url, source.getPageTree(), {
     includePage: true,

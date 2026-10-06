@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import { Geist, Geist_Mono } from 'next/font/google';
 
+import SearchDialog from '@/components/search';
 import {
   AUTHOR_NAME,
   AUTHOR_URL,
@@ -102,7 +103,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       suppressHydrationWarning
     >
       <body className="flex min-h-screen flex-col">
-        <RootProvider>{children}</RootProvider>
+        <RootProvider search={{ SearchDialog }}>{children}</RootProvider>
       </body>
     </html>
   );

@@ -1,5 +1,7 @@
 .next
+out
 .source
 .turbo
 node_modules
 next-env.d.ts
+CLAUDE.md

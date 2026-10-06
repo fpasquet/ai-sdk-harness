@@ -15,7 +15,7 @@ import baseConfig from './base.mjs';
  */
 export default (dirname, options = {}) =>
   tseslint.config(
-    { ignores: ['.next/**', '.source/**', 'node_modules/**', 'next-env.d.ts'] },
+    { ignores: ['.next/**', '.source/**', 'out/**', 'node_modules/**', 'next-env.d.ts'] },
     ...baseConfig,
     nextPlugin.configs.recommended,
     {
