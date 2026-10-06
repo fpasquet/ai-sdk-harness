@@ -2,15 +2,18 @@ import type { LucideIcon } from 'lucide-react';
 import type { Metadata } from 'next';
 
 import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import {
   ArrowRight,
   Box,
+  Cloud,
   ExternalLink,
   KeyRound,
+  Laptop,
   Layers,
+  Moon,
   Network,
   RotateCcw,
-  Terminal,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -33,43 +36,84 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: Box,
-    title: 'A microVM per sandbox',
+    title: 'Nothing runs in your app',
     description:
-      'Docker Sandboxes run each agent in its own lightweight VM, with its own Docker daemon, not a container sharing your kernel.',
+      'Every command and file operation of the agent runs in its sandbox: a microVM, or a Cloud Run sandbox with no network of its own.',
   },
   {
     icon: KeyRound,
-    title: 'Credentials stay on the host',
+    title: 'Credentials stay outside',
     description:
-      'The sandbox only ever sees a placeholder: the Docker Sandboxes proxy swaps the real token in on its way to the API.',
+      'The sandbox only ever sees a placeholder: a proxy outside it swaps the real token in on its way to the model API.',
   },
   {
     icon: Layers,
     title: 'Harness installed once',
     description:
-      'Pass agent.getSandboxTemplate(): the first sandbox is baked into a local image, every later one starts from it in seconds.',
+      'Pass agent.getSandboxTemplate(): the first sandbox is saved as a template, every later one starts from it in seconds.',
   },
   {
     icon: Network,
-    title: 'Loopback-only ports',
+    title: 'No port left open',
     description:
-      'The harness bridge port is published on 127.0.0.1, on demand, on a port picked free on the host.',
+      'The harness bridge is published on the loopback by sbx, or tunnelled through a Cloud Run service behind IAM.',
   },
   {
     icon: RotateCcw,
     title: 'Resume across processes',
     description:
-      'Name the sandbox, keep its files, reattach to it later with resumeSbxNetworkSandboxSession().',
+      'Name the sandbox and reattach to it later, from the same process or another one, its files still there.',
   },
   {
-    icon: Terminal,
-    title: 'Nothing runs on the host',
+    icon: Moon,
+    title: 'Scale to zero',
     description:
-      'Every command and file operation is an sbx exec into the VM. Variables are forwarded by name, never on a command line.',
+      'A suspended Cloud Run sandbox waits as a snapshot on Cloud Storage: nothing runs, nothing is billed between turns.',
   },
 ];
 
-const USAGE = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+interface SandboxPackage {
+  description: string;
+  href: string;
+  icon: LucideIcon;
+  name: string;
+  points: string[];
+  status: string;
+  title: string;
+}
+
+const PACKAGES: SandboxPackage[] = [
+  {
+    icon: Laptop,
+    name: 'ai-sdk-sandbox-sbx',
+    title: 'On your machine',
+    status: 'Stable',
+    href: '/docs/packages/sandbox-sbx',
+    description:
+      'A Docker Sandbox microVM, driven through the sbx CLI, on your machine or in Docker Sandboxes Cloud.',
+    points: [
+      'A lightweight VM with its own Docker daemon',
+      'Mount your project, or a private clone of it',
+      'Ports on 127.0.0.1 only',
+    ],
+  },
+  {
+    icon: Cloud,
+    name: 'ai-sdk-sandbox-cloud-run',
+    title: 'On Google Cloud',
+    status: 'Stable',
+    href: '/docs/packages/sandbox-cloud-run',
+    description:
+      'A Cloud Run sandbox per session, run by a service you deploy in your own Google Cloud project.',
+    points: [
+      'Suspended to Cloud Storage between turns',
+      'No network but an egress proxy and its allowed hosts',
+      'Calls authenticated by Cloud Run IAM',
+    ],
+  },
+];
+
+const USAGE_SBX = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
 
@@ -83,6 +127,23 @@ const sandboxSession = await createSbxNetworkSandboxSession({
 const session = await agent.createSession({ sandboxSession });
 
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });`;
+
+const USAGE_CLOUD_RUN = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { createCloudRunNetworkSandboxSession } from 'ai-sdk-sandbox-cloud-run';
+
+const agent = new HarnessAgent({ harness: createClaudeCode() });
+
+const sandboxSession = await createCloudRunNetworkSandboxSession({
+  url: process.env.CLOUD_RUN_SANDBOX_URL!, // gcloud run services describe prints it
+  ports: [4000],
+  allowedHosts: ['registry.npmjs.org'],
+  template: await agent.getSandboxTemplate(),
+});
+const session = await agent.createSession({ sandboxSession });
+
+const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });
+await sandboxSession.stop(); // suspended to Cloud Storage: nothing billed until it resumes`;
 
 export default function LandingPage() {
   return (
@@ -99,21 +160,26 @@ export default function LandingPage() {
           <span className="size-1.5 rounded-full bg-vercel-blue" /> For the Vercel AI SDK harnesses
         </span>
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tighter text-fd-foreground md:text-6xl">
-          Coding agents in a local microVM
+          Coding agents in a sandbox, on your machine or in the cloud
         </h1>
         <p className="mt-6 max-w-2xl text-lg text-fd-muted-foreground">
-          <code className="rounded-md border border-fd-border bg-fd-muted px-1.5 py-0.5 text-sm text-fd-foreground">
-            ai-sdk-sandbox-sbx
-          </code>{' '}
-          runs a <code className="text-sm text-fd-foreground">HarnessAgent</code> (Claude Code,
-          Codex, OpenCode…) in a{' '}
+          Community packages that give a{' '}
+          <code className="text-sm text-fd-foreground">HarnessAgent</code> (Claude Code, Codex,
+          OpenCode…) its sandbox: a{' '}
           <a
             className="text-fd-foreground underline underline-offset-4"
             href="https://docs.docker.com/ai/sandboxes/"
           >
             Docker Sandbox
           </a>{' '}
-          on your machine, through the <code className="text-sm text-fd-foreground">sbx</code> CLI.
+          microVM on your machine, or a{' '}
+          <a
+            className="text-fd-foreground underline underline-offset-4"
+            href="https://docs.cloud.google.com/run/docs/code-execution"
+          >
+            Cloud Run sandbox
+          </a>{' '}
+          on Google Cloud, scaled to zero between turns.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -132,7 +198,53 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <DynamicCodeBlock code={USAGE} lang="ts" />
+          <Tabs items={['Docker Sandboxes', 'Cloud Run']}>
+            <Tab value="Docker Sandboxes">
+              <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
+            </Tab>
+            <Tab value="Cloud Run">
+              <DynamicCodeBlock code={USAGE_CLOUD_RUN} lang="ts" />
+            </Tab>
+          </Tabs>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl px-4 py-12">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-fd-foreground md:text-3xl">
+          Pick your sandbox
+        </h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
+          Both packages return the same{' '}
+          <code className="text-sm">HarnessV1NetworkSandboxSession</code>: switching from one to the
+          other is a matter of which function creates it.
+        </p>
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {PACKAGES.map(({ icon: Icon, name, title, status, href, description, points }) => (
+            <Link
+              className="group flex flex-col rounded-xl border border-fd-border bg-fd-background p-6 transition-colors hover:bg-fd-accent"
+              href={href}
+              key={name}
+            >
+              <div className="flex items-center gap-3">
+                <Icon className="size-5 text-fd-muted-foreground" />
+                <h3 className="font-medium text-fd-foreground">{title}</h3>
+                <span className="ml-auto rounded-full border border-fd-border px-2 py-0.5 text-xs text-fd-muted-foreground">
+                  {status}
+                </span>
+              </div>
+              <code className="mt-3 text-sm text-fd-foreground">{name}</code>
+              <p className="mt-2 text-sm text-fd-muted-foreground">{description}</p>
+              <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-fd-muted-foreground">
+                {points.map((point) => (
+                  <li key={point}>{point}</li>
+                ))}
+              </ul>
+              <span className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-fd-foreground">
+                Read the docs{' '}
+                <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -143,7 +255,8 @@ export default function LandingPage() {
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
           The Next.js example: <code className="text-sm">useChat</code> on one side, a{' '}
           <code className="text-sm">HarnessAgent</code> running Claude Code or Codex in a Docker
-          Sandbox on the other. Every command the agent runs, it runs in the microVM.
+          Sandbox, or a Cloud Run sandbox, on the other. Every command the agent runs, it runs in
+          the sandbox.
         </p>
         <Link
           className="mt-10 block overflow-hidden rounded-xl border border-fd-border shadow-sm"

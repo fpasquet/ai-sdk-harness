@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { defaultModel, HARNESS_IDS, HARNESSES, type HarnessId } from '@/lib/harnesses';
+import { SANDBOXES, type SandboxId } from '@/lib/sandboxes';
 
 const SUGGESTIONS = [
   'Write a script that prints the first ten primes, then run it',
@@ -48,9 +49,10 @@ interface Agent {
 
 /**
  * The chat, started afresh (with a new conversation id) by "New chat". The coding agent and its
- * model are picked before the first message and kept for the whole conversation.
+ * model are picked before the first message and kept for the whole conversation; the sandbox it
+ * runs in is the server's to pick (`EXAMPLE_SANDBOX`).
  */
-export function ChatApp() {
+export function ChatApp({ sandbox }: { sandbox: SandboxId }) {
   const [conversation, setConversation] = useState(0);
   const [agent, setAgent] = useState<Agent>({
     harness: 'claude-code',
@@ -63,6 +65,7 @@ export function ChatApp() {
       key={conversation}
       onAgentChange={setAgent}
       onNewChat={() => setConversation((count) => count + 1)}
+      sandbox={sandbox}
     />
   );
 }
@@ -71,15 +74,18 @@ function Chat({
   agent,
   onAgentChange,
   onNewChat,
+  sandbox,
 }: {
   agent: Agent;
   onAgentChange: (agent: Agent) => void;
   onNewChat: () => void;
+  sandbox: SandboxId;
 }) {
   const { messages, sendMessage, status, stop, error } = useChat();
   const [input, setInput] = useState('');
   const busy = status === 'submitted' || status === 'streaming';
   const harness = HARNESSES[agent.harness];
+  const where = SANDBOXES[sandbox];
 
   const send = (text: string) => {
     if (text.trim() === '' || busy) return;
@@ -92,9 +98,9 @@ function Chat({
       <header className="flex items-center justify-between gap-4 border-b px-4 py-3">
         <div className="flex items-center gap-3">
           <BoxIcon className="size-5 text-muted-foreground" />
-          <h1 className="font-semibold">Coding agents in a Docker Sandbox</h1>
+          <h1 className="font-semibold">Coding agents in a {where.label}</h1>
           <Badge className="hidden sm:inline-flex" variant="secondary">
-            ai-sdk-sandbox-sbx
+            {where.packageName}
           </Badge>
         </div>
         <div className="flex items-center gap-2">
@@ -109,7 +115,7 @@ function Chat({
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (
             <ConversationEmptyState
-              description="A HarnessAgent from the AI SDK, running in a local microVM. Pick an agent and a model, then ask it to write and run some code."
+              description={`A HarnessAgent from the AI SDK, ${where.description}. Pick an agent and a model, then ask it to write and run some code.`}
               icon={<BoxIcon className="size-10" />}
               title={`${harness.label} is ready`}
             />
@@ -156,7 +162,7 @@ function Chat({
           <PromptInputFooter>
             <PromptInputTools>
               <span className="px-2 text-xs text-muted-foreground">
-                {harness.label} runs in a Docker Sandbox microVM, not on your machine
+                {harness.label} runs in {where.where}
               </span>
             </PromptInputTools>
             <PromptInputSubmit

@@ -11,9 +11,9 @@ const geistSans = Geist({ subsets: ['latin'], variable: '--font-sans' });
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
-  title: 'Coding agents in a Docker Sandbox',
+  title: 'Coding agents in a sandbox',
   description:
-    'An AI SDK HarnessAgent running Claude Code or Codex in a local Docker Sandbox, via sbx.',
+    'An AI SDK HarnessAgent running Claude Code or Codex in a local Docker Sandbox, or in a Cloud Run sandbox on Google Cloud.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

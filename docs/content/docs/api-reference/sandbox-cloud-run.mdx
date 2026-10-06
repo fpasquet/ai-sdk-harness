@@ -1,0 +1,22 @@
+---
+title: ai-sdk-sandbox-cloud-run
+description: The options of createCloudRunNetworkSandboxSession and resumeCloudRunNetworkSandboxSession, generated from the source.
+---
+
+## `createCloudRunNetworkSandboxSession(options)`
+
+Creates a Cloud Run sandbox through the sandbox service and returns a `CloudRunNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable
+  path="packages/sandbox-cloud-run/src/cloud-run-settings.ts"
+  name="CloudRunCreationSettings"
+/>
+
+## `resumeCloudRunNetworkSandboxSession(options)`
+
+Reattaches to a running sandbox, or restores a suspended one from its snapshot. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `CloudRunSandboxNotFoundError` when no sandbox has that name.
+
+<AutoTypeTable
+  path="packages/sandbox-cloud-run/src/cloud-run-settings.ts"
+  name="CloudRunConnectionSettings"
+/>

@@ -1,3 +1,4 @@
+import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
 import { defineConfig, defineDocs, frontmatterSchema, remarkInclude } from 'fumadocs-mdx/config';
 import lastModified from 'fumadocs-mdx/plugins/last-modified';
 import { z } from 'zod';
@@ -159,6 +160,8 @@ export default defineConfig({
         remarkLocalScreenshots as (typeof plugins)[number],
         remarkReadmeLinks as (typeof plugins)[number],
         remarkInternalLinks as (typeof plugins)[number],
+        // ```mermaid blocks, GitHub's way, become diagrams (`components/mermaid.tsx`).
+        remarkMdxMermaid as (typeof plugins)[number],
       );
       return next;
     },

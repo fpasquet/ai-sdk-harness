@@ -2,8 +2,9 @@ import type { UIMessage } from 'ai';
 
 import { getHarnessErrorMessage } from '@ai-sdk/harness/agent';
 
-import { agentFor, sessionFor } from '@/lib/agent';
+import { agentFor, idle, sessionFor } from '@/lib/agent';
 import { isKnown } from '@/lib/harnesses';
+import { ExampleConfigurationError } from '@/lib/sandbox';
 
 // A turn reads files, runs commands and edits code: give it time.
 export const maxDuration = 300;
@@ -32,9 +33,15 @@ export async function POST(request: Request): Promise<Response> {
     const agent = agentFor(harness, model as string);
     const session = await sessionFor(id, agent);
     const result = await agent.stream({ session, prompt, abortSignal: request.signal });
-    return result.toUIMessageStreamResponse({ onError: getHarnessErrorMessage });
+    return result.toUIMessageStreamResponse({
+      onError: getHarnessErrorMessage,
+      // Counted from the end of the turn: the sandbox is suspended if no message follows.
+      onFinish: () => idle(id),
+    });
   } catch (error) {
+    const message =
+      error instanceof ExampleConfigurationError ? error.message : getHarnessErrorMessage(error);
     // Plain text: `useChat` shows the body of a failed response as the error message.
-    return new Response(getHarnessErrorMessage(error), { status: 500 });
+    return new Response(message, { status: 500 });
   }
 }

@@ -21,6 +21,28 @@ The package gives `HarnessAgent.createSession({ sandboxSession })` what it expec
 
 > This package is in its **0.x** series: try it, and tell what works and what does not in the [issues](https://github.com/fpasquet/ai-sdk-harness/issues). Until 1.0.0, a minor release may break its API, and its changelog says how; a patch release never does. The AI SDK harnesses it plugs into are themselves experimental, and its [cloud mode](#docker-sandboxes-cloud) is too. It is a community package, not affiliated with Vercel or Docker.
 
+## How it works
+
+```mermaid
+flowchart TB
+  subgraph host["Your machine"]
+    agent["HarnessAgent"] --> session["createSbxNetworkSandboxSession()"]
+    session -- "sbx exec, sbx secret, sbx ports" --> cli["sbx CLI"]
+    proxy["Docker Sandboxes proxy"]
+  end
+  subgraph vm["Docker Sandbox microVM"]
+    bridge["Harness bridge: Claude Code, Codex"]
+  end
+  api["Model APIs"]
+
+  cli --> vm
+  agent -. "WebSocket on 127.0.0.1" .-> bridge
+  bridge -- "every request" --> proxy
+  proxy -- "network policy, real credentials put in" --> api
+```
+
+Every command and file operation is an `sbx exec` into the microVM, and every request the sandbox makes leaves through the Docker Sandboxes proxy, which applies the network policy and puts the credentials in.
+
 ## Requirements
 
 - Node.js 24 or later.
@@ -129,6 +151,24 @@ await createSbxNetworkSandboxSession({ readOnlyWorkspaces: ['/path/to/docs'], po
 
 The sandbox's working directory (`defaultWorkingDirectory`, under which the harness creates each session's own directory) is read from the live sandbox: the workspace when one is mounted, `/home/agent/workspace` otherwise.
 
+## Docker and docker compose
+
+Every Docker Sandbox runs a Docker daemon of its own, inside its microVM: the agent can `docker run` and `docker compose up` like on a developer's machine, so it can test a project for real against the services it needs. Clone the project in, then let the agent, or your setup, start its services and run its tests:
+
+```ts
+const sandboxSession = await createSbxNetworkSandboxSession({
+  workspace: '/path/to/repo',
+  clone: true,
+  ports: [4000],
+});
+
+await sandboxSession.run({ command: 'npm ci && docker compose up -d --wait && npm test' });
+```
+
+The images are pulled through the Docker Sandboxes proxy, so the network policy must allow the registries they come from (Docker Hub by default).
+
+Docker is not available in [Cloud Run sandboxes](https://www.npmjs.com/package/ai-sdk-sandbox-cloud-run): use this package for projects that need containers.
+
 ## Docker Sandboxes Cloud
 
 With `cloud: true`, the sandbox runs in Docker Sandboxes Cloud rather than on your machine: every `sbx` command goes out as `sbx --cloud …`. It needs a [Docker Agentic Platform](https://agentic-platform.docker.com) subscription and `sbx login` (personal access tokens carry no cloud access).
@@ -157,9 +197,40 @@ What changes from a local sandbox:
 
 ## Credentials
 
-A harness that supports credential brokering never puts the real credential in the sandbox. It hands the sandbox a random placeholder and asks the sandbox session to transform the requests on their way out. This package turns each transformation into an `sbx secret set-custom` scoped to the sandbox, so the Docker Sandboxes proxy replaces the placeholder with the real value (a cloud proxy sets the whole header instead), which only exists on the host and in the proxy. The placeholders are withdrawn by `release()` and `stop()`, and removed with the sandbox by `destroy()`.
+A harness that supports credential brokering never puts the real credential in the sandbox. It hands the sandbox a random placeholder, an `aisdkhc_…` string, and asks the sandbox session to transform the requests on their way out. This package turns each transformation into an `sbx secret set-custom` scoped to the sandbox: the Docker Sandboxes proxy then puts the real value in the requests to the API's host. The agent can use the credential to call its API; it cannot read it.
 
-Turn it off with `brokerCredentials: false` for an `sbx` without custom secrets: the harness then forwards the real credential into the sandbox environment.
+```mermaid
+sequenceDiagram
+  autonumber
+  participant App as Your application
+  participant Sbx as sbx CLI and proxy
+  participant Sandbox as microVM
+  participant API as api.anthropic.com
+
+  App->>App: Makes a random placeholder, aisdkhc_…
+  App->>Sbx: sbx secret set-custom: placeholder to real value, for api.anthropic.com
+  App->>Sandbox: Starts the agent with ANTHROPIC_API_KEY=aisdkhc_…
+  Sandbox->>Sbx: Request to api.anthropic.com carrying the placeholder
+  Sbx->>API: Same request, the real value in place of the placeholder
+  API-->>Sandbox: Answer, without the credential
+```
+
+| Harness and sign-in                                                             | What the sandbox sees               | What the proxy is given                                     |
+| ------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------- |
+| Claude Code, API key (`ANTHROPIC_API_KEY`)                                      | `ANTHROPIC_API_KEY=aisdkhc_…`       | The key, for `api.anthropic.com`                            |
+| Claude Code, Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`, or `claude` login) | `CLAUDE_CODE_OAUTH_TOKEN=aisdkhc_…` | The access token alone: the refresh token stays on the host |
+| Codex, API key (`OPENAI_API_KEY`)                                               | `CODEX_API_KEY=aisdkhc_…`           | The key, for `api.openai.com`                               |
+| Codex, ChatGPT subscription (`codex` login)                                     | `CODEX_API_KEY=aisdkhc_…`           | The access token, for `chatgpt.com`                         |
+
+A local proxy swaps the placeholder for the value; a cloud proxy sets the whole header. Where the real value lives:
+
+- **On the host**, where your application reads it, and **in the Docker Sandboxes proxy**, which keeps the custom secrets of the sandbox.
+- **On the host's `sbx` command line**, for the time `sbx secret set-custom` runs: another user of the host could see it in the process list. Run the application on a host of its own.
+- **Never in the sandbox**, its files or its template.
+
+The placeholders are withdrawn by `release()` and `stop()`, and removed with the sandbox by `destroy()`; a cloud secret belongs to the account until `destroy()` removes it.
+
+Brokering can be turned off with `brokerCredentials: false`, for an `sbx` without custom secrets: the harness then forwards the **real credential** into the sandbox environment, where the agent can read it. Keep it on.
 
 Docker Sandboxes also pre-sets its own credential variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GH_TOKEN`…) to a `proxy-managed` placeholder, for credentials stored with `sbx secret set`. Left in place, one can take precedence over the credential the harness passes (the `claude` CLI prefers `ANTHROPIC_API_KEY` to `CLAUDE_CODE_OAUTH_TOKEN`), so they are dropped from every command that does not set them itself. Keep them with `keepProxyManagedEnv: true`; drop more with `clearEnv`.
 

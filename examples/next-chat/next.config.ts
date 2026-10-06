@@ -10,6 +10,7 @@ const config: NextConfig = {
     '@ai-sdk/harness-claude-code',
     '@ai-sdk/harness-codex',
     'ai-sdk-sandbox-sbx',
+    'ai-sdk-sandbox-cloud-run',
   ],
 };
 

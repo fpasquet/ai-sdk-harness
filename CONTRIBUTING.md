@@ -24,6 +24,12 @@ The unit tests run against a fake `sbx` and need nothing installed. The e2e test
 pnpm --filter ai-sdk-sandbox-sbx test:e2e   # creates, then removes, sandboxes and a template image
 ```
 
+The unit tests of `ai-sdk-sandbox-cloud-run` run its service over a fake `sandbox` CLI, on your machine and with no isolation. Its e2e tests need the service deployed on Cloud Run (see the package README) and gcloud signed in with an account granted `roles/run.invoker` on it:
+
+```bash
+CLOUD_RUN_SANDBOX_URL=https://… pnpm --filter ai-sdk-sandbox-cloud-run test:e2e
+```
+
 Run the example against a real Claude Code agent:
 
 ```bash

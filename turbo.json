@@ -31,7 +31,8 @@
         "ANTHROPIC_API_KEY",
         "CLAUDE_CODE_OAUTH_TOKEN",
         "SBX_*",
-        "EXAMPLE_*"
+        "EXAMPLE_*",
+        "CLOUD_RUN_*"
       ],
       "cache": false,
       "persistent": true
@@ -66,7 +67,7 @@
     },
     "test:e2e": {
       "dependsOn": ["^build"],
-      "passThroughEnv": ["SBX_*"],
+      "passThroughEnv": ["SBX_*", "CLOUD_RUN_*"],
       "cache": false
     },
     "typecheck": {

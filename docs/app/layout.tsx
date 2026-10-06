@@ -49,6 +49,8 @@ export const metadata: Metadata = {
     'harness agent',
     'docker sandboxes',
     'sbx',
+    'cloud run',
+    'google cloud',
     'sandbox',
     'microvm',
     'claude code',

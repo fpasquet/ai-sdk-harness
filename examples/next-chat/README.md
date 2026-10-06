@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
+A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -28,11 +28,53 @@ Claude Code takes `CLAUDE_CODE_OAUTH_TOKEN` (the long-lived token `claude setup-
 
 The very first message takes a few minutes: the sandbox is created, Claude Code and Codex are installed in it, then it is saved as a template image. Every later start reuses both and answers in seconds.
 
+## Run it on Cloud Run
+
+The same chat runs its agents in a Cloud Run sandbox instead, once the sandbox service of [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md#deploying-the-sandbox-service) is deployed in your Google Cloud project and your gcloud account is granted `roles/run.invoker` on it. Docker Sandboxes are then not needed. Read the service's URL from Cloud Run:
+
+```bash
+gcloud run services describe <service> --region=<region> --format='value(status.url)'
+```
+
+Then, in `.env.local`:
+
+```dotenv
+EXAMPLE_SANDBOX=cloud-run
+CLOUD_RUN_SANDBOX_URL=<the URL printed above>
+# CLOUD_RUN_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
+```
+
+The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs and the npm registry, nothing else.
+
+After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends the conversation: the agent's session is stopped with its state, and the sandbox saved to a snapshot. Nothing runs, nothing is billed. The next message brings the sandbox back and the agent picks the conversation up where it was:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Working: first message, sandbox created from the template
+  Working --> Idle: the turn ends
+  Idle --> Working: a message within 5 minutes
+  Idle --> Suspended: 5 minutes without a message
+  Suspended --> Working: next message, sandbox restored, conversation resumed
+  note right of Suspended
+    Agent session stopped with its state,
+    sandbox saved to Cloud Storage,
+    nothing running, nothing billed
+  end note
+```
+
+To delete the sandbox:
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
+```
+
 ## How it works
 
 | File                                        | What it does                                                                                                                                                                              |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lib/agent.ts`                              | One `HarnessAgent` per harness and model, the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
+| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                             |
 | `app/api/chat/route.ts`                     | Sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                                   |
 | `lib/harnesses.ts`                          | The coding agents and the models each one offers, shared by the page and the route                                                                                                        |
 | `components/chat.tsx`                       | `useChat`, the conversation, the suggestions, the prompt input and the agent and model pickers                                                                                            |
@@ -45,7 +87,7 @@ The coding agent keeps the conversation in its own session, so the route only se
 
 ## Clean up
 
-The sandbox outlives the dev server, so the next start finds it again. To stop it or remove it:
+The sandbox outlives the dev server, so the next start finds it again. To stop or remove a Docker Sandbox:
 
 ```bash
 sbx stop ai-sdk-harness-example   # stops the microVM, keeps its files

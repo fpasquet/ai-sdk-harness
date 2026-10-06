@@ -13,6 +13,7 @@ import { notFound } from 'next/navigation';
 import { AutoTypeTable } from '@/components/auto-type-table';
 import { Footer } from '@/components/footer';
 import { FramedImage } from '@/components/framed-image';
+import { Mermaid } from '@/components/mermaid';
 import { DOCS_BASE_PATH, SITE_NAME } from '@/lib/constants';
 import { breadcrumbJsonLd, JsonLd, techArticleJsonLd } from '@/lib/json-ld';
 import { getPageImageSegments, getPageMarkdownSegments, source } from '@/lib/source';
@@ -106,6 +107,7 @@ export default async function Page({ params }: PageProps) {
             Callout,
             Card,
             Cards,
+            Mermaid,
             Step,
             Steps,
             Tab,

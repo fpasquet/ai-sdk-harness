@@ -12,9 +12,10 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 
 ![The Next.js example: Claude Code, running in a Docker Sandbox, wrote a script, ran it and answered with a table](docs/public/screenshots/next-chat/conversation.png)
 
-| Package                                      | What it does                                                                                                   | npm                                                                                                         |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [`ai-sdk-sandbox-sbx`](packages/sandbox-sbx) | Runs a harness agent in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, through `sbx` | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-sbx)](https://www.npmjs.com/package/ai-sdk-sandbox-sbx) |
+| Package                                                  | What it does                                                                                                                                       | npm                                                                                                                     |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [`ai-sdk-sandbox-sbx`](packages/sandbox-sbx)             | Runs a harness agent in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, through `sbx`                                     | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-sbx)](https://www.npmjs.com/package/ai-sdk-sandbox-sbx)             |
+| [`ai-sdk-sandbox-cloud-run`](packages/sandbox-cloud-run) | Runs a harness agent in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-cloud-run)](https://www.npmjs.com/package/ai-sdk-sandbox-cloud-run) |
 
 ```ts
 import { HarnessAgent } from '@ai-sdk/harness/agent';
@@ -38,6 +39,7 @@ A pnpm + Turborepo monorepo.
 ```text
 packages/
   sandbox-sbx/        ai-sdk-sandbox-sbx, published to npm
+  sandbox-cloud-run/  ai-sdk-sandbox-cloud-run, published to npm (client and sandbox service)
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   next-chat/          a Next.js useChat page talking to Claude Code in a Docker Sandbox
@@ -62,8 +64,8 @@ pnpm example:dev                                                   # http://loca
 pnpm format:check     # Prettier
 pnpm lint             # ESLint
 pnpm typecheck        # tsc --noEmit
-pnpm test             # unit tests, against a fake sbx
-pnpm test:e2e         # e2e tests, against the real sbx (creates and removes sandboxes)
+pnpm test             # unit tests, against a fake sbx and a fake Cloud Run sandbox CLI
+pnpm test:e2e         # e2e tests, against the real sbx, and a deployed Cloud Run service when CLOUD_RUN_SANDBOX_URL is set
 pnpm build            # every package, the example and the docs
 pnpm docs:dev         # the documentation site on http://localhost:3002
 pnpm example:dev      # the Next.js example on http://localhost:3000
