@@ -1,3 +1,10 @@
 {
-  "pages": ["index", "getting-started", "packages", "examples", "api-reference"]
+  "pages": [
+    "index",
+    "getting-started",
+    "securing-credentials",
+    "packages",
+    "examples",
+    "api-reference"
+  ]
 }
