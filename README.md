@@ -75,7 +75,7 @@ pnpm changeset        # describe a change to a published package
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for day-to-day development, [MAINTAINERS.md](MAINTAINERS.md) for releases and repository administration, and [SECURITY.md](SECURITY.md) to report a vulnerability.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for day-to-day development, [MAINTAINERS.md](MAINTAINERS.md) for releases and repository administration, and [SECURITY.md](SECURITY.md) to report a vulnerability. Guidance for coding agents lives in [AGENTS.md](AGENTS.md).
 
 ## License
 
