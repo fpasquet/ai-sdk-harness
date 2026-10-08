@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./base": "./base.mjs",
+    "./boundaries": "./boundaries.mjs",
     "./node": "./node.mjs",
     "./nextjs": "./nextjs.mjs"
   },
