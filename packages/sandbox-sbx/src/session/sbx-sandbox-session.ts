@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { posix } from 'node:path';
 import { Readable } from 'node:stream';
 
-import type { SbxCli } from './sbx-cli.js';
+import type { SbxCli } from '../transport/sbx-cli.js';
 
 import {
   KILL_TREE,
@@ -17,8 +17,8 @@ import {
   READ_MISSING,
   TRACKED,
   WRITE,
-} from './sandbox-scripts.js';
-import { abortReason } from './sbx-cli.js';
+} from '../transport/sandbox-scripts.js';
+import { abortReason } from '../utils/abort.js';
 
 type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];

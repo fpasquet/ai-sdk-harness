@@ -2,11 +2,11 @@ import type { HarnessV1RequestTransformation, HarnessV1SandboxTemplate } from '@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FakeSbx } from '../test/fake-sbx.js';
+import type { FakeSbx } from '../../test/fake-sbx.js';
 
-import { createFakeSbx } from '../test/fake-sbx.js';
-import { createSbxNetworkSandboxSession, resumeSbxNetworkSandboxSession } from './index.js';
-import { findPortUrl } from './port-publisher.js';
+import { createFakeSbx } from '../../test/fake-sbx.js';
+import { createSbxNetworkSandboxSession, resumeSbxNetworkSandboxSession } from '../index.js';
+import { findPortUrl } from '../network/port-publisher.js';
 import { templateReference } from './sandbox-template.js';
 
 const anthropicTransformation = (placeholder: string): HarnessV1RequestTransformation => ({

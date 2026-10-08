@@ -7,16 +7,15 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
-import type { CredentialBroker } from './credential-broker.js';
-import type { PortPublisher, PublishedPort } from './port-publisher.js';
+import type { CredentialBroker } from '../network/credential-broker.js';
+import type { PortPublisher, PublishedPort } from '../network/port-publisher.js';
 import type { SbxSandboxHandle } from './sbx-sandbox-session.js';
 
-import { headerBroker, placeholderBroker, SBX_SANDBOX_PROVIDER_ID } from './credential-broker.js';
-import { cloudPorts, endpointUrl, loopbackPorts } from './port-publisher.js';
-import { KILL_ALL } from './sandbox-scripts.js';
+import { headerBroker, placeholderBroker } from '../network/credential-broker.js';
+import { cloudPorts, endpointUrl, loopbackPorts } from '../network/port-publisher.js';
+import { SBX_SANDBOX_PROVIDER_ID } from '../provider-id.js';
+import { KILL_ALL } from '../transport/sandbox-scripts.js';
 import { SbxSandboxSession } from './sbx-sandbox-session.js';
-
-export { SBX_SANDBOX_PROVIDER_ID } from './credential-broker.js';
 
 type Protocol = 'http' | 'https' | 'ws';
 

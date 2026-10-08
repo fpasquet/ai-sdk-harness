@@ -2,10 +2,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { FakeSbx } from '../test/fake-sbx.js';
+import type { FakeSbx } from '../../test/fake-sbx.js';
 
-import { createFakeSbx } from '../test/fake-sbx.js';
-import { SbxCli } from './sbx-cli.js';
+import { createFakeSbx } from '../../test/fake-sbx.js';
+import { SbxCli } from '../transport/sbx-cli.js';
 import { assertEnvNames, SbxSandboxSession } from './sbx-sandbox-session.js';
 
 describe('SbxSandboxSession', () => {

@@ -2,12 +2,11 @@ import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
-import type { SbxCli } from './sbx-cli.js';
+import type { SbxCli } from '../transport/sbx-cli.js';
+
+import { SBX_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 
 type Transformations = ReadonlyArray<HarnessV1RequestTransformation>;
-
-/** Recorded on the errors this package raises through the harness's own error types. */
-export const SBX_SANDBOX_PROVIDER_ID = 'sbx';
 
 /**
  * Keeps credentials out of the sandbox: each request transformation becomes a custom secret of the

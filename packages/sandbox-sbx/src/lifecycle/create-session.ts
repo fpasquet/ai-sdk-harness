@@ -1,15 +1,15 @@
 import { randomBytes } from 'node:crypto';
 
-import type { SbxNetworkSandboxSession } from './sbx-network-sandbox-session.js';
 import type {
   SbxNetworkSandboxSessionCreateOptions,
   SbxNetworkSandboxSessionResumeOptions,
-} from './sbx-settings.js';
+} from '../sbx-settings.js';
+import type { SbxNetworkSandboxSession } from '../session/sbx-network-sandbox-session.js';
 
+import { SbxCli } from '../transport/sbx-cli.js';
 import { assertSandboxName, assertSettingsFit, createArgs } from './create-args.js';
 import { assertSandboxExists, listSandboxes, openSandbox, runSetup } from './open-sandbox.js';
 import { ensureTemplateImage } from './sandbox-template.js';
-import { SbxCli } from './sbx-cli.js';
 
 /** Fails, before anything is created, when `name` is taken. */
 async function assertNameFree(cli: SbxCli, name: string, abortSignal?: AbortSignal): Promise<void> {

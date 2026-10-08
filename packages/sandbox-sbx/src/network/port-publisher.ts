@@ -1,4 +1,4 @@
-import type { SbxCli } from './sbx-cli.js';
+import type { SbxCli } from '../transport/sbx-cli.js';
 
 import { freeLoopbackPort } from './free-loopback-port.js';
 

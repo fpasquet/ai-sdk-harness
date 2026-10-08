@@ -3,14 +3,14 @@ import type { HarnessV1RequestTransformation, HarnessV1SandboxTemplate } from '@
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FakeSbx } from '../test/fake-sbx.js';
+import type { FakeSbx } from '../../test/fake-sbx.js';
 
-import { createFakeSbx } from '../test/fake-sbx.js';
+import { createFakeSbx } from '../../test/fake-sbx.js';
 import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
   SbxSandboxNotFoundError,
-} from './index.js';
+} from '../index.js';
 import { templateReference } from './sandbox-template.js';
 
 /** What a harness asks for to keep an Anthropic token out of the sandbox. */

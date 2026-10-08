@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { SbxNetworkSandboxSession } from '../src/index.js';
 
 import { createSbxNetworkSandboxSession, resumeSbxNetworkSandboxSession } from '../src/index.js';
-import { templateReference } from '../src/sandbox-template.js';
+import { templateReference } from '../src/lifecycle/sandbox-template.js';
 
 /**
  * Against the real `sbx` CLI: needs Docker Sandboxes installed and signed in. Every sandbox and

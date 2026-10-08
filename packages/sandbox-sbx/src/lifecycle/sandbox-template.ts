@@ -2,7 +2,7 @@ import type { HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 
 import { createHash, randomBytes } from 'node:crypto';
 
-import type { SbxCli } from './sbx-cli.js';
+import type { SbxCli } from '../transport/sbx-cli.js';
 
 import { openSandbox, runSetup } from './open-sandbox.js';
 

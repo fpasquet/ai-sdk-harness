@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { Readable } from 'node:stream';
 
-import { SbxError } from './sbx-error.js';
+import { SbxError } from '../errors/sbx-error.js';
+import { abortReason } from '../utils/abort.js';
 
 /** What a finished `sbx` invocation left behind. */
 export interface SbxResult {
@@ -26,12 +27,6 @@ export interface SbxCallOptions {
   env?: Record<string, string>;
   abortSignal?: AbortSignal;
 }
-
-/** Why `signal` was aborted, as an error to reject with. */
-export const abortReason = (signal: AbortSignal): Error => {
-  const reason: unknown = signal.reason;
-  return reason instanceof Error ? reason : new DOMException('Aborted', 'AbortError');
-};
 
 const exitCodeOf = (code: null | number, signal: NodeJS.Signals | null): number =>
   code ?? (signal === null ? 0 : 128 + (constants.signals[signal] ?? 0));

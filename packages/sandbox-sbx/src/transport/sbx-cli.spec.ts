@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { FakeSbx } from '../test/fake-sbx.js';
+import type { FakeSbx } from '../../test/fake-sbx.js';
 
-import { createFakeSbx } from '../test/fake-sbx.js';
+import { createFakeSbx } from '../../test/fake-sbx.js';
+import { SbxError } from '../errors/sbx-error.js';
 import { SbxCli } from './sbx-cli.js';
-import { SbxError } from './sbx-error.js';
 
 describe('SbxCli', () => {
   let sbx: FakeSbx;

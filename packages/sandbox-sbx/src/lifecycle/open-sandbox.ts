@@ -1,10 +1,10 @@
-import type { SbxCli } from './sbx-cli.js';
-import type { SbxConnectionSettings } from './sbx-settings.js';
+import type { SbxConnectionSettings } from '../sbx-settings.js';
+import type { SbxCli } from '../transport/sbx-cli.js';
 
-import { PROBE } from './sandbox-scripts.js';
-import { SbxNetworkSandboxSession } from './sbx-network-sandbox-session.js';
-import { SbxSandboxNotFoundError } from './sbx-sandbox-not-found-error.js';
-import { assertEnvNames } from './sbx-sandbox-session.js';
+import { SbxSandboxNotFoundError } from '../errors/sbx-sandbox-not-found-error.js';
+import { SbxNetworkSandboxSession } from '../session/sbx-network-sandbox-session.js';
+import { assertEnvNames } from '../session/sbx-sandbox-session.js';
+import { PROBE } from '../transport/sandbox-scripts.js';
 
 const ENV_LINE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
 

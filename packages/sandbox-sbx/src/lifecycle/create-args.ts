@@ -1,4 +1,4 @@
-import type { SbxCreationSettings } from './sbx-settings.js';
+import type { SbxCreationSettings } from '../sbx-settings.js';
 
 /** What `sbx create --name` accepts: two characters or more, starting with a letter or a digit. */
 const LOCAL_NAME = /^[A-Za-z0-9][A-Za-z0-9.-]+$/;
