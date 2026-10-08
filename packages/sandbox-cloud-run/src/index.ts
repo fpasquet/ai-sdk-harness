@@ -1,18 +1,16 @@
-export {
-  CLOUD_RUN_SANDBOX_PROVIDER_ID,
-  CloudRunNetworkSandboxSession,
-} from './cloud-run-network-sandbox-session.js';
-export {
-  createCloudRunNetworkSandboxSession,
-  resumeCloudRunNetworkSandboxSession,
-} from './cloud-run-network-sandbox.js';
-export { CloudRunSandboxNotFoundError } from './cloud-run-sandbox-not-found-error.js';
-export { CloudRunSandboxServiceError } from './cloud-run-sandbox-service-error.js';
-export { CloudRunSandboxSession } from './cloud-run-sandbox-session.js';
 export type {
   CloudRunAuth,
   CloudRunConnectionSettings,
   CloudRunCreationSettings,
   CloudRunNetworkSandboxSessionCreateOptions,
   CloudRunNetworkSandboxSessionResumeOptions,
-} from './cloud-run-settings.js';
+} from './client/cloud-run-settings.js';
+export { CloudRunSandboxNotFoundError } from './client/errors/cloud-run-sandbox-not-found-error.js';
+export { CloudRunSandboxServiceError } from './client/errors/cloud-run-sandbox-service-error.js';
+export {
+  createCloudRunNetworkSandboxSession,
+  resumeCloudRunNetworkSandboxSession,
+} from './client/lifecycle/create-session.js';
+export { CLOUD_RUN_SANDBOX_PROVIDER_ID } from './client/provider-id.js';
+export { CloudRunNetworkSandboxSession } from './client/session/cloud-run-network-sandbox-session.js';
+export { CloudRunSandboxSession } from './client/session/cloud-run-sandbox-session.js';

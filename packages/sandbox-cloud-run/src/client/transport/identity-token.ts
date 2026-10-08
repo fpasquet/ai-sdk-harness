@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import type { CloudRunAuth } from './cloud-run-settings.js';
+import type { CloudRunAuth } from '../cloud-run-settings.js';
 
 const run = promisify(execFile);
 

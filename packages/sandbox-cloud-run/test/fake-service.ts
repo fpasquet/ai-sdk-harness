@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { SandboxServer } from '../src/server/sandbox-server.js';
-import type { ServiceOptions } from '../src/server/sandbox-server.js';
+import type { SandboxServer } from '../src/server/http/sandbox-server.js';
+import type { ServiceOptions } from '../src/server/http/sandbox-server.js';
 
-import { DirectorySnapshotStore } from '../src/server/directory-snapshot-store.js';
+import { createSandboxServer } from '../src/server/http/sandbox-server.js';
 import { silentLogger } from '../src/server/logger.js';
-import { SandboxCli } from '../src/server/sandbox-cli.js';
-import { createSandboxServer } from '../src/server/sandbox-server.js';
+import { SandboxCli } from '../src/server/runtime/sandbox-cli.js';
+import { DirectorySnapshotStore } from '../src/server/snapshots/directory-snapshot-store.js';
 import { TEST_BUILD } from './build-helpers.js';
 
 /** Path of the fake `sandbox` CLI. */

@@ -2,9 +2,10 @@ import type { HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 
 import { createHash, randomBytes } from 'node:crypto';
 
-import type { SandboxNetwork, SandboxServiceClient } from './sandbox-service-client.js';
+import type { SandboxNetwork } from '../../protocol/api.js';
+import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 
-import { CloudRunNetworkSandboxSession } from './cloud-run-network-sandbox-session.js';
+import { CloudRunNetworkSandboxSession } from '../session/cloud-run-network-sandbox-session.js';
 
 /** The prefix of the templates' ids, and of the sandboxes that build them. */
 export const TEMPLATE_PREFIX = 'ai-sdk-harness-template';

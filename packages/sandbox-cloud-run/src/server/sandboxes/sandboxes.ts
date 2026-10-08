@@ -1,22 +1,17 @@
-import type { LayerTransfer } from './layer-transfer.js';
-import type { Logger } from './logger.js';
-import type { SandboxCli } from './sandbox-cli.js';
+import type { SandboxNetwork } from '../../protocol/api.js';
+import type { Logger } from '../logger.js';
+import type { LayerTransfer } from '../runtime/layer-transfer.js';
+import type { SandboxCli } from '../runtime/sandbox-cli.js';
+import type { SnapshotStore } from '../snapshots/snapshot-store.js';
 import type { SandboxProcess, SandboxSettings } from './sandbox.js';
-import type { SnapshotStore } from './snapshot-store.js';
 
-import { HttpError } from './http-error.js';
-import { LayerTransfers } from './layer-transfer.js';
+import { HttpError } from '../http/http-error.js';
+import { LayerTransfers } from '../runtime/layer-transfer.js';
+import { snapshotKey, templateKey } from '../snapshots/snapshot-store.js';
 import { Sandbox } from './sandbox.js';
-import { snapshotKey, templateKey } from './snapshot-store.js';
 
 /** A sandbox's or a template's name: what the `sandbox` CLI and a URL path both take as they are. */
 const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
-
-/** What a sandbox may reach: the service's defaults, then the caller's. */
-export interface SandboxNetwork {
-  allowedHosts?: readonly string[];
-  baseUrls?: Readonly<Record<string, string>>;
-}
 
 /** How the sandboxes are made: the service's to give. */
 export interface SandboxesOptions {

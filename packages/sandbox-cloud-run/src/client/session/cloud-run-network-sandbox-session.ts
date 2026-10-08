@@ -10,10 +10,8 @@ import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
 import type { CloudRunSandboxHandle } from './cloud-run-sandbox-session.js';
 
+import { CLOUD_RUN_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 import { CloudRunSandboxSession } from './cloud-run-sandbox-session.js';
-import { CLOUD_RUN_SANDBOX_PROVIDER_ID } from './sandbox-service-client.js';
-
-export { CLOUD_RUN_SANDBOX_PROVIDER_ID } from './sandbox-service-client.js';
 
 type Protocol = 'http' | 'https' | 'ws';
 type Transformations = ReadonlyArray<HarnessV1RequestTransformation>;

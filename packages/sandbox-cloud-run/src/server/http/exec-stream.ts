@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { Command, Sandbox } from './sandbox.js';
+import type { SandboxCommand } from '../../protocol/api.js';
+import type { Sandbox } from '../sandboxes/sandbox.js';
 
-import { encodeData, encodeFrame, FrameType, STDERR, STDOUT } from '../protocol/frames.js';
+import { encodeData, encodeFrame, FrameType, STDERR, STDOUT } from '../../protocol/frames.js';
 import { HttpError } from './http-error.js';
 import { optionalString, parseObject, requiredString, stringRecord } from './request-body.js';
 
@@ -43,7 +44,7 @@ export async function execStream(
 }
 
 /** Reads the request up to its first newline: the command. What follows is its standard input. */
-function readCommand(request: IncomingMessage): Promise<{ command: Command; rest: Buffer }> {
+function readCommand(request: IncomingMessage): Promise<{ command: SandboxCommand; rest: Buffer }> {
   return new Promise((resolve, reject) => {
     let buffered = Buffer.alloc(0);
     const onData = (chunk: Buffer): void => {
@@ -74,7 +75,7 @@ function readCommand(request: IncomingMessage): Promise<{ command: Command; rest
   });
 }
 
-function toCommand(line: Buffer): Command {
+function toCommand(line: Buffer): SandboxCommand {
   const body = parseObject(line.toString());
   return {
     command: requiredString(body, 'command'),

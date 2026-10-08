@@ -4,15 +4,15 @@ import type { Duplex } from 'node:stream';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 
+import type { SandboxesOptions } from '../sandboxes/sandboxes.js';
 import type { Reply } from './routes.js';
-import type { SandboxesOptions } from './sandboxes.js';
 
-import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../protocol/version.js';
+import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
+import { PACKAGE_VERSION } from '../package-version.js';
+import { Sandboxes } from '../sandboxes/sandboxes.js';
 import { HttpError } from './http-error.js';
-import { PACKAGE_VERSION } from './package-version.js';
 import { tunnel } from './port-tunnel.js';
 import { ROUTES } from './routes.js';
-import { Sandboxes } from './sandboxes.js';
 
 /** What the service is made of: its sandboxes', and its own. */
 export interface ServiceOptions extends SandboxesOptions {

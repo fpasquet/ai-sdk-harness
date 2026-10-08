@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { listenConfig, sandboxesConfig } from './config.js';
+import { createSandboxServer } from './http/sandbox-server.js';
 import { createLogger } from './logger.js';
-import { createSandboxServer } from './sandbox-server.js';
 
 const USAGE = `Usage: ai-sdk-sandbox-cloud-run serve
 

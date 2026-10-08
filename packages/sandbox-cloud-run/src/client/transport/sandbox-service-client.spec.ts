@@ -4,7 +4,7 @@ import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { createServer } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { CloudRunSandboxServiceError } from './cloud-run-sandbox-service-error.js';
+import { CloudRunSandboxServiceError } from '../errors/cloud-run-sandbox-service-error.js';
 import { IdentityToken } from './identity-token.js';
 import { SandboxServiceClient } from './sandbox-service-client.js';
 

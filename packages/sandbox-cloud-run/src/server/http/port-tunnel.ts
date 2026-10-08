@@ -1,10 +1,10 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 
+import type { Sandboxes } from '../sandboxes/sandboxes.js';
 import type { HttpError } from './http-error.js';
-import type { Sandboxes } from './sandboxes.js';
 
-import { SERVICE_TOKEN_HEADER } from '../protocol/version.js';
+import { SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
 
 const PORT = /^\/v1\/sandboxes\/([^/]+)\/ports\/(\d+)(\/[^?]*)?(\?.*)?$/;
 

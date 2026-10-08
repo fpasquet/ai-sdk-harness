@@ -3,16 +3,16 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { ServiceOptions } from './http/sandbox-server.js';
 import type { Logger } from './logger.js';
-import type { ServiceOptions } from './sandbox-server.js';
-import type { SandboxSettings } from './sandbox.js';
-import type { SnapshotStore } from './snapshot-store.js';
+import type { SandboxSettings } from './sandboxes/sandbox.js';
+import type { SnapshotStore } from './snapshots/snapshot-store.js';
 
-import { DirectorySnapshotStore } from './directory-snapshot-store.js';
-import { GcsSnapshotStore } from './gcs-snapshot-store.js';
+import { DEFAULT_BASE_URLS } from './egress/relay-routes.js';
 import { PACKAGE_VERSION } from './package-version.js';
-import { DEFAULT_BASE_URLS } from './relay-routes.js';
-import { SandboxCli } from './sandbox-cli.js';
+import { SandboxCli } from './runtime/sandbox-cli.js';
+import { DirectorySnapshotStore } from './snapshots/directory-snapshot-store.js';
+import { GcsSnapshotStore } from './snapshots/gcs-snapshot-store.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 

@@ -2,33 +2,12 @@ import type { HarnessV1PortEndpoint, HarnessV1RequestTransformation } from '@ai-
 
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 
+import type { SandboxCommand, SandboxDescription, SandboxNetwork } from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
 
-import { CloudRunSandboxServiceError } from './cloud-run-sandbox-service-error.js';
-import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from './protocol/version.js';
-
-/** Recorded on the errors this package raises through the harness's own error types. */
-export const CLOUD_RUN_SANDBOX_PROVIDER_ID = 'cloud-run';
-
-/** A sandbox of the service: where its commands run by default, and its user's home. */
-export interface SandboxDescription {
-  name: string;
-  home: string;
-  workingDirectory: string;
-}
-
-/** What a sandbox may reach, on top of what the service allows every sandbox. */
-export interface SandboxNetwork {
-  allowedHosts?: readonly string[];
-  baseUrls?: Readonly<Record<string, string>>;
-}
-
-/** One command to run in a sandbox. */
-export interface SandboxCommand {
-  command: string;
-  workingDirectory?: string;
-  env?: Record<string, string>;
-}
+import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
+import { CloudRunSandboxServiceError } from '../errors/cloud-run-sandbox-service-error.js';
+import { CLOUD_RUN_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 
 interface CallOptions {
   body?: unknown;

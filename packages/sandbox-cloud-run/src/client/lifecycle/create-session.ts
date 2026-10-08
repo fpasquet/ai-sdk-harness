@@ -1,17 +1,17 @@
 import { randomBytes } from 'node:crypto';
 
+import type { SandboxDescription } from '../../protocol/api.js';
 import type {
   CloudRunConnectionSettings,
   CloudRunNetworkSandboxSessionCreateOptions,
   CloudRunNetworkSandboxSessionResumeOptions,
-} from './cloud-run-settings.js';
-import type { SandboxDescription } from './sandbox-service-client.js';
+} from '../cloud-run-settings.js';
 
-import { CloudRunNetworkSandboxSession } from './cloud-run-network-sandbox-session.js';
-import { CloudRunSandboxNotFoundError } from './cloud-run-sandbox-not-found-error.js';
-import { abortReason } from './cloud-run-sandbox-session.js';
-import { identityToken } from './identity-token.js';
-import { SandboxServiceClient } from './sandbox-service-client.js';
+import { CloudRunSandboxNotFoundError } from '../errors/cloud-run-sandbox-not-found-error.js';
+import { CloudRunNetworkSandboxSession } from '../session/cloud-run-network-sandbox-session.js';
+import { identityToken } from '../transport/identity-token.js';
+import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
+import { abortReason } from '../utils/abort.js';
 import { ensureTemplate, runSetup } from './sandbox-template.js';
 
 /** What the sandbox CLI of Cloud Run and a URL path both take as a name. */

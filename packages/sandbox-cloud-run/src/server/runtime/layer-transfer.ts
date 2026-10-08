@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
-import type { Logger } from './logger.js';
-import type { SnapshotStore } from './snapshot-store.js';
+import type { Logger } from '../logger.js';
+import type { SnapshotStore } from '../snapshots/snapshot-store.js';
 
 import { SandboxCliError } from './sandbox-cli-error.js';
 

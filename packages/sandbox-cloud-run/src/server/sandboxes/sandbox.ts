@@ -4,13 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import type { EgressPolicy } from './egress-policy.js';
-import type { RuntimeProcess, SandboxCli } from './sandbox-cli.js';
+import type { SandboxCommand, SandboxDescription } from '../../protocol/api.js';
+import type { EgressPolicy } from '../egress/egress-policy.js';
+import type { RuntimeProcess, SandboxCli } from '../runtime/sandbox-cli.js';
 
-import { EgressLink } from './egress-link.js';
-import { EgressProxy } from './egress-proxy.js';
-import { HttpError } from './http-error.js';
-import { hostsOf, relayRoute } from './relay-routes.js';
+import { EgressLink } from '../egress/egress-link.js';
+import { EgressProxy } from '../egress/egress-proxy.js';
+import { hostsOf, relayRoute } from '../egress/relay-routes.js';
+import { HttpError } from '../http/http-error.js';
 import { KILL_ALL, KILL_TREE, PREPARE } from './sandbox-scripts.js';
 
 /** What every sandbox is made with: the service's to give. */
@@ -34,22 +35,6 @@ export interface SandboxSettings {
    * and local runs only.
    */
   allowPrivateNetwork: boolean;
-}
-
-/** A sandbox, as the service describes it: where its commands run by default, and its home. */
-export interface SandboxDescription {
-  name: string;
-  home: string;
-  workingDirectory: string;
-}
-
-/** One command to run in a sandbox. */
-export interface Command {
-  command: string;
-  /** Where it runs: the sandbox's working directory by default. */
-  workingDirectory?: string;
-  /** Variables of its own, beside those of the sandbox. */
-  env?: Record<string, string>;
 }
 
 /** A process started in the sandbox. */
@@ -193,7 +178,7 @@ export class Sandbox implements EgressPolicy {
    * whoever started it, a request Cloud Run cut say: it is found again by its id until a while
    * after it exits, and stopped only by {@link SandboxProcess.kill}.
    */
-  exec({ command, workingDirectory, env = {} }: Command): SandboxProcess {
+  exec({ command, workingDirectory, env = {} }: SandboxCommand): SandboxProcess {
     const id = randomUUID();
     const pidFile = join(this.processDirectory, id);
     const directory = workingDirectory ?? this.settings.workingDirectory;

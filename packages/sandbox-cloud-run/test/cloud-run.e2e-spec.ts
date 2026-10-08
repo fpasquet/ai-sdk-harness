@@ -6,13 +6,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import type { CloudRunAuth, CloudRunNetworkSandboxSession } from '../src/index.js';
 
-import { identityToken } from '../src/identity-token.js';
+import { templateId } from '../src/client/lifecycle/sandbox-template.js';
+import { identityToken } from '../src/client/transport/identity-token.js';
+import { SandboxServiceClient } from '../src/client/transport/sandbox-service-client.js';
 import {
   createCloudRunNetworkSandboxSession,
   resumeCloudRunNetworkSandboxSession,
 } from '../src/index.js';
-import { SandboxServiceClient } from '../src/sandbox-service-client.js';
-import { templateId } from '../src/sandbox-template.js';
 
 /**
  * Against a sandbox service deployed on Cloud Run: set CLOUD_RUN_SANDBOX_URL to its URL, and have

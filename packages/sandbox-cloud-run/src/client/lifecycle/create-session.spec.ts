@@ -9,15 +9,15 @@ import { connect, createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FakeService } from '../test/fake-service.js';
+import type { FakeService } from '../../../test/fake-service.js';
 
-import { startFakeService } from '../test/fake-service.js';
+import { startFakeService } from '../../../test/fake-service.js';
 import {
   CloudRunSandboxNotFoundError,
   CloudRunSandboxServiceError,
   createCloudRunNetworkSandboxSession,
   resumeCloudRunNetworkSandboxSession,
-} from './index.js';
+} from '../../index.js';
 import { templateId } from './sandbox-template.js';
 
 /** What a harness asks for to keep an Anthropic token out of the sandbox. */

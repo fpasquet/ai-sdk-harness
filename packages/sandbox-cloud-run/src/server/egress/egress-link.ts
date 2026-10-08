@@ -2,9 +2,9 @@ import type { Socket } from 'node:net';
 
 import { connect } from 'node:net';
 
-import type { RuntimeProcess } from './sandbox-cli.js';
+import type { RuntimeProcess } from '../runtime/sandbox-cli.js';
 
-import { encodeData, encodeFrame, FrameDecoder, FrameType } from '../protocol/frames.js';
+import { encodeData, encodeFrame, FrameDecoder, FrameType } from '../../protocol/frames.js';
 
 /**
  * The service's end of a sandbox's egress relay: every connection the relay announces is opened to

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { FakeService } from '../../test/fake-service.js';
+import type { FakeService } from '../../../test/fake-service.js';
 
-import { startFakeService } from '../../test/fake-service.js';
-import { FrameType, readFrames, STDOUT } from '../protocol/frames.js';
-import { PACKAGE_VERSION } from './package-version.js';
+import { startFakeService } from '../../../test/fake-service.js';
+import { FrameType, readFrames, STDOUT } from '../../protocol/frames.js';
+import { PACKAGE_VERSION } from '../package-version.js';
 
 describe('the sandbox service', () => {
   let fake: FakeService;

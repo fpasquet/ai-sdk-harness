@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { Sandboxes } from './sandboxes.js';
+import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
-import { PROTOCOL_VERSION } from '../protocol/version.js';
+import { PROTOCOL_VERSION } from '../../protocol/version.js';
+import { PACKAGE_VERSION } from '../package-version.js';
 import { execStream } from './exec-stream.js';
-import { PACKAGE_VERSION } from './package-version.js';
 import {
   optionalString,
   readJson,

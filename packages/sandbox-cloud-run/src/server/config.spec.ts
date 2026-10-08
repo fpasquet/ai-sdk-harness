@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { listenConfig, sandboxesConfig } from './config.js';
-import { DirectorySnapshotStore } from './directory-snapshot-store.js';
-import { GcsSnapshotStore } from './gcs-snapshot-store.js';
 import { silentLogger } from './logger.js';
+import { DirectorySnapshotStore } from './snapshots/directory-snapshot-store.js';
+import { GcsSnapshotStore } from './snapshots/gcs-snapshot-store.js';
 
 describe('the service configuration', () => {
   it('listens on the loopback off Cloud Run, on every interface on it', () => {

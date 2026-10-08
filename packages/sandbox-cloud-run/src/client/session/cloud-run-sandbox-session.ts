@@ -5,9 +5,10 @@ import type {
 
 import { posix } from 'node:path';
 
-import type { SandboxServiceClient } from './sandbox-service-client.js';
+import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 
-import { FrameType, readFrames, STDERR, STDOUT } from './protocol/frames.js';
+import { FrameType, readFrames, STDERR, STDOUT } from '../../protocol/frames.js';
+import { abortReason } from '../utils/abort.js';
 
 type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
@@ -25,12 +26,6 @@ const READ = `[ -d "$0" ] && exit ${READ_DIRECTORY}; [ -e "$0" ] || exit ${READ_
 const WRITE = 'mkdir -p "$(dirname "$0")" && cat > "$0"';
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** Why `signal` was aborted, as an error to reject with. */
-export const abortReason = (signal: AbortSignal): Error => {
-  const reason: unknown = signal.reason;
-  return reason instanceof Error ? reason : new DOMException('Aborted', 'AbortError');
-};
 
 /** `sh -c BODY ARG`, the argument quoted, never spliced into the body. */
 const script = (body: string, arg: string): string =>

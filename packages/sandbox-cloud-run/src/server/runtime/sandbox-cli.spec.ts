@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 
-import { DirectorySnapshotStore } from './directory-snapshot-store.js';
+import { DirectorySnapshotStore } from '../snapshots/directory-snapshot-store.js';
 import { SandboxCli } from './sandbox-cli.js';
 
 describe('SandboxCli', () => {
