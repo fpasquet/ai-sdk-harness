@@ -7,13 +7,19 @@ import {
   ArrowRight,
   Box,
   Cloud,
+  Database,
   ExternalLink,
   KeyRound,
   Laptop,
   Layers,
   Moon,
   Network,
+  Plug,
+  Puzzle,
   RotateCcw,
+  ShieldCheck,
+  SquareSlash,
+  Workflow,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -72,6 +78,45 @@ const FEATURES: Feature[] = [
   },
 ];
 
+const PLUGIN_FEATURES: Feature[] = [
+  {
+    icon: Puzzle,
+    title: 'One plugin, every runtime',
+    description:
+      'Tools, skills, rules, slash commands, hooks, subagents and MCP servers, applied to Claude Code, Codex and the other runtimes by withPlugins().',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Hooks that guard the agent',
+    description:
+      'A PreToolUse hook runs in the sandbox, out of the model’s hands: it blocks a command and tells the agent what to do instead.',
+  },
+  {
+    icon: Plug,
+    title: 'MCP servers where they belong',
+    description:
+      'Run by the runtime in the sandbox, or connected by your server so that their credentials never reach it.',
+  },
+  {
+    icon: SquareSlash,
+    title: 'Slash commands and skills',
+    description:
+      'Expanded on your server, the same for every runtime: /explain src, /docs zod, or any skill by its name.',
+  },
+  {
+    icon: Workflow,
+    title: 'Claude Code plugins, as they are',
+    description:
+      'loadClaudeCodePlugin() reads a plugin of the Claude Code marketplaces, scripts included, for any HarnessAgent.',
+  },
+  {
+    icon: Database,
+    title: 'Configuration, in code or JSON',
+    description:
+      'A plugin, or a single tool, skill, rule, command or subagent, is configuration: HTTP tools, secrets by reference, requirements. Only a tool whose logic is code needs code.',
+  },
+];
+
 interface SandboxPackage {
   description: string;
   href: string;
@@ -113,6 +158,92 @@ const PACKAGES: SandboxPackage[] = [
   },
 ];
 
+interface Shot {
+  alt: string;
+  /** What the screenshot shows. */
+  shows: string;
+  src: string;
+  title: string;
+  /** What the plugin did to get there. */
+  how: string;
+}
+
+/**
+ * The plugins at work in the Next.js example, captured from real turns: a whole plugin, then an
+ * item of each kind, every one of them JSON.
+ */
+const PLUGIN_SHOTS: Shot[] = [
+  {
+    src: '/screenshots/next-chat/plugin.png',
+    alt: 'The /docs command of the library-docs plugin: the agent calls the Context7 MCP tools and answers from the zod documentation',
+    title: 'A plugin: a command and its MCP server',
+    shows:
+      '/docs zod …: the agent resolves the library and queries its documentation with the Context7 tools, then answers with its source.',
+    how: 'library-docs is one JSON document bringing a /docs command and the MCP server it relies on. Your server connects the MCP server and hands its tools to the agent: the server and its credentials never reach the sandbox.',
+  },
+  {
+    src: '/screenshots/next-chat/item-tool.png',
+    alt: 'The npm-latest tool, kept as data, reads the npm registry from the server',
+    title: 'A tool',
+    shows:
+      'The agent calls npm-latest with { name: "zod" }, and reads the registry’s answer: its status and the package’s metadata.',
+    how: 'An http tool in JSON: your server makes the request, {name} of its URL taking the input its JSON Schema declares. A token would be a secret reference in its headers.',
+  },
+  {
+    src: '/screenshots/next-chat/item-skill.png',
+    alt: '/code-review: the agent loads the code-review skill and reviews the function it wrote',
+    title: 'A skill',
+    shows:
+      '/code-review …: the agent writes a function with a bug, loads the skill, and reviews it the way the skill says.',
+    how: 'The skill is JSON, written where the runtime reads its skills. /<skill> asks the agent to use it; otherwise the agent loads it when its description fits.',
+  },
+  {
+    src: '/screenshots/next-chat/item-rule.png',
+    alt: 'A rule kept as data, scoped to package.json, makes the agent check the versions of the dependencies',
+    title: 'A rule',
+    shows:
+      'The agent reads package.json to name the project, and ends with a dependency check nobody asked for.',
+    how: 'The rule is JSON, scoped to **/package.json: Claude Code loads it only once the agent reads a matching file. Other runtimes read it in the agent’s instructions.',
+  },
+  {
+    src: '/screenshots/next-chat/item-command.png',
+    alt: 'The /npm command, kept as data, brings the npm-latest tool it requires and sums the zod package up',
+    title: 'A command',
+    shows: '/npm zod: the agent looks the package up with npm-latest, and sums it up.',
+    how: 'The command is JSON, expanded into its prompt on your server. It requires tool:npm-latest: picking the command brings the tool.',
+  },
+  {
+    src: '/screenshots/next-chat/item-hook.png',
+    alt: 'The protect-env hook blocks the agent from reading the .env file',
+    title: 'A hook',
+    shows: 'Asked to read .env, the agent is blocked, and told why.',
+    how: 'The hook is JSON, with its script among its files. Claude Code runs the script before each read or shell command; it exits with 2 on a .env file, which blocks the call. The model has no say in it.',
+  },
+  {
+    src: '/screenshots/next-chat/item-subagent.png',
+    alt: 'Claude Code delegates a review to the reviewer subagent, kept as data, which finds the bug',
+    title: 'A subagent',
+    shows:
+      'The agent writes a function with a bug, then delegates its review to the reviewer subagent.',
+    how: 'The subagent is JSON, and requires the code-review skill: both are written into the session, where Claude Code delegates to the subagent with its Agent tool.',
+  },
+  {
+    src: '/screenshots/next-chat/item-mcp-server.png',
+    alt: 'The deepwiki MCP server, kept as data: the agent asks DeepWiki about the vercel/ai repository',
+    title: 'An MCP server',
+    shows: 'The agent asks DeepWiki what the vercel/ai repository is, and answers from it.',
+    how: 'The server is JSON, two of its tools kept with allowedTools. Your server connects it and hands its tools to the agent, named deepwiki_<tool>.',
+  },
+  {
+    src: '/screenshots/next-chat/commands.png',
+    alt: 'Typing / in the prompt lists the commands and skills of the conversation plugins',
+    title: 'Commands and skills after /',
+    shows:
+      'Typing / lists the commands and skills the conversation picked, a Claude Code plugin’s and JSON ones included.',
+    how: 'listSlashCommands() gives the list from the plugins’ public descriptions; expandCommand() turns the message into the command’s prompt on your server, the same for every runtime.',
+  },
+];
+
 const USAGE_SBX = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
@@ -127,6 +258,25 @@ const sandboxSession = await createSbxNetworkSandboxSession({
 const session = await agent.createSession({ sandboxSession });
 
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });`;
+
+const USAGE_PLUGINS = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { definePlugin, expandCommand, withPlugins } from 'ai-sdk-harness-plugins';
+
+const guard = definePlugin({
+  name: 'guard',
+  description: 'No global installs.',
+  hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: '"\${PLUGIN_ROOT}/guard.sh"' }],
+  files: [{ path: 'guard.sh', content: GUARD_SCRIPT, executable: true }],
+  commands: [{ name: 'review', description: 'Review the changes', prompt: 'Review: $ARGUMENTS' }],
+});
+
+const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, [guard]));
+const session = await agent.createSession({ sandboxSession });
+
+const message = '/review the error handling';
+const prompt = expandCommand(message, [guard])?.prompt ?? message;
+const { text } = await agent.generate({ session, prompt });`;
 
 const USAGE_CLOUD_RUN = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
@@ -160,7 +310,7 @@ export default function LandingPage() {
           <span className="size-1.5 rounded-full bg-vercel-blue" /> For the Vercel AI SDK harnesses
         </span>
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tighter text-fd-foreground md:text-6xl">
-          Coding agents in a sandbox, on your machine or in the cloud
+          Coding agents in a sandbox, with the plugins they need
         </h1>
         <p className="mt-6 max-w-2xl text-lg text-fd-muted-foreground">
           Community packages that give a{' '}
@@ -179,7 +329,8 @@ export default function LandingPage() {
           >
             Cloud Run sandbox
           </a>{' '}
-          on Google Cloud, scaled to zero between turns.
+          on Google Cloud, scaled to zero between turns. And the plugins that extend it: tools,
+          skills, rules, slash commands, hooks, subagents and MCP servers, for every runtime.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -198,12 +349,15 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <Tabs items={['Docker Sandboxes', 'Cloud Run']}>
+          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'Plugins']}>
             <Tab value="Docker Sandboxes">
               <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
             </Tab>
             <Tab value="Cloud Run">
               <DynamicCodeBlock code={USAGE_CLOUD_RUN} lang="ts" />
+            </Tab>
+            <Tab value="Plugins">
+              <DynamicCodeBlock code={USAGE_PLUGINS} lang="ts" />
             </Tab>
           </Tabs>
         </div>
@@ -250,13 +404,77 @@ export default function LandingPage() {
 
       <section className="mx-auto w-full max-w-6xl px-4 py-12">
         <h2 className="text-center text-2xl font-semibold tracking-tight text-fd-foreground md:text-3xl">
-          A chat with Claude Code or Codex, in a sandbox
+          Extend the agent with plugins
+        </h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
+          <Link
+            className="text-fd-foreground underline underline-offset-4"
+            href="/docs/packages/harness-plugins"
+          >
+            <code className="text-sm">ai-sdk-harness-plugins</code>
+          </Link>{' '}
+          bundles what an agent can be given into plugins, written in code, read from a Claude Code
+          plugin directory, or written as JSON, with single items for a marketplace, and applies
+          what an agent picks to whichever runtime it drives.
+        </p>
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {PLUGIN_SHOTS.map(({ alt, how, shows, src, title }) => (
+            <figure
+              className="overflow-hidden rounded-xl border border-fd-border bg-fd-background"
+              key={src}
+            >
+              <Image
+                alt={alt}
+                className="h-auto w-full border-b border-fd-border"
+                height={1000}
+                sizes="(max-width: 768px) 100vw, 576px"
+                src={src}
+                width={1440}
+              />
+              <figcaption className="space-y-2 p-5 text-sm">
+                <h3 className="font-medium text-fd-foreground">{title}</h3>
+                <p className="text-fd-muted-foreground">{shows}</p>
+                <p className="text-fd-muted-foreground">
+                  <span className="font-medium text-fd-foreground">What the plugin does: </span>
+                  {how}
+                </p>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+        <div className="mt-8 grid grid-cols-1 overflow-hidden rounded-xl border border-fd-border md:grid-cols-3">
+          {PLUGIN_FEATURES.map(({ icon: Icon, title, description }) => (
+            <div
+              className="-mr-px -mb-px border-r border-b border-fd-border bg-fd-background p-6"
+              key={title}
+            >
+              <div className="mb-3 flex items-center gap-3">
+                <Icon className="size-5 text-fd-muted-foreground" />
+                <h3 className="font-medium text-fd-foreground">{title}</h3>
+              </div>
+              <p className="text-sm text-fd-muted-foreground">{description}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-8 flex justify-center">
+          <Link
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
+            href="/docs/adding-plugins"
+          >
+            Add plugins to your agent <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl px-4 py-12">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-fd-foreground md:text-3xl">
+          A chat with Claude Code or Codex, in a sandbox, with plugins
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
           The Next.js example: <code className="text-sm">useChat</code> on one side, a{' '}
           <code className="text-sm">HarnessAgent</code> running Claude Code or Codex in a Docker
-          Sandbox, or a Cloud Run sandbox, on the other. Every command the agent runs, it runs in
-          the sandbox.
+          Sandbox, or a Cloud Run sandbox, on the other, with the plugins picked for the
+          conversation. Every command the agent runs, it runs in the sandbox.
         </p>
         <Link
           className="mt-10 block overflow-hidden rounded-xl border border-fd-border shadow-sm"

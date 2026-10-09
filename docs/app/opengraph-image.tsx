@@ -12,6 +12,6 @@ export default function OpenGraphImage(): ImageResponse {
   return renderOGImage({
     title: SITE_TAGLINE,
     description:
-      'Run Claude Code, Codex and other coding agents in a Docker Sandbox microVM or a Cloud Run sandbox.',
+      'Run Claude Code, Codex and other coding agents in a Docker Sandbox microVM or a Cloud Run sandbox, with plugins.',
   });
 }

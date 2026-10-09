@@ -1,10 +1,11 @@
 'use client';
 
 import type { UIMessage } from 'ai';
+import type { CatalogDescription } from 'ai-sdk-harness-plugins';
 
 import { useChat } from '@ai-sdk/react';
 import { BoxIcon, SquarePenIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import {
   Conversation,
@@ -18,12 +19,22 @@ import {
   PromptInputBody,
   PromptInputFooter,
   PromptInputSubmit,
-  PromptInputTextarea,
   PromptInputTools,
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
+import {
+  everything,
+  expandSelection,
+  MarketplacePicker,
+  SelectionCount,
+} from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
+import {
+  type PromptCommand,
+  PromptEditor,
+  type PromptEditorHandle,
+} from '@/components/prompt-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -45,24 +56,34 @@ const SUGGESTIONS = [
 interface Agent {
   harness: HarnessId;
   model: string;
+  /** The ids of what it picked in the marketplace: plugins, and items on their own. */
+  selection: string[];
 }
 
 /**
- * The chat, started afresh (with a new conversation id) by "New chat". The coding agent and its
- * model are picked before the first message and kept for the whole conversation; the sandbox it
- * runs in is the server's to pick (`EXAMPLE_SANDBOX`).
+ * The chat, started afresh (with a new conversation id) by "New chat". The coding agent, its model
+ * and what it takes from the marketplace are picked before the first message and kept for the whole conversation; the
+ * sandbox it runs in is the server's to pick (`EXAMPLE_SANDBOX`).
  */
-export function ChatApp({ sandbox }: { sandbox: SandboxId }) {
+export function ChatApp({
+  marketplace,
+  sandbox,
+}: {
+  marketplace: CatalogDescription;
+  sandbox: SandboxId;
+}) {
   const [conversation, setConversation] = useState(0);
   const [agent, setAgent] = useState<Agent>({
     harness: 'claude-code',
     model: defaultModel('claude-code'),
+    selection: everything(marketplace),
   });
 
   return (
     <Chat
       agent={agent}
       key={conversation}
+      marketplace={marketplace}
       onAgentChange={setAgent}
       onNewChat={() => setConversation((count) => count + 1)}
       sandbox={sandbox}
@@ -72,11 +93,13 @@ export function ChatApp({ sandbox }: { sandbox: SandboxId }) {
 
 function Chat({
   agent,
+  marketplace,
   onAgentChange,
   onNewChat,
   sandbox,
 }: {
   agent: Agent;
+  marketplace: CatalogDescription;
   onAgentChange: (agent: Agent) => void;
   onNewChat: () => void;
   sandbox: SandboxId;
@@ -86,12 +109,20 @@ function Chat({
   const busy = status === 'submitted' || status === 'streaming';
   const harness = HARNESSES[agent.harness];
   const where = SANDBOXES[sandbox];
+  const editor = useRef<PromptEditorHandle>(null);
+  const commands = useMemo(
+    () => slashCommandsOf(marketplace, agent.selection),
+    [agent.selection, marketplace],
+  );
 
-  const send = (text: string) => {
-    if (text.trim() === '' || busy) return;
-    void sendMessage({ text }, { body: agent });
-    setInput('');
-  };
+  const send = useCallback(
+    (text: string) => {
+      if (text.trim() === '' || busy) return;
+      void sendMessage({ text }, { body: agent });
+      setInput('');
+    },
+    [agent, busy, sendMessage],
+  );
 
   return (
     <div className="flex h-dvh flex-col">
@@ -105,6 +136,7 @@ function Chat({
         </div>
         <div className="flex items-center gap-2">
           <AgentPicker agent={agent} locked={messages.length > 0} onChange={onAgentChange} />
+          <SelectionCount count={agent.selection.length} />
           <Button disabled={busy} onClick={onNewChat} size="sm" variant="ghost">
             <SquarePenIcon /> New chat
           </Button>
@@ -114,11 +146,23 @@ function Chat({
       <Conversation className="flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (
-            <ConversationEmptyState
-              description={`A HarnessAgent from the AI SDK, ${where.description}. Pick an agent and a model, then ask it to write and run some code.`}
-              icon={<BoxIcon className="size-10" />}
-              title={`${harness.label} is ready`}
-            />
+            <ConversationEmptyState className="justify-start gap-6 pt-12">
+              <BoxIcon className="size-10 text-muted-foreground" />
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium">{harness.label} is ready</h3>
+                <p className="text-sm text-muted-foreground">
+                  A HarnessAgent from the AI SDK, {where.description}. Pick an agent, a model and
+                  what it takes from the marketplace, then ask it to write and run some code, or
+                  type / for a command or a skill.
+                </p>
+              </div>
+              <MarketplacePicker
+                harness={agent.harness}
+                marketplace={marketplace}
+                onChange={(selection) => onAgentChange({ ...agent, selection })}
+                selection={agent.selection}
+              />
+            </ConversationEmptyState>
           ) : (
             messages.map((message, index) => (
               <ChatMessage
@@ -151,12 +195,16 @@ function Chat({
             ))}
           </Suggestions>
         )}
-        <PromptInput onSubmit={({ text }) => send(text)}>
+        {/* The submit button sends what the editor holds; Enter in it does the same. */}
+        <PromptInput onSubmit={() => editor.current?.submit()}>
           <PromptInputBody>
-            <PromptInputTextarea
-              onChange={(event) => setInput(event.target.value)}
-              placeholder={`Ask ${harness.label} to write and run some code…`}
-              value={input}
+            <PromptEditor
+              commands={commands}
+              disabled={busy}
+              onChange={setInput}
+              onSubmit={send}
+              placeholder={`Ask ${harness.label} to write and run some code, or type / for a command or a skill…`}
+              ref={editor}
             />
           </PromptInputBody>
           <PromptInputFooter>
@@ -179,6 +227,25 @@ function Chat({
       </div>
     </div>
   );
+}
+
+/**
+ * The commands, then the skills, the conversation picked — with the plugins and the requirements
+ * that bring them —, as the prompt offers them after `/`: the names the server's
+ * `expandCommand()` expands.
+ */
+function slashCommandsOf(marketplace: CatalogDescription, selection: string[]): PromptCommand[] {
+  const picked = expandSelection(marketplace, selection);
+  const items = marketplace.items.filter(({ id }) => picked.has(id));
+  return [
+    ...items.filter(({ kind }) => kind === 'command'),
+    ...items.filter(({ kind }) => kind === 'skill'),
+  ].map(({ argumentHint, description, invocation, kind, name }) => ({
+    ...(argumentHint !== undefined && { argumentHint }),
+    description,
+    kind: kind as PromptCommand['kind'],
+    name: invocation?.slice(1) ?? name,
+  }));
 }
 
 function ChatMessage({ message, isStreaming }: { isStreaming: boolean; message: UIMessage }) {
@@ -218,7 +285,9 @@ function AgentPicker({
     <>
       <Select
         disabled={locked}
-        onValueChange={(harness: HarnessId) => onChange({ harness, model: defaultModel(harness) })}
+        onValueChange={(harness: HarnessId) =>
+          onChange({ ...agent, harness, model: defaultModel(harness) })
+        }
         value={agent.harness}
       >
         <SelectTrigger aria-label="Coding agent" size="sm">

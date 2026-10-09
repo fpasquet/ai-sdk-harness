@@ -1,0 +1,6 @@
+{
+  "kind": "skill",
+  "name": "code-review",
+  "description": "How to review a change. Use it whenever you review code or a diff.",
+  "content": "# Reviewing a change\n\n1. Say what the change does, in one sentence.\n2. List the bugs first: what breaks, with the line.\n3. Then what is hard to read or to change, and why.\n4. End with what is good about it, if anything is."
+}

@@ -19,8 +19,6 @@ The package gives `HarnessAgent.createSession({ sandboxSession })` what it expec
 
 ![Claude Code running in a Docker Sandbox, in the Next.js example of the repository](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/conversation.png)
 
-> This package is in its **0.x** series: try it, and tell what works and what does not in the [issues](https://github.com/fpasquet/ai-sdk-harness/issues). Until 1.0.0, a minor release may break its API, and its changelog says how; a patch release never does. The AI SDK harnesses it plugs into are themselves experimental, and its [cloud mode](#docker-sandboxes-cloud) is too. It is a community package, not affiliated with Vercel or Docker.
-
 ## How it works
 
 ```mermaid

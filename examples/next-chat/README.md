@@ -10,7 +10,7 @@ Open a tool call to see what the agent ran in the microVM, and what came back:
 
 ![A bash tool call of the agent, with the command it ran and its output](../../docs/public/screenshots/next-chat/tool.png)
 
-Pick the coding agent and its model before the first message: Claude Code (Haiku 4.5, Sonnet 5.5, Opus 5.5) or Codex (GPT-5.5, GPT-5.6 Luna, GPT-6 Luna). Both run in the same sandbox.
+Pick the coding agent, its model and what it takes from the **marketplace** before the first message: Claude Code (Haiku 4.5, Sonnet 5.5, Opus 5.5) or Codex (GPT-5.5, GPT-5.6 Luna, GPT-6 Luna). Both run in the same sandbox.
 
 ![Codex answering in the example, after editing and running a file in the sandbox](../../docs/public/screenshots/next-chat/codex.png)
 
@@ -69,17 +69,71 @@ curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
 ```
 
+## A marketplace
+
+The agent runs with what the conversation picked before its first message, in a marketplace built with [`ai-sdk-harness-plugins`](../../packages/harness-plugins/README.md) (`lib/plugins.ts`). Plugins and items are configuration: written in code, read from a Claude Code plugin directory, or from JSON files under `marketplace/`:
+
+| In the marketplace         | Kept as                             | What it shows                                                                                                                                                |
+| -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `safety-guard`             | a plugin in code                    | A `PreToolUse` hook and the script it runs, shipped to the sandbox: a global npm install, or a command that would wipe the sandbox or force-push, is blocked |
+| `code-tour`                | a plugin in code                    | Slash commands, `/explain <path>` and `/tour`, expanded on the server, and the skill they rely on                                                            |
+| `sandbox-inspector`        | a plugin in code                    | A tool that runs on the server and reaches into the sandbox, `inspectSandbox`, and a `test-writer` subagent                                                  |
+| `commit-helper`            | a Claude Code plugin, read as it is | A `/commit-message` command and a skill (`plugins/commit-helper`)                                                                                            |
+| `library-docs`             | a whole plugin as data              | The [Context7](https://context7.com) MCP server, connected by the server, and a `/docs` command that requires it (`marketplace/plugins/library-docs.json`)   |
+| `tool:npm-latest`          | an item on its own, as data         | An `http` tool: a request the server makes to the npm registry, with no code (`marketplace/items/npm-latest.json`)                                           |
+| `command:npm`              | an item on its own, as data         | `/npm <package>`, which requires `tool:npm-latest`                                                                                                           |
+| `skill:code-review`        | an item on its own, as data         | A skill on how to review a change                                                                                                                            |
+| `subagent:reviewer`        | an item on its own, as data         | A subagent that reviews the working directory, which requires `skill:code-review`                                                                            |
+| `rule:dependency-versions` | an item on its own, as data         | A rule for `**/package.json` only: whenever the agent reads one, it checks that the dependencies are pinned                                                  |
+| `hook:protect-env`         | an item on its own, as data         | A `PreToolUse` hook and its script: the agent may not read `.env` files                                                                                      |
+| `mcp-server:deepwiki`      | an item on its own, as data         | The [DeepWiki](https://deepwiki.com) MCP server, connected by the server, two of its tools kept                                                              |
+
+Codex takes no hooks nor subagents: the cards say what each loses on it, and the server's log warns. `library-docs` and `deepwiki` need the server to reach Context7 and DeepWiki: unpick them otherwise.
+
+### Picking from the marketplace
+
+![The marketplace of a conversation, picked before its first message: plugins, and items on their own](../../docs/public/screenshots/next-chat/empty.png)
+
+**What it shows:** what the marketplace offers, as `catalog.describe()` gives it to the page: the plugins, with what they bring, and the items on their own, with their kind and what they need ("Needs tool:npm-latest"). Nothing of their code, prompts or secrets. The conversation picks before its first message, and keeps its pick.
+
+**What the package does:** the page sends the ids picked (`plugin:safety-guard`, `command:npm`…). The route resolves them with `catalog.resolve()`: a plugin brings its items, an item what it requires, a stored tool or MCP server is built or connected. It builds the agent with `withPlugins()` once per coding agent, model and `catalog.fingerprint()` of the pick, so editing a plugin or an item builds a new one.
+
+### Commands and skills after `/`
+
+![Typing / in the prompt completes the commands and skills of the conversation's plugins](../../docs/public/screenshots/next-chat/commands.png)
+
+**What it shows:** typing `/` at the start of a message lists the commands and the skills the conversation picked, those of the Claude Code plugin `commit-helper`, of the stored plugin `library-docs` and of the stored items (`/npm`, `/code-review`) included. A skill is marked as such.
+
+**What the package does:** the list comes from the marketplace's description, with the names `expandCommand()` understands. When the message reaches the route, `expandCommand()` replaces a command with its prompt (`/explain src` becomes "Explain src to a developer who has never seen it…"), and a skill with a request to use it; the conversation keeps the message as typed.
+
+### Try it
+
+Each plugin and item of the marketplace, a prompt that puts it to work, and what to expect. The package's documentation shows the JSON of each, and a screenshot of that turn.
+
+| Picked                     | Type                                                                  | What happens                                                                   |                                                                                  |
+| -------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `plugin:library-docs`      | `/docs zod How do I turn a zod 4 schema into a JSON Schema?`          | The agent calls the Context7 tools the server connects to                      | [JSON and screenshot](../../packages/harness-plugins/README.md#a-plugin-in-json) |
+| `tool:npm-latest`          | `What is the latest version of zod? Use the npm-latest tool.`         | The server requests the npm registry for the agent                             | [JSON and screenshot](../../packages/harness-plugins/README.md#a-tool)           |
+| `skill:code-review`        | `/code-review Write sum.js with an off-by-one bug, then review it.`   | The agent loads the skill and reviews as it says                               | [JSON and screenshot](../../packages/harness-plugins/README.md#a-skill)          |
+| `rule:dependency-versions` | `Run npm init -y and npm install zod, then read package.json.`        | Reading `package.json` loads the rule: the answer ends with a dependency check | [JSON and screenshot](../../packages/harness-plugins/README.md#a-rule)           |
+| `command:npm`              | `/npm zod`                                                            | The command brings the tool it requires                                        | [JSON and screenshot](../../packages/harness-plugins/README.md#a-command)        |
+| `hook:protect-env`         | `Read the file .env of this directory.`                               | The hook blocks the read                                                       | [JSON and screenshot](../../packages/harness-plugins/README.md#a-hook)           |
+| `subagent:reviewer`        | `Write sum.js with a bug, then have the reviewer subagent review it.` | Claude Code delegates the review                                               | [JSON and screenshot](../../packages/harness-plugins/README.md#a-subagent)       |
+| `mcp-server:deepwiki`      | `Use the deepwiki tools: what is the vercel/ai repository?`           | The agent asks DeepWiki, with the tools the server connects to                 | [JSON and screenshot](../../packages/harness-plugins/README.md#an-mcp-server)    |
+
 ## How it works
 
-| File                                        | What it does                                                                                                                                                                              |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/agent.ts`                              | One `HarnessAgent` per harness and model, the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
-| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                             |
-| `app/api/chat/route.ts`                     | Sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                                   |
-| `lib/harnesses.ts`                          | The coding agents and the models each one offers, shared by the page and the route                                                                                                        |
-| `components/chat.tsx`                       | `useChat`, the conversation, the suggestions, the prompt input and the agent and model pickers                                                                                            |
-| `components/message-part.tsx`               | One part of a message: Markdown, reasoning, or a tool call                                                                                                                                |
-| `components/ai-elements/`, `components/ui/` | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                 |
+| File                                                                | What it does                                                                                                                                                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/agent.ts`                                                      | One `HarnessAgent` per harness, model and plugins (`withPlugins`), the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
+| `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                                                      |
+| `app/api/chat/route.ts`                                             | Expands a slash command (`expandCommand`), sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                 |
+| `lib/plugins.ts`, `plugins/`, `marketplace/`                        | The marketplace: three plugins written in code, a Claude Code plugin loaded from its directory, and a plugin and items written in JSON; one catalog, which the page describes and the route resolves               |
+| `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                                 |
+| `components/chat.tsx`                                               | `useChat`, the conversation, the suggestions, the prompt input and the agent, model and plugin pickers                                                                                                             |
+| `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                                 |
+| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, or a tool call                                                                                                                                                         |
+| `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                          |
 
 The coding agent keeps the conversation in its own session, so the route only sends the new message. The bridge listens on a single port, so the example holds one conversation at a time: a new one ends the previous session and keeps the sandbox.
 

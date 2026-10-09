@@ -1,19 +1,25 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes and Cloud Run sandboxes.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes and plugins.
 seo:
   title: Community packages for AI SDK harnesses
 ---
 
-The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. The agent runs in a **sandbox**, and a sandbox comes from a package that knows how to create one.
+The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. This project publishes community packages for it, under the `fpasquet` npm account, of two kinds:
 
-This project publishes such packages, under the `fpasquet` npm account: one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud; another in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns.
+- **Sandboxes**: where the agent runs. Every command and file operation of the agent happens there, and the credentials stay outside.
+- **Plugins**: what the agent can do. Tools, skills, rules, slash commands, hooks, subagents and MCP servers, bundled into plugins that apply to every runtime.
 
 <Cards>
   <Card
     href="/docs/getting-started"
     title="Getting started"
-    description="Install the package and run a first Claude Code turn in a Docker Sandbox."
+    description="Install a sandbox package and run a first Claude Code turn in a Docker Sandbox."
+  />
+  <Card
+    href="/docs/adding-plugins"
+    title="Adding plugins"
+    description="Give the agent a hook, a slash command, a skill and an MCP server, in code or JSON, then let it pick from a marketplace."
   />
   <Card
     href="/docs/securing-credentials"
@@ -21,33 +27,38 @@ This project publishes such packages, under the `fpasquet` npm account: one runs
     description="Keep the API keys and subscription tokens of the harnesses safe, in your application and at rest."
   />
   <Card
-    href="/docs/packages/sandbox-sbx"
-    title="ai-sdk-sandbox-sbx"
-    description="Templates, resuming, workspaces, credentials, ports: the whole package."
-  />
-  <Card
-    href="/docs/packages/sandbox-cloud-run"
-    title="ai-sdk-sandbox-cloud-run"
-    description="Cloud Run sandboxes on Google Cloud: deploying the service, templates, suspending, credentials."
-  />
-  <Card
     href="/docs/examples/next-chat"
     title="Next.js chat"
-    description="A useChat page streaming Claude Code turns from a Docker Sandbox."
-  />
-  <Card
-    href="/docs/api-reference/sandbox-sbx"
-    title="API reference"
-    description="Every option, generated from the source."
+    description="A useChat page talking to Claude Code or Codex in a sandbox, with plugins and a slash-completing prompt."
   />
 </Cards>
 
-## Packages
+## Sandboxes
 
-| Package                                                        | Sandbox                                                                                                                    | Status                                 |
+A sandbox package gives `HarnessAgent.createSession({ sandboxSession })` what it expects, a `HarnessV1NetworkSandboxSession`: switching from one to the other is a matter of which function creates it.
+
+| Package                                                        | Where the agent runs                                                                                                       | Status                                 |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs                                 | Preview, 0.x (cloud mode experimental) |
-| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | [Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
+| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | A [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM (`sbx`), on your machine or in Docker Sandboxes Cloud    | Preview, 0.x (cloud mode experimental) |
+| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | A [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
+
+## Plugins
+
+[`ai-sdk-harness-plugins`](/docs/packages/harness-plugins) (Preview, 0.x) works with any sandbox and any runtime. A plugin is written in code with `definePlugin()`, read from a [Claude Code plugin](https://code.claude.com/docs/en/plugins) directory with `loadClaudeCodePlugin()`, or written as JSON: plugins are configuration, wherever they are kept. A catalog gathers them for a marketplace, where each agent picks whole plugins or single tools, skills, rules, commands, hooks, subagents and MCP servers, with what they require; `withPlugins()` applies what it picked.
+
+| A plugin's…     | What it is                                                           | Claude Code | Codex |
+| --------------- | -------------------------------------------------------------------- | :---------: | :---: |
+| **tools**       | AI SDK tools run on your server, or commands run in the sandbox      |     ✅      |  ✅   |
+| **skills**      | Instructions the agent loads when it judges them relevant            |     ✅      |  ✅   |
+| **rules**       | Instructions the agent follows, for every file or some               |     ✅      |  ✅   |
+| **commands**    | `/<name>` prompts, expanded on your server                           |     ✅      |  ✅   |
+| **hooks**       | Commands the runtime runs at a moment of the session, in the sandbox |     ✅      |  ❌   |
+| **subagents**   | Specialists the agent delegates to                                   |     ✅      |  ❌   |
+| **MCP servers** | Connected by your server, or run by the runtime in the sandbox       |     ✅      |  ✅   |
+
+![A hook at work in the Next.js example: the agent may not read the .env file](/screenshots/next-chat/item-hook.png)
+
+A hook at work in the [Next.js example](/docs/examples/next-chat): written in JSON with its script, it runs in the sandbox before each read or shell command of Claude Code. It blocked the reading of `.env`, and told the agent why.
 
 ## Versioning
 

@@ -1,0 +1,8 @@
+{
+  "kind": "subagent",
+  "name": "reviewer",
+  "description": "Reviews the changes of the working directory. Delegate reviews to it.",
+  "instructions": "You review the uncommitted changes of the working directory (git diff), following the code-review skill, and report what you found. You change nothing.",
+  "tools": ["Read", "Grep", "Glob", "Bash", "Skill"],
+  "requires": ["skill:code-review"]
+}

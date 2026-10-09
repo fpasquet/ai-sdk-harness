@@ -11,6 +11,8 @@ const config: NextConfig = {
     '@ai-sdk/harness-codex',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',
+    // Starts stdio MCP servers with cross-spawn, which a bundle would break.
+    '@ai-sdk/mcp',
   ],
 };
 
