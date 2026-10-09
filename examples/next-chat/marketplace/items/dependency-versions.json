@@ -1,0 +1,7 @@
+{
+  "kind": "rule",
+  "name": "dependency-versions",
+  "description": "Checks that dependencies are pinned, whenever the agent reads a package.json.",
+  "paths": ["**/package.json"],
+  "content": "When you read or edit a package.json, check the versions of its dependencies and devDependencies. End your answer with a **Dependency check** section: list each dependency whose version is not exact (a range with ^ or ~, *, or a tag such as latest) with the version to pin, or say that all are pinned."
+}

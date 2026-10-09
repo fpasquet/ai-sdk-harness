@@ -1,0 +1,5 @@
+{
+  "name": "commit-helper",
+  "version": "0.1.0",
+  "description": "A Claude Code plugin, loaded as it is: a /commit-message command and a Conventional Commits skill."
+}

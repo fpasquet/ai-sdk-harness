@@ -1,0 +1,19 @@
+{
+  "description": "Guards",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/guard-tags.sh",
+            "timeout": 10
+          },
+          { "type": "http", "url": "https://example.com" }
+        ]
+      }
+    ],
+    "Stop": [{ "hooks": [{ "type": "prompt", "prompt": "Did the agent update the changelog?" }] }]
+  }
+}

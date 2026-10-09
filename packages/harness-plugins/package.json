@@ -1,0 +1,97 @@
+{
+  "name": "ai-sdk-harness-plugins",
+  "version": "0.0.0",
+  "description": "Plugins for AI SDK harness agents: tools, skills, slash commands, hooks, subagents and MCP servers, bundled, documented and applied to Claude Code, Codex and friends.",
+  "keywords": [
+    "ai",
+    "ai-sdk",
+    "ai-sdk-harness",
+    "harness",
+    "plugins",
+    "marketplace",
+    "back-office",
+    "skills",
+    "hooks",
+    "slash-commands",
+    "subagents",
+    "mcp",
+    "claude-code",
+    "codex",
+    "coding-agent"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "prettier": "@repo/prettier-config",
+  "scripts": {
+    "build": "repo-build",
+    "clean": "repo-clean dist coverage",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.{json,md,ts}\" \"!CHANGELOG.md\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.{json,md,ts}\" \"!CHANGELOG.md\"",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit --incremental false"
+  },
+  "dependencies": {
+    "@ai-sdk/mcp": "^2.0.66"
+  },
+  "peerDependencies": {
+    "@ai-sdk/harness": "^1.0.0",
+    "@ai-sdk/provider-utils": "^5.0.0",
+    "zod": "^3.25.76 || ^4.1.8"
+  },
+  "devDependencies": {
+    "@ai-sdk/harness": "^1.0.138",
+    "@ai-sdk/harness-claude-code": "^1.0.142",
+    "@ai-sdk/harness-codex": "^1.0.140",
+    "@ai-sdk/provider-utils": "^5.0.53",
+    "@repo/build": "workspace:*",
+    "@repo/eslint-config": "workspace:*",
+    "@repo/prettier-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@repo/vitest-config": "workspace:*",
+    "@types/node": "^24.13.5",
+    "@vitest/coverage-v8": "^5.0.3",
+    "ai-sdk-sandbox-sbx": "workspace:*",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3",
+    "zod": "^4.5.4"
+  },
+  "author": {
+    "name": "Fabien Pasquet",
+    "url": "https://github.com/fpasquet"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fpasquet/ai-sdk-harness.git",
+    "directory": "packages/harness-plugins"
+  },
+  "homepage": "https://ai-sdk-harness.pages.dev/docs/packages/harness-plugins",
+  "bugs": {
+    "url": "https://github.com/fpasquet/ai-sdk-harness/issues"
+  }
+}

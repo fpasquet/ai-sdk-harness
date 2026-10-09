@@ -1,0 +1,16 @@
+{
+  "kind": "hook",
+  "name": "protect-env",
+  "description": "Keeps .env files out of the conversation: the agent may not read them.",
+  "event": "PreToolUse",
+  "matcher": "Read|Bash|Grep",
+  "command": "\"${PLUGIN_ROOT}/protect-env.sh\"",
+  "timeout": 10,
+  "files": [
+    {
+      "path": "protect-env.sh",
+      "content": "#!/bin/sh\n# Claude Code hands the tool call as JSON on the standard input.\nif grep -Eq '\\.env($|[^A-Za-z])'; then\n  echo 'Blocked by the protect-env hook: .env files hold secrets, and stay out of the conversation. Ask the user for the values you need.' >&2\n  exit 2\nfi\n",
+      "executable": true
+    }
+  ]
+}

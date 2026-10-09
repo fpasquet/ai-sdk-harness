@@ -9,6 +9,7 @@ body:
       label: Package
       options:
         - 'ai-sdk-sandbox-sbx'
+        - 'ai-sdk-harness-plugins'
         - 'example-next-chat'
         - 'Documentation'
         - 'Other'

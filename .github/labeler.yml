@@ -34,3 +34,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - 'packages/sandbox-sbx/**'
+
+'package: harness-plugins':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/harness-plugins/**'

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "changelog": { "command": "npx", "args": ["-y", "changelog-mcp"], "env": { "LEVEL": "info" } },
+    "docs": {
+      "type": "http",
+      "url": "https://docs.example.com/mcp",
+      "headers": { "X-Team": "release" }
+    }
+  }
+}
