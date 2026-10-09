@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-sandbox-sbx",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Docker Sandboxes (sbx) sandbox sessions for AI SDK harness agents: Claude Code, Codex and friends in a local microVM.",
   "keywords": [
     "ai",
