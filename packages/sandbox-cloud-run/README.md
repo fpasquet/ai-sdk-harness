@@ -17,8 +17,6 @@ The package gives `HarnessAgent.createSession({ sandboxSession })` what it expec
 - **Credentials stay outside**: the harness hands the sandbox a placeholder, and the proxy swaps the real value in on the way to the model API. A real credential never enters the sandbox, nor any log.
 - **The harness is installed once**: pass `agent.getSandboxTemplate()` and the first sandbox is saved as a template; every later one starts from it.
 
-> This package is in its **0.x** series: try it, and tell what works and what does not in the [issues](https://github.com/fpasquet/ai-sdk-harness/issues). Until 1.0.0, a minor release may break its API, and its changelog says how; a patch release never does. It runs on Cloud Run sandboxes, a **Preview** feature of Google Cloud under the Pre-GA Offerings Terms: should Google change how they behave, a release of the package follows. It is a community package, not affiliated with Vercel or Google.
-
 ## How it works
 
 Cloud Run has no API for its sandboxes: they are started by a `sandbox` command line, inside the instances of a service deployed with `--sandbox-launcher`. This package therefore comes in two parts, the client your application calls and the sandbox service you deploy:

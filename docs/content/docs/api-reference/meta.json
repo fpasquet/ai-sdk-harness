@@ -1,4 +1,4 @@
 {
   "title": "API reference",
-  "pages": ["sandbox-sbx", "sandbox-cloud-run"]
+  "pages": ["sandbox-sbx", "sandbox-cloud-run", "harness-plugins"]
 }

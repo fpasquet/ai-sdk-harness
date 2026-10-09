@@ -1,0 +1,6 @@
+{
+  "name": "release-kit",
+  "version": "1.2.0",
+  "description": "Prepare releases: notes, checks and a guard on tags.",
+  "author": { "name": "Example" }
+}

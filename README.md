@@ -16,6 +16,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | [`ai-sdk-sandbox-sbx`](packages/sandbox-sbx)             | Runs a harness agent in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, through `sbx`                                     | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-sbx)](https://www.npmjs.com/package/ai-sdk-sandbox-sbx)             |
 | [`ai-sdk-sandbox-cloud-run`](packages/sandbox-cloud-run) | Runs a harness agent in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-cloud-run)](https://www.npmjs.com/package/ai-sdk-sandbox-cloud-run) |
+| [`ai-sdk-harness-plugins`](packages/harness-plugins)     | Plugins for a harness agent: tools, skills, rules, slash commands, hooks, subagents and MCP servers, Claude Code plugins included                  | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-plugins)](https://www.npmjs.com/package/ai-sdk-harness-plugins)     |
 
 ```ts
 import { HarnessAgent } from '@ai-sdk/harness/agent';
@@ -40,6 +41,7 @@ A pnpm + Turborepo monorepo.
 packages/
   sandbox-sbx/        ai-sdk-sandbox-sbx, published to npm
   sandbox-cloud-run/  ai-sdk-sandbox-cloud-run, published to npm (client and sandbox service)
+  harness-plugins/    ai-sdk-harness-plugins, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   next-chat/          a Next.js useChat page talking to Claude Code in a Docker Sandbox

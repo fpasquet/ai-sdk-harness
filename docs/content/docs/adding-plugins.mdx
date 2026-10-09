@@ -1,0 +1,159 @@
+---
+title: Adding plugins
+description: Give an agent a hook, a slash command, a skill and an MCP server with ai-sdk-harness-plugins, then let it pick single items from a catalog.
+seo:
+  description: 'Extend an AI SDK HarnessAgent with ai-sdk-harness-plugins: a hook that guards the agent, slash commands and skills, an MCP server whose token stays on your server, and a catalog of items each agent picks from.'
+---
+
+This guide starts from the agent of [Getting started](/docs/getting-started), Claude Code in a Docker Sandbox, and gives it a plugin, then a catalog of items. Every part of a plugin is in the [package's documentation](/docs/packages/harness-plugins#at-a-glance).
+
+<Steps>
+<Step>
+
+### Install the package
+
+```bash
+pnpm add ai-sdk-harness-plugins zod
+```
+
+</Step>
+<Step>
+
+### Write a plugin
+
+A guard that keeps `.env` files out of the conversation, with the script it runs, a slash command, and the skill the command relies on:
+
+```ts title="plugins.ts"
+import { definePlugin } from 'ai-sdk-harness-plugins';
+
+export const team = definePlugin({
+  name: 'team',
+  description: 'How our team works.',
+  // ${PLUGIN_ROOT} is replaced by the sandbox directory the plugin's files are written to.
+  hooks: [{ event: 'PreToolUse', matcher: 'Read|Bash', command: '"${PLUGIN_ROOT}/guard.sh"' }],
+  files: [
+    {
+      path: 'guard.sh',
+      executable: true,
+      content: `#!/bin/sh
+# The tool call, as JSON on the standard input.
+if grep -Eq '\\.env($|[^A-Za-z])'; then
+  echo '.env files hold secrets, and stay out of the conversation.' >&2
+  exit 2
+fi`,
+    },
+  ],
+  commands: [
+    {
+      name: 'explain',
+      description: 'Explain a file or a directory',
+      prompt: 'Explain $1 to a newcomer, following the code-tour skill.',
+    },
+  ],
+  skills: [
+    {
+      name: 'code-tour',
+      description: 'How to explain code. Use it whenever you explain code.',
+      content: 'Say what the code is for, name the pieces that matter, show one excerpt.',
+    },
+  ],
+});
+```
+
+</Step>
+<Step>
+
+### Give it to the agent
+
+```ts title="index.ts"
+import { expandCommand, withPlugins } from 'ai-sdk-harness-plugins';
+
+import { team } from './plugins';
+
+const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, [team]));
+const session = await agent.createSession({ sandboxSession });
+
+// `/explain src` is expanded here, on your server.
+const message = '/explain src';
+const prompt = expandCommand(message, [team])?.prompt ?? message;
+const { text } = await agent.generate({ session, prompt });
+```
+
+Ask the agent to read `.env`: Claude Code runs the hook's script before the read, the script exits with `2`, and the agent is told why instead of reading the file:
+
+![The hook blocks the agent from reading the .env file](/screenshots/next-chat/item-hook.png)
+
+</Step>
+<Step>
+
+### Connect an MCP server
+
+An MCP server is connected by your server: its tools reach the agent, its token does not. The plugin only holds a reference to the token, which `resolveSecret` resolves on your server:
+
+```ts
+const docs = definePlugin({
+  name: 'docs',
+  description: 'Library documentation.',
+  mcpServers: {
+    context7: {
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp',
+      headers: { Authorization: { secret: 'CONTEXT7_TOKEN' } },
+    },
+  },
+});
+
+const { plugins, close } = await resolvePlugins([team, docs], {
+  resolveSecret: (name) => secretManager.get(name),
+});
+const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plugins));
+```
+
+![The agent calls the Context7 MCP tools and answers from the documentation](/screenshots/next-chat/plugin.png)
+
+</Step>
+<Step>
+
+### Let each agent pick items
+
+Rather than whole plugins, offer single items — tools, skills, commands, hooks, subagents, MCP servers —, written in code or as JSON, and let each agent pick its own; an item brings what it `requires`:
+
+```ts
+const catalog = createCatalog({
+  plugins: [team, docs],
+  items: [
+    {
+      kind: 'tool',
+      name: 'npm-latest',
+      type: 'http',
+      description: 'The latest version of an npm package.',
+      // What the model reads to call it: {name} of the url is one of its required properties.
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'The package name' } },
+        required: ['name'],
+      },
+      url: 'https://registry.npmjs.org/{name}/latest',
+    },
+    {
+      kind: 'command',
+      name: 'npm',
+      description: 'Size a package up',
+      prompt: 'Look $1 up with the npm-latest tool…',
+      requires: ['tool:npm-latest'],
+    },
+  ],
+});
+
+const { plugins } = await catalog.resolve(['plugin:team', 'command:npm'], { resolveSecret });
+```
+
+![/npm zod: the command brings the npm-latest tool, written in JSON, which reads the npm registry](/screenshots/next-chat/item-command.png)
+
+</Step>
+</Steps>
+
+## Next steps
+
+- Every part of a plugin and every option: the [package's documentation](/docs/packages/harness-plugins).
+- The [Next.js example](/docs/examples/next-chat), with a marketplace of plugins and items, and a prompt that completes their commands and skills.

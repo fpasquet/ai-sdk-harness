@@ -1,0 +1,8 @@
+{
+  "kind": "mcp-server",
+  "name": "deepwiki",
+  "description": "The documentation of public GitHub repositories, from DeepWiki.",
+  "type": "http",
+  "url": "https://mcp.deepwiki.com/mcp",
+  "allowedTools": ["read_wiki_structure", "ask_wiki_question"]
+}

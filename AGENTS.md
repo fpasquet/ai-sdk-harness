@@ -8,11 +8,12 @@ Open-source monorepo of community packages for the Vercel AI SDK harnesses (`@ai
 | -------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
 | `ai-sdk-sandbox-sbx`       | `packages/sandbox-sbx`       | A Docker Sandboxes (`sbx`) sandbox session for `HarnessAgent`, local or in the cloud            |
 | `ai-sdk-sandbox-cloud-run` | `packages/sandbox-cloud-run` | A Cloud Run sandbox session for `HarnessAgent`, and the sandbox service that runs the sandboxes |
+| `ai-sdk-harness-plugins`   | `packages/harness-plugins`   | Plugins for `HarnessAgent`: tools, skills, commands, hooks, subagents, MCP servers              |
 
 Constraints:
 
 - Open source, MIT licensed.
-- Packages are published unscoped, named `ai-sdk-<kind>-<provider>`, by the release workflow through npm trusted publishing (OIDC). Only the first version of a new package is published by hand, from the `fpasquet` npm account, as `MAINTAINERS.md` describes. Check that a name is free on npm (`npm view <name>` answers E404) before creating a package.
+- Packages are published unscoped, named `ai-sdk-<kind>-<provider>` (`ai-sdk-harness-<feature>` for what extends the agent rather than giving it a sandbox), by the release workflow through npm trusted publishing (OIDC). Only the first version of a new package is published by hand, from the `fpasquet` npm account, as `MAINTAINERS.md` describes. Check that a name is free on npm (`npm view <name>` answers E404) before creating a package.
 - The packages are in their **0.x** series: they are released to be tried, and their API settles with that feedback before a 1.0.0. See [Versioning](#versioning).
 - Only Node `>=24.0.0` is supported. CI tests Node 24 and 26.
 - Packages are ESM-only, like the AI SDK they plug into. Public APIs are importable from the package root only.
@@ -57,6 +58,17 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - The `sandbox` CLI of Cloud Run is the only way the service reaches a sandbox (`src/server/runtime/sandbox-cli.ts`). It loses exit codes: every command runs under `ExitCodeCarrier`. Behaviours of the CLI that Google does not document were checked on the real Cloud Run; keep them in mind before changing how the service drives it.
 - Security rules of the service, each with its tests in `src/security.spec.ts`: Cloud Run logs every command line it runs in a sandbox, so nothing but `node …/launch.js` may ever be on one (commands, variables and directories go on the launcher's stdin); a credential the service holds never enters a sandbox (`Sandbox.assertNoSecret`); the egress proxy never connects to a private address (`src/server/egress/network-guard.ts`), checked after DNS resolution. Credential brokering is not optional.
 - Unit tests start the real service in-process over `test/fake-sandbox.mjs`, which isolates nothing, and drive it with the real client. The suite builds the package first, into `node_modules/.cache/test-build` and never into `dist`, which an app running meanwhile imports (`test/build-helpers.ts`): the service runs the built `in-sandbox/*`. `test/*.e2e-spec.ts` run against a service deployed on Cloud Run (`CLOUD_RUN_SANDBOX_URL`) and are skipped without it.
+
+### `ai-sdk-harness-plugins`
+
+- A plugin is plain data (`src/definitions/plugin.ts`). `withPlugins()` applies it to the settings of a `HarnessAgent`; it never wraps nor subclasses the agent.
+- What depends on a runtime lives in `src/runtimes/`, one file per runtime, looked up by `harnessId` (`runtime-for.ts`): the features it takes, the native form of an MCP server, and what goes in a session's working directory. A runtime the package does not know takes tools, skills, commands and files only. Adding a runtime is a file there, and its rows in the tests.
+- Everything written in the sandbox goes through `src/session/`: one `sh -c` script per step, whose inputs are positional arguments, never spliced into the script; a manifest (`.ai-sdk-harness/manifest.json`) records what was written so that a resume takes back what is no longer wanted.
+- `describePlugin()` is what leaves the server: it must never carry a tool's code, a hook's command, a command's prompt, a subagent's instructions, a skill's content, nor an MCP server's URL, headers or environment. `src/catalog/plugin-catalog.spec.ts` checks it.
+- A plugin, or an item on its own (one tool, skill, rule, command, hook, subagent or MCP server), is configuration: written in code or as JSON, checked alike by `definePlugin` / `defineItem` (`src/config/`). A tool is an AI SDK tool or a `ToolDefinition` (`http`, `sandbox-command`, or `registered`, the reference to a tool of the application), whose `inputSchema` is a JSON Schema or, in code, a zod or Standard Schema (`src/config/input-schema.ts`), each `{key}` of an `http` URL a required property of it; secrets are `{ "secret": "<name>" }` references. `resolvePlugins` builds the definitions, resolves the secrets (`resolveSecret`: configuration never holds a secret, only `{ "secret": "<name>" }`) and connects the MCP servers — on the host by default, with `@ai-sdk/mcp`, a dependency imported on demand with literal specifiers a bundler follows (`src/config/connect-mcp-server.ts`), or `connectMcpServer`; a `runIn: 'sandbox'` server may hold no secret. `withPlugins` builds on its own what needs none of that, and refuses the rest. The zod schemas of `src/config/plugin-schema.ts` and `item-schema.ts` are the one definition of the configuration, imported from `zod/v4` (a peer dependency): keep them in step with the types of `src/definitions/plugin.ts`.
+- A marketplace is a catalog (`src/catalog/`) of plugins and items, each with an id (`plugin:<name>`, `<plugin>/<kind>:<name>`, `<kind>:<name>`). A selection is a list of ids, expanded with the items' `requires`; an item on its own resolves to a plugin of its own.
+- The folders are layered like the sandbox clients: `errors/` and `utils/` are leaves, then `definitions/` ← `commands/` ← `runtimes/` ← `session/` ← `mcp/` ← `config/`, and beside each other at the top `catalog/`, `loader/` and `agent/` (`eslint.config.mjs`).
+- Unit tests run `onSession` against `test/host-sandbox.ts`, a stand-in sandbox on a temporary directory of the host, Git included; `test/fixtures/claude-plugin` is a Claude Code plugin with every part the loader reads, and `test/fixtures/mcp-server.mjs` an MCP server with no dependency, run on the host and in the sandboxes. `test/*.e2e-spec.ts` run real Claude Code and Codex turns in a Docker Sandbox and are not part of CI. The README shows the plugin and items of `examples/next-chat/marketplace/` beside their screenshots: `src/readme.spec.ts` keeps its JSON identical to theirs, so edit both together and retake the screenshots (`pnpm screenshots`) when a change shows.
 
 ---
 
@@ -105,6 +117,7 @@ Every change must pass:
 
 Add when the change touches the matching area:
 
+- `pnpm --filter ai-sdk-harness-plugins test:e2e` when changing how plugins reach a runtime (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code and Codex).
 - `pnpm --filter ai-sdk-sandbox-sbx test:e2e` when changing how the package drives `sbx` (needs Docker Sandboxes on the machine; `SBX_E2E_CLOUD=1` adds the cloud mode).
 - `CLOUD_RUN_SANDBOX_URL=… pnpm --filter ai-sdk-sandbox-cloud-run test:e2e` when changing how the service drives the `sandbox` CLI (needs the service deployed on Cloud Run, the gcloud account an invoker).
 - `pnpm docs:build` when editing anything under `docs/` or a README it includes.
