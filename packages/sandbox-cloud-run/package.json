@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-sandbox-cloud-run",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Cloud Run sandboxes for AI SDK harness agents: Claude Code, Codex and friends on Google Cloud, scaled to zero between turns.",
   "keywords": [
     "ai",
