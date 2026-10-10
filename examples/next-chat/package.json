@@ -33,6 +33,7 @@
     "@tiptap/react": "^3.31.4",
     "@tiptap/suggestion": "^3.31.4",
     "ai": "^7.0.127",
+    "ai-sdk-harness-approval": "workspace:*",
     "ai-sdk-harness-plugins": "workspace:*",
     "ai-sdk-harness-sessions": "workspace:*",
     "ai-sdk-sandbox-cloud-run": "workspace:*",

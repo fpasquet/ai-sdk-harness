@@ -5,6 +5,7 @@ import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import {
   ArrowRight,
+  Ban,
   Box,
   Cloud,
   Database,
@@ -13,6 +14,7 @@ import {
   Laptop,
   Layers,
   ListChecks,
+  MessageCircleQuestion,
   MessagesSquare,
   Moon,
   Network,
@@ -23,6 +25,8 @@ import {
   ServerCog,
   ShieldCheck,
   SquareSlash,
+  Terminal,
+  ThumbsUp,
   Workflow,
 } from 'lucide-react';
 import Image from 'next/image';
@@ -160,6 +164,45 @@ const SESSION_FEATURES: Feature[] = [
   },
 ];
 
+const APPROVAL_FEATURES: Feature[] = [
+  {
+    icon: Terminal,
+    title: 'Commands read as a shell reads them',
+    description:
+      'Each command of a chain and of a substitution is held to the rules; a redirection to a file always asks.',
+  },
+  {
+    icon: Ban,
+    title: 'Refused, with a reason',
+    description:
+      'What you forbid never runs, and the agent reads why: it moves on rather than tries again.',
+  },
+  {
+    icon: ThumbsUp,
+    title: 'Always allow, for the conversation',
+    description:
+      'A grant kept with the session allows what the policy would ask about, never what it denies.',
+  },
+  {
+    icon: MessageCircleQuestion,
+    title: "The agent's questions",
+    description:
+      'AskUserQuestion answered from a form; a session resumed meanwhile tells the agent the answers in words.',
+  },
+  {
+    icon: Layers,
+    title: 'One policy, every harness',
+    description:
+      'agentSettings() gives each runtime the permission mode the policy needs, and says what one that cannot ask does not follow.',
+  },
+  {
+    icon: Puzzle,
+    title: 'Components to install',
+    description:
+      'ToolApproval and QuestionsForm, shadcn/ui components served by this site: npx shadcn add, then yours to change.',
+  },
+];
+
 interface SandboxPackage {
   description: string;
   href: string;
@@ -236,6 +279,26 @@ const SESSION_SHOTS: Shot[] = [
     shows:
       'The conversation was suspended, its port handed back; the next message resumed it, and the agent answered from what it did before.',
     how: 'suspend() stops the harness session and keeps its resume state in the store; send() reattaches the sandbox and resumes the harness session from it.',
+  },
+];
+
+/** The approval policy of the Next.js example, captured from real turns. */
+const APPROVAL_SHOTS: Shot[] = [
+  {
+    src: '/screenshots/next-chat/policy.png',
+    alt: 'One command allowed by the policy, one refused, one waiting for approval with Always allow',
+    title: 'A policy, within the turn',
+    shows:
+      'pwd runs at once, git push is refused with its reason, whoami waits for you, with "Always allow `whoami`" next to Approve.',
+    how: 'approver() is the approve option of the session manager: what the policy decides is answered at once, in the same stream; the rest waits for a person.',
+  },
+  {
+    src: '/screenshots/next-chat/questions.png',
+    alt: 'Claude Code asks which language to use, the answers given from a form',
+    title: "The agent's questions",
+    shows:
+      'Claude Code asks with AskUserQuestion: the conversation needs you, and the form gives its answers.',
+    how: 'QuestionsForm builds the output of askUserQuestions with answersOf(); continue() hands it to the paused turn.',
   },
 ];
 
@@ -364,6 +427,26 @@ await sessions.create({ id, metadata: { title: 'Fix the tests' } });
 const turn = await sessions.send(id, { message, abortSignal: request.signal });
 return turn.toUIMessageStreamResponse();`;
 
+const USAGE_APPROVAL = `import { defineApprovalPolicy } from 'ai-sdk-harness-approval';
+
+const policy = defineApprovalPolicy({
+  commands: {
+    allow: ['ls', 'cat', 'git status', 'git diff', 'pnpm test'],
+    deny: [{ match: 'git push', reason: 'The application publishes the changes.' }, 'rm -rf'],
+  },
+  edits: { allow: ['src/**'], deny: ['.env*'] },
+});
+
+// The agent asks about what the policy may restrict...
+const agent = new HarnessAgent({ harness, ...policy.agentSettings(harness) });
+
+// ...and the policy answers within the turn; the rest waits for the user.
+const sessions = createSessionManager({
+  agent: () => agent,
+  sandboxes,
+  approve: policy.approver({ grants: ({ session }) => session.metadata.grants }),
+});`;
+
 const USAGE_CLOUD_RUN = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCloudRunNetworkSandboxSession } from 'ai-sdk-sandbox-cloud-run';
@@ -437,7 +520,7 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'Plugins', 'Sessions']}>
+          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'Plugins', 'Sessions', 'Approvals']}>
             <Tab value="Docker Sandboxes">
               <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
             </Tab>
@@ -449,6 +532,9 @@ export default function LandingPage() {
             </Tab>
             <Tab value="Sessions">
               <DynamicCodeBlock code={USAGE_SESSIONS} lang="ts" />
+            </Tab>
+            <Tab value="Approvals">
+              <DynamicCodeBlock code={USAGE_APPROVAL} lang="ts" />
             </Tab>
           </Tabs>
         </div>
@@ -547,6 +633,39 @@ export default function LandingPage() {
             href="/docs/managing-sessions"
           >
             Manage your agent&apos;s sessions <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl px-4 py-12">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-fd-foreground md:text-3xl">
+          Keep a person in the loop
+        </h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
+          <Link
+            className="text-fd-foreground underline underline-offset-4"
+            href="/docs/packages/harness-approval"
+          >
+            <code className="text-sm">ai-sdk-harness-approval</code>
+          </Link>{' '}
+          lets the agent&apos;s harmless commands run, refuses what you forbid and asks about the
+          rest, the same way for every harness, with components to install from{' '}
+          <Link
+            className="text-fd-foreground underline underline-offset-4"
+            href="/docs/ui-components"
+          >
+            the registry
+          </Link>
+          .
+        </p>
+        <ShotGrid label="What the package does" shots={APPROVAL_SHOTS} />
+        <FeatureGrid features={APPROVAL_FEATURES} />
+        <div className="mt-8 flex justify-center">
+          <Link
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
+            href="/docs/approving-tool-calls"
+          >
+            Approve your agent&apos;s tool calls <ArrowRight className="size-4" />
           </Link>
         </div>
       </section>
