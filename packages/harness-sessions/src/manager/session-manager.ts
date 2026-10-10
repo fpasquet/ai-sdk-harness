@@ -15,6 +15,8 @@ import type {
   SessionTurn,
 } from '../definitions/manager.js';
 import type {
+  ApprovalVerdict,
+  PendingApproval,
   PendingInput,
   SessionRecord,
   SessionStatus,
@@ -22,12 +24,19 @@ import type {
 } from '../definitions/session.js';
 import type { SessionStore } from '../definitions/store.js';
 import type { InputResponses } from '../turns/pending-input.js';
+import type { TurnStep } from '../turns/turn-stream.js';
 import type { LiveSession, ReadySession } from './live-session.js';
 
 import { SessionCapacityError } from '../errors/session-capacity-error.js';
 import { SessionConflictError } from '../errors/session-conflict-error.js';
 import { SessionNotFoundError } from '../errors/session-not-found-error.js';
 import { createMemorySessionStore } from '../store/memory-session-store.js';
+import {
+  decidedChunks,
+  decidedResponses,
+  signatureOf,
+  verdictOf,
+} from '../turns/approval-answers.js';
 import {
   describeResponses,
   pendingInputOf,
@@ -53,23 +62,47 @@ const NOT_STOPPED = 'The harness session could not be stopped cleanly.';
 const NOTHING_TO_RESUME = 'Nothing was kept to resume the session from.';
 /** How long a shutdown waits for a turn it cut short to wind down. */
 const WIND_DOWN_MS = 10_000;
+/** How many approvals `approve` answers in one turn, at most, before leaving them to a person. */
+const MAX_ANSWERED_PER_TURN = 200;
 
-/** The answers `continue()` was given: read from `useChat`'s message, and given as they are. */
+/**
+ * The answers `continue()` was given, read from `useChat`'s message and given as they are, and
+ * the answers `approve` gave already: they stand, whatever the message says.
+ */
 function responsesOf(
   pending: PendingInput,
   { message, ...given }: Omit<ContinueOptions, 'abortSignal'>,
-): InputResponses {
-  const read = message === undefined ? undefined : responsesFrom(message, pending);
-  return {
-    toolApprovalContinuations: [
-      ...(read?.toolApprovalContinuations ?? []),
-      ...(given.toolApprovalContinuations ?? []),
-    ],
-    toolResultContinuations: [
-      ...(read?.toolResultContinuations ?? []),
-      ...(given.toolResultContinuations ?? []),
-    ],
+): { responses: InputResponses; answered: number } {
+  const decided = decidedResponses(pending.approvals);
+  const open: PendingInput = {
+    ...pending,
+    approvals: pending.approvals.filter(({ decision }) => decision === undefined),
   };
+  const read = message === undefined ? undefined : responsesFrom(message, open);
+  const approvals = [
+    ...(read?.toolApprovalContinuations ?? []),
+    ...(given.toolApprovalContinuations ?? []),
+  ].filter(({ approvalId }) => !decided.some((response) => response.approvalId === approvalId));
+  const results = [
+    ...(read?.toolResultContinuations ?? []),
+    ...(given.toolResultContinuations ?? []),
+  ];
+  return {
+    responses: {
+      toolApprovalContinuations: [...decided, ...approvals],
+      toolResultContinuations: results,
+    },
+    answered: approvals.length + results.length,
+  };
+}
+
+/** What `approve` answered in a turn so far: to tell an approval asked again, and to stop. */
+interface AnsweredApprovals {
+  /** The approvals answered at the last pause. */
+  last: Set<string>;
+  count: number;
+  /** The turn's signal, for the streams that continue it. */
+  abortSignal: AbortSignal;
 }
 
 /**
@@ -98,7 +131,7 @@ interface TransitionOptions {
 
 /** The options with their defaults. */
 type Settings<METADATA> = Required<
-  Omit<SessionManagerOptions<METADATA>, 'agent' | 'sandboxes' | 'store'>
+  Omit<SessionManagerOptions<METADATA>, 'agent' | 'approve' | 'sandboxes' | 'store'>
 >;
 
 const defaultReport = (
@@ -237,11 +270,8 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     this.claim(session, 'awaiting-input');
     const { record } = session;
     const pending = record.pendingInput ?? pendingInputOf(record.messages);
-    const responses = responsesOf(pending, answers);
-    if (
-      responses.toolApprovalContinuations.length + responses.toolResultContinuations.length ===
-      0
-    ) {
+    const { responses, answered } = responsesOf(pending, answers);
+    if (answered === 0) {
       throw this.conflict(record, 'continue() carries no answer to what the session waits for.');
     }
     record.messages = withResponses(record.messages, responses);
@@ -261,6 +291,28 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
           : session.agent.stream({ session: session.handle, prompt, abortSignal: signal }),
       abortSignal,
     );
+  };
+
+  update = async (
+    id: string,
+    { metadata }: { metadata: ((metadata: METADATA) => METADATA) | METADATA },
+  ): Promise<SessionSummary<METADATA>> => {
+    await this.ready();
+    const change = (current: METADATA): METADATA =>
+      typeof metadata === 'function'
+        ? (metadata as (metadata: METADATA) => METADATA)(current)
+        : metadata;
+    const live = this.live.get(id);
+    if (live !== undefined) return this.changeMetadata(live.record, change(live.record.metadata));
+    const kept = await this.store.get(id);
+    if (kept === undefined) throw new SessionNotFoundError(id);
+    const resumeState =
+      kept.status === 'suspended' ? await this.store.getResumeState(id) : undefined;
+    const changed = change(kept.metadata);
+    // Brought back while the store was read: the live session is the one to change.
+    const racing = this.live.get(id);
+    if (racing !== undefined) return this.changeMetadata(racing.record, changed);
+    return this.changeMetadata(kept, changed, resumeState);
   };
 
   interrupt = async (id: string): Promise<void> => {
@@ -298,12 +350,8 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     const session = this.live.get(id);
     await session?.ready.catch(() => undefined);
     if (session !== undefined && this.live.get(id) === session) {
-      this.live.delete(id);
-      session.turn?.abort.abort(new Error('The session was closed.'));
-      await session.turn?.done;
-      await this.teardown(session);
-      delete session.record.pendingInput;
-      await this.transition(session, 'closed');
+      session.ending = this.end(session);
+      await session.ending;
       return summaryOf(session.record);
     }
     const kept = await this.store.get(id);
@@ -364,6 +412,18 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     else record.error = error;
     this.journal.updated(record);
     return persist ? this.journal.write(record, resumeState) : Promise.resolve();
+  }
+
+  /** Writes new metadata, without counting it as activity: `updatedAt` stays. */
+  private async changeMetadata(
+    record: SessionRecord<METADATA>,
+    metadata: METADATA,
+    resumeState?: HarnessAgentResumeSessionState,
+  ): Promise<SessionSummary<METADATA>> {
+    record.metadata = metadata;
+    this.journal.updated(record);
+    await this.journal.write(record, resumeState);
+    return summaryOf(record);
   }
 
   private conflict(record: SessionSummary<METADATA>, message?: string): SessionConflictError {
@@ -582,26 +642,98 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       throw error;
     }
     const { record } = session;
+    const answered: AnsweredApprovals = { last: new Set(), count: 0, abortSignal: abort.signal };
     const { stream, settled } = streamTurn(result, {
       originalMessages: record.messages,
       generateMessageId: generateId,
       errorMessage,
+      next: (messages) => this.answerPause(session, messages, answered),
       onSettled: async ({ messages, failure, usage }) => {
         if (messages !== undefined) record.messages = messages;
         record.turns += 1;
-        record.usage.inputTokens += usage?.inputTokens ?? 0;
-        record.usage.outputTokens += usage?.outputTokens ?? 0;
-        record.usage.totalTokens += usage?.totalTokens ?? 0;
+        record.usage.inputTokens += usage.inputTokens ?? 0;
+        record.usage.outputTokens += usage.outputTokens ?? 0;
+        record.usage.totalTokens += usage.totalTokens ?? 0;
         await settle(failure);
       },
     });
-    const done = settled.then(() => summaryOf(record));
+    // A turn cut short by a close or a shutdown is over once they wrote the session.
+    const done = settled.then(() => session.ending).then(() => summaryOf(record));
     done.catch(() => undefined);
     return {
       stream,
       toUIMessageStreamResponse: (init) => createUIMessageStreamResponse({ ...init, stream }),
       done,
     };
+  }
+
+  /**
+   * What `approve` makes of the approvals a turn paused on: all answered, the turn goes on; some
+   * left to a person, it stops there, `continue()` sending the answers given with theirs.
+   */
+  private async answerPause(
+    session: ReadySession<METADATA>,
+    messages: UIMessage[],
+    answered: AnsweredApprovals,
+  ): Promise<TurnStep | undefined> {
+    session.paused = undefined;
+    const pending = pendingInputOf(messages);
+    if (
+      this.options.approve === undefined ||
+      pending.approvals.length === 0 ||
+      !session.handle.hasUnfinishedTurn()
+    ) {
+      return undefined;
+    }
+    const approvals = await Promise.all(
+      pending.approvals.map((approval) => this.decide(session, approval, answered)),
+    );
+    const responses = decidedResponses(approvals);
+    if (responses.length === 0) return undefined;
+    answered.last = new Set(approvals.filter(({ decision }) => decision).map(signatureOf));
+    answered.count += responses.length;
+    const step = {
+      chunks: decidedChunks(approvals),
+      messages: withResponses(messages, {
+        toolApprovalContinuations: responses,
+        toolResultContinuations: [],
+      }),
+    };
+    if (responses.length < approvals.length || pending.toolCalls.length > 0) {
+      session.paused = { ...pending, approvals };
+      return step;
+    }
+    const result = await session.agent.continueStream({
+      session: session.handle,
+      toolApprovalContinuations: responses,
+      abortSignal: answered.abortSignal,
+    });
+    return { ...step, result };
+  }
+
+  /** The approval with the verdict of `approve`, unless it is to be left to a person. */
+  private async decide(
+    session: LiveSession<METADATA>,
+    approval: PendingApproval,
+    answered: AnsweredApprovals,
+  ): Promise<PendingApproval> {
+    const { approve } = this.options;
+    // Asked again right after it was answered: the harness did not take the answer.
+    if (
+      approve === undefined ||
+      answered.last.has(signatureOf(approval)) ||
+      answered.count >= MAX_ANSWERED_PER_TURN
+    ) {
+      return approval;
+    }
+    let decision: ApprovalVerdict | undefined;
+    try {
+      decision = await approve(approval, { session: summaryOf(session.record) });
+    } catch (error) {
+      // Left to a person: they decide, as without approve.
+      this.report('approve', session.record.id)(error);
+    }
+    return decision === undefined ? approval : { ...approval, decision: verdictOf(decision) };
   }
 
   /** After a turn: awaiting input if it paused, idle otherwise. */
@@ -615,8 +747,9 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     // Closed, suspended or shut down meanwhile: whoever did it writes the session.
     if (this.live.get(record.id) !== session || record.status !== 'busy') return;
     const unfinished = handle.hasUnfinishedTurn();
-    if (unfinished) record.pendingInput = pendingInputOf(record.messages);
+    if (unfinished) record.pendingInput = session.paused ?? pendingInputOf(record.messages);
     else delete record.pendingInput;
+    session.paused = undefined;
     await this.transition(session, unfinished ? 'awaiting-input' : 'idle', {
       ...(failure !== undefined && { error: failure }),
     });
@@ -644,8 +777,23 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     }
   }
 
+  /** Closes a live session, cutting its turn short. */
+  private async end(session: LiveSession<METADATA>): Promise<void> {
+    this.live.delete(session.record.id);
+    session.turn?.abort.abort(new Error('The session was closed.'));
+    await session.turn?.done;
+    await this.teardown(session);
+    delete session.record.pendingInput;
+    await this.transition(session, 'closed');
+  }
+
+  private shutdownSession(session: LiveSession<METADATA>): Promise<void> {
+    session.ending = this.windDown(session);
+    return session.ending;
+  }
+
   /** Suspends a live session for the shutdown, cutting its turn short. */
-  private async shutdownSession(session: LiveSession<METADATA>): Promise<void> {
+  private async windDown(session: LiveSession<METADATA>): Promise<void> {
     const { record } = session;
     if (record.status === 'preparing') {
       // Its start finds it gone and cleans up after itself; a resume parks it again.

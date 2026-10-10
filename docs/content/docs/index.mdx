@@ -1,15 +1,16 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes, plugins and sessions.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes, plugins, sessions and approvals.
 seo:
   title: Community packages for AI SDK harnesses
 ---
 
-The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. This project publishes community packages for it, under the `fpasquet` npm account, of three kinds:
+The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. This project publishes community packages for it, under the `fpasquet` npm account, of four kinds:
 
 - **Sandboxes**: where the agent runs. Every command and file operation of the agent happens there, and the credentials stay outside.
 - **Plugins**: what the agent can do. Tools, skills, rules, slash commands, hooks, subagents and MCP servers, bundled into plugins that apply to every runtime.
 - **Sessions**: the conversations of your users with the agent. Several side by side in one sandbox, suspended when idle, resumed on the next message and after a restart.
+- **Approvals**: a person in the loop. A policy that lets the agent's harmless commands run, refuses what you forbid and asks about the rest, with "always allow" for a conversation.
 
 <Cards>
   <Card
@@ -26,6 +27,11 @@ The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) d
     href="/docs/managing-sessions"
     title="Managing sessions"
     description="Run many conversations in one sandbox, suspend them when idle, resume them after a restart, and wait for approvals."
+  />
+  <Card
+    href="/docs/approving-tool-calls"
+    title="Approving tool calls"
+    description="Let a policy allow, refuse or ask about the agent's commands and edits, and answer its questions from a form."
   />
   <Card
     href="/docs/securing-credentials"
@@ -71,6 +77,12 @@ A hook at work in the [Next.js example](/docs/examples/next-chat): written in JS
 [`ai-sdk-harness-sessions`](/docs/packages/harness-sessions) (Preview, 0.x) runs the sessions of a `HarnessAgent` for you, whatever the runtime and the sandbox: one turn at a time per session, several sessions side by side in one sandbox (each in a view of it, `fork()`), a session suspended when nobody writes to it and resumed on the next message, a turn paused until the user approves a command, and every session suspended when your server stops, to be resumed after it starts again.
 
 ![Two conversations of the Next.js example working at once in one Docker Sandbox](/screenshots/next-chat/sessions.png)
+
+## Approvals
+
+[`ai-sdk-harness-approval`](/docs/packages/harness-approval) (Preview, 0.x) keeps a person in the loop, the same way for every harness: an approval policy allows the agent's commands and edits you trust, refuses those you forbid with a reason the agent reads, and leaves the rest to the user, who can allow them for the rest of the conversation. With [`ai-sdk-harness-sessions`](/docs/packages/harness-sessions), the policy answers within the turn. Its [components](/docs/ui-components), `ToolApproval` and `QuestionsForm`, install from this site's shadcn registry.
+
+![A command allowed by the policy, one refused, one waiting with "Always allow"](/screenshots/next-chat/policy.png)
 
 ## Versioning
 

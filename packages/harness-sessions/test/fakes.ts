@@ -99,10 +99,12 @@ export class FakeAgent implements SessionAgent {
               });
             }
             if (turn.fail !== undefined) throw turn.fail;
+            writer.write({ type: 'start' });
             writer.write({ type: 'text-start', id: 't' });
             writer.write({ type: 'text-delta', id: 't', delta: turn.text ?? 'ok' });
             writer.write({ type: 'text-end', id: 't' });
             for (const chunk of turn.chunks ?? []) writer.write(chunk);
+            writer.write({ type: 'finish' });
             handle.unfinished = turn.unfinished ?? false;
           },
         })) as SessionStreamResult['toUIMessageStream'],

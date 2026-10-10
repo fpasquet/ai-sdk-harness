@@ -3,7 +3,12 @@ import type { UIMessage } from 'ai';
 
 import type { SessionAgent } from '../definitions/agent.js';
 import type { SessionSandboxLease } from '../definitions/sandboxes.js';
-import type { SessionRecord, SessionStatus, SessionSummary } from '../definitions/session.js';
+import type {
+  PendingInput,
+  SessionRecord,
+  SessionStatus,
+  SessionSummary,
+} from '../definitions/session.js';
 
 import { LIVE_STATUSES } from '../definitions/session.js';
 
@@ -22,7 +27,14 @@ export interface LiveSession<METADATA> {
    * agent the answers in a message.
    */
   lostTurn?: boolean;
+  /**
+   * What the turn paused on, when the manager's `approve` answered part of it: the approvals with
+   * the verdicts it gave, for the record.
+   */
+  paused?: PendingInput;
   turn?: { abort: AbortController; done: Promise<void> };
+  /** Settles once a close, or a shutdown, that took the session over has written it. */
+  ending?: Promise<void>;
   idleTimer?: NodeJS.Timeout;
 }
 

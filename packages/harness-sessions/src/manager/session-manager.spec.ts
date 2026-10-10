@@ -410,6 +410,240 @@ describe('createSessionManager', () => {
     });
   });
 
+  describe('approve', () => {
+    const second = [
+      {
+        type: 'tool-input-available',
+        toolCallId: 'call-2',
+        toolName: 'Bash',
+        input: { command: 'rm -rf /' },
+      },
+      { type: 'tool-approval-request', approvalId: 'approval-2', toolCallId: 'call-2' },
+    ] as const;
+    const allowLs: SessionManagerOptions<Metadata>['approve'] = ({ input }) =>
+      JSON.stringify(input).includes('"ls"')
+        ? { approved: true, reason: 'Allowed: ls.' }
+        : undefined;
+
+    it('answers an approval at once, and the turn goes on in the same stream', async () => {
+      const approve = vi.fn(allowLs);
+      sessions = manager({ approve });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS], unfinished: true }, { text: 'done' });
+
+      const { chunks, session } = await turn('s1', 'list the files');
+
+      expect(approve).toHaveBeenCalledWith(
+        {
+          approvalId: 'approval-1',
+          toolCallId: 'call-1',
+          toolName: 'Bash',
+          input: { command: 'ls' },
+        },
+        { session: expect.objectContaining({ id: 's1', metadata: { title: 'First' } }) as unknown },
+      );
+      expect(agent.continuations).toEqual([
+        {
+          toolApprovalContinuations: [
+            {
+              type: 'tool-approval-response',
+              approvalId: 'approval-1',
+              approved: true,
+              reason: 'Allowed: ls.',
+            },
+          ],
+        },
+      ]);
+      expect(chunks).toContainEqual({
+        type: 'tool-approval-response',
+        approvalId: 'approval-1',
+        approved: true,
+        reason: 'Allowed: ls.',
+      });
+      // The request reaches the client with its answer: no button shows for it.
+      const request = chunks.findIndex(({ type }) => type === 'tool-approval-request');
+      expect(chunks[request + 1]?.type).toBe('tool-approval-response');
+      // One message, one start and one finish: the client sees one turn.
+      expect(chunks.filter(({ type }) => type === 'start')).toHaveLength(1);
+      expect(chunks.filter(({ type }) => type === 'finish')).toHaveLength(1);
+      expect(chunks.at(-1)?.type).toBe('finish');
+      expect(session).toMatchObject({
+        status: 'idle',
+        turns: 1,
+        usage: { inputTokens: 2, outputTokens: 4, totalTokens: 6 },
+      });
+      const [, answer] = (await sessions.get('s1'))?.messages ?? [];
+      expect(answer?.parts).toContainEqual(
+        expect.objectContaining({
+          state: 'approval-responded',
+          approval: { id: 'approval-1', approved: true, reason: 'Allowed: ls.' },
+        }),
+      );
+    });
+
+    it('leaves to a person what it does not answer', async () => {
+      sessions = manager({ approve: () => undefined });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS], unfinished: true });
+
+      const { session } = await turn('s1', 'list the files');
+
+      expect(session.status).toBe('awaiting-input');
+      expect(session.pendingInput?.approvals[0]?.decision).toBeUndefined();
+      expect(agent.continuations).toEqual([]);
+    });
+
+    it('keeps the answers it gave for continue() when a person must answer the rest', async () => {
+      sessions = manager({ approve: allowLs });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS, ...second], unfinished: true });
+
+      const { chunks, session } = await turn('s1', 'clean up');
+
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ type: 'tool-approval-response', approvalId: 'approval-1' }),
+      );
+      expect(session.status).toBe('awaiting-input');
+      expect(session.pendingInput?.approvals).toEqual([
+        expect.objectContaining({
+          approvalId: 'approval-1',
+          decision: { approved: true, reason: 'Allowed: ls.' },
+        }),
+        expect.not.objectContaining({ decision: expect.anything() as unknown }),
+      ]);
+
+      const started = await sessions.continue('s1', {
+        toolApprovalContinuations: [
+          // Its answer stands: a person cannot overturn it.
+          { type: 'tool-approval-response', approvalId: 'approval-1', approved: false },
+          { type: 'tool-approval-response', approvalId: 'approval-2', approved: false },
+        ],
+      });
+      await readAll(started.stream);
+
+      expect(agent.continuations.at(-1)?.toolApprovalContinuations).toEqual([
+        {
+          type: 'tool-approval-response',
+          approvalId: 'approval-1',
+          approved: true,
+          reason: 'Allowed: ls.',
+        },
+        { type: 'tool-approval-response', approvalId: 'approval-2', approved: false },
+      ]);
+      await expect(
+        sessions.continue('s1', {
+          toolApprovalContinuations: [
+            { type: 'tool-approval-response', approvalId: 'approval-1', approved: true },
+          ],
+        }),
+      ).rejects.toThrow(/waits for no input/);
+    });
+
+    it('refuses a continuation that only repeats the answers it gave', async () => {
+      sessions = manager({ approve: allowLs });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS, ...second], unfinished: true });
+      await turn('s1', 'clean up');
+
+      await expect(
+        sessions.continue('s1', {
+          toolApprovalContinuations: [
+            { type: 'tool-approval-response', approvalId: 'approval-1', approved: true },
+          ],
+        }),
+      ).rejects.toThrow(/carries no answer/);
+    });
+
+    it('leaves to a person an approval asked again right after it answered it', async () => {
+      const approve = vi.fn(allowLs);
+      sessions = manager({ approve });
+      await ready();
+      const again = [
+        { ...APPROVAL_CHUNKS[0], toolCallId: 'call-3' },
+        { type: 'tool-approval-request', approvalId: 'approval-3', toolCallId: 'call-3' },
+      ] as const;
+      agent.script.push(
+        { chunks: [...APPROVAL_CHUNKS], unfinished: true },
+        { chunks: [...again], unfinished: true },
+      );
+
+      const { session } = await turn('s1', 'list the files');
+
+      expect(approve).toHaveBeenCalledTimes(1);
+      expect(session.status).toBe('awaiting-input');
+      expect(session.pendingInput?.approvals).toEqual([
+        expect.objectContaining({ approvalId: 'approval-3' }),
+      ]);
+    });
+
+    it('leaves the approval to a person when approve fails, and reports it', async () => {
+      const failure = new Error('policy unreachable');
+      sessions = manager({ approve: () => Promise.reject(failure) });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS], unfinished: true });
+
+      const { session } = await turn('s1', 'list the files');
+
+      expect(session.status).toBe('awaiting-input');
+      expect(errors).toContainEqual({ action: 'approve', sessionId: 's1', error: failure });
+    });
+
+    it('ends the turn with an error when it cannot go on', async () => {
+      sessions = manager({
+        approve: () => {
+          agent.failTurn = new Error('bridge gone');
+          return { approved: true };
+        },
+      });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS], unfinished: true });
+
+      const { chunks, session } = await turn('s1', 'list the files');
+
+      expect(chunks).toContainEqual(expect.objectContaining({ type: 'error' }));
+      expect(session).toMatchObject({ status: 'awaiting-input', error: 'bridge gone' });
+    });
+  });
+
+  describe('update', () => {
+    it('changes the metadata of a live session, without counting it as activity', async () => {
+      await ready();
+      const before = await sessions.get('s1');
+      const events: SessionEvent<Metadata>[] = [];
+      sessions.subscribe((event) => events.push(event));
+
+      const updated = await sessions.update('s1', { metadata: { title: 'Renamed' } });
+
+      expect(updated).toMatchObject({
+        metadata: { title: 'Renamed' },
+        updatedAt: before?.updatedAt,
+      });
+      expect((await store.get('s1'))?.metadata).toEqual({ title: 'Renamed' });
+      expect(events).toEqual([{ type: 'updated', session: updated }]);
+    });
+
+    it('changes a kept session from its metadata, keeping what it resumes from', async () => {
+      await ready();
+      await sessions.suspend('s1');
+
+      const updated = await sessions.update('s1', {
+        metadata: ({ title }) => ({ title: `${title}, again` }),
+      });
+
+      expect(updated.metadata).toEqual({ title: 'First, again' });
+      expect(await store.getResumeState('s1')).toEqual(resumeState('s1'));
+      await sessions.close('s1');
+      await sessions.update('s1', { metadata: { title: 'Closed' } });
+      expect((await store.get('s1'))?.metadata).toEqual({ title: 'Closed' });
+    });
+
+    it('throws for a session it does not know', async () => {
+      await expect(sessions.update('nope', { metadata: { title: 'x' } })).rejects.toBeInstanceOf(
+        SessionNotFoundError,
+      );
+    });
+  });
+
   describe('suspension', () => {
     it('suspends a session left idle, then resumes it on the next message', async () => {
       sessions = manager({ idleTimeoutMs: 20 });

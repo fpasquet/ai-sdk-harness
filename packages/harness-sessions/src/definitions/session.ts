@@ -48,6 +48,13 @@ export interface SessionUsage {
   totalTokens: number;
 }
 
+/** An answer to an approval request, as `ToolApprovalResponse` carries it. */
+export interface ApprovalVerdict {
+  approved: boolean;
+  /** Why: what the agent is told of a denial, what a person reads of an automatic approval. */
+  reason?: string;
+}
+
 /** A tool call the agent asked approval for, waiting for your answer. */
 export interface PendingApproval {
   /** What the answer refers to: `ToolApprovalResponse.approvalId`. */
@@ -55,6 +62,11 @@ export interface PendingApproval {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  /**
+   * The answer the manager's `approve` option gave already, when it gave one: the turn waits for
+   * the answers to the other approvals, and `continue()` sends this one with them.
+   */
+  decision?: ApprovalVerdict;
 }
 
 /** A tool call whose result your application gives, waiting for it. */

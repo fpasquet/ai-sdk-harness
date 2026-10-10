@@ -1,15 +1,22 @@
 'use client';
 
 import type { UIMessage } from 'ai';
+import type { AgentAnswers } from 'ai-sdk-harness-approval';
 import type { CatalogDescription } from 'ai-sdk-harness-plugins';
 import type { SessionEvent, SessionSummary } from 'ai-sdk-harness-sessions';
 
 import { useChat } from '@ai-sdk/react';
-import { lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
+import {
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  lastAssistantMessageIsCompleteWithToolCalls,
+} from 'ai';
+import { QUESTIONS_TOOL_NAME } from 'ai-sdk-harness-approval';
 import { BoxIcon, ShieldQuestionIcon, SquarePenIcon } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { ToolApprovalResponse } from '@/components/harness/tool-approval';
+import type { PartAnswers } from '@/components/message-part';
 import type { Conversation } from '@/lib/conversations';
 
 import {
@@ -43,6 +50,7 @@ import {
 import { SessionList, StatusDot } from '@/components/session-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import {
   Select,
   SelectContent,
@@ -50,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { POLICY_SUMMARY } from '@/lib/approval';
 import { STATUS_LABELS } from '@/lib/conversations';
 import { defaultModel, HARNESS_IDS, HARNESSES, type HarnessId } from '@/lib/harnesses';
 import { SANDBOXES, type SandboxId } from '@/lib/sandboxes';
@@ -224,22 +233,50 @@ function Chat({
   sandbox,
   session,
 }: ChatProps) {
-  const { addToolApprovalResponse, error, messages, sendMessage, status, stop } = useChat({
-    id,
-    messages: initialMessages,
-    // Once every approval the agent asked for is answered, the paused turn continues.
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-  });
+  // Whether you answered what the agent waits for since the last request: the approval policy
+  // answers some approvals within the turn, and those alone must not send the conversation again.
+  const answered = useRef(false);
+  const { addToolApprovalResponse, addToolOutput, error, messages, sendMessage, status, stop } =
+    useChat({
+      id,
+      messages: initialMessages,
+      // Once every approval and question is answered, the paused turn continues.
+      sendAutomaticallyWhen: ({ messages: sent }) => {
+        if (!answered.current) return false;
+        const complete =
+          lastAssistantMessageIsCompleteWithApprovalResponses({ messages: sent }) ||
+          lastAssistantMessageIsCompleteWithToolCalls({ messages: sent });
+        if (complete) answered.current = false;
+        return complete;
+      },
+    });
   const busy = status === 'submitted' || status === 'streaming';
   // Kept for the whole conversation, once its first message was sent.
   const agent: Agent = session?.metadata ?? draft;
   const locked = session !== undefined || messages.length > 0;
   const harness = HARNESSES[agent.harness];
   const where = SANDBOXES[sandbox];
-  const onApproval = useCallback(
-    (approvalId: string, approved: boolean) =>
-      void addToolApprovalResponse({ id: approvalId, approved }),
-    [addToolApprovalResponse],
+  const answers = useMemo<PartAnswers>(
+    () => ({
+      onApproval: ({ approvalId, approved, grants, reason }: ToolApprovalResponse) =>
+        void (async () => {
+          // "Always allow": kept with the conversation before the turn goes on.
+          if (grants !== undefined) {
+            await fetch(`/api/sessions/${id}/grants`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ grants }),
+            });
+          }
+          answered.current = true;
+          await addToolApprovalResponse({ id: approvalId, approved, reason });
+        })(),
+      onAnswers: (toolCallId: string, output: AgentAnswers) => {
+        answered.current = true;
+        void addToolOutput({ tool: QUESTIONS_TOOL_NAME, toolCallId, output });
+      },
+    }),
+    [addToolApprovalResponse, addToolOutput, id],
   );
   const send = useCallback(
     (text: string) => {
@@ -284,10 +321,10 @@ function Chat({
           ) : (
             messages.map((message, index) => (
               <ChatMessage
+                answers={answers}
                 isStreaming={status === 'streaming' && index === messages.length - 1}
                 key={message.id}
                 message={message}
-                onApproval={onApproval}
               />
             ))
           )}
@@ -426,7 +463,7 @@ function Composer({
   onStop: () => void;
   sandbox: SandboxId;
   status: ReturnType<typeof useChat>['status'];
-  /** The session waits for an approval: no message until it is given. */
+  /** The session waits for an approval or an answer: no message until it is given. */
   waiting: boolean;
 }) {
   const [input, setInput] = useState('');
@@ -461,7 +498,7 @@ function Composer({
             onSubmit={send}
             placeholder={
               waiting
-                ? 'The agent waits for your approval, above.'
+                ? 'The agent waits for your answer, above.'
                 : `Ask ${harness.label} to write and run some code, or type / for a command or a skill…`
             }
             ref={editor}
@@ -496,8 +533,8 @@ function Composer({
 }
 
 /**
- * Whether the agent asks before it edits a file or runs a command: the session then waits, with
- * the status "Needs you", until the call is approved or denied.
+ * Whether the conversation follows the approval policy of the example: what it allows runs, what
+ * it denies is refused, and the rest waits, the session "Needs you", until you approve or deny it.
  */
 function AskFirstToggle({
   checked,
@@ -509,17 +546,35 @@ function AskFirstToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <Button
-      aria-pressed={checked}
-      className={cn('text-xs', checked && 'bg-accent text-accent-foreground')}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      size="sm"
-      type="button"
-      variant="ghost"
-    >
-      <ShieldQuestionIcon /> {checked ? 'Asks before acting' : 'Acts freely'}
-    </Button>
+    <HoverCard openDelay={300}>
+      <HoverCardTrigger asChild>
+        <Button
+          aria-pressed={checked}
+          className={cn('text-xs', checked && 'bg-accent text-accent-foreground')}
+          disabled={disabled}
+          onClick={() => onChange(!checked)}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <ShieldQuestionIcon /> {checked ? 'Approval policy' : 'Acts freely'}
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent align="start" className="w-80 space-y-2 text-xs">
+        <p className="font-medium">With the approval policy</p>
+        <p>
+          <span className="text-muted-foreground">Runs at once:</span>{' '}
+          {POLICY_SUMMARY.allowed.map((rule) => `\`${rule}\``).join(', ')}
+        </p>
+        <p>
+          <span className="text-muted-foreground">Refused:</span> {POLICY_SUMMARY.denied.join(', ')}
+        </p>
+        <p>
+          <span className="text-muted-foreground">Asks you:</span> any other command, and every file
+          edit, with &ldquo;Always allow&rdquo; for the rest of the conversation.
+        </p>
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -543,13 +598,13 @@ function slashCommandsOf(marketplace: CatalogDescription, selection: string[]): 
 }
 
 function ChatMessage({
+  answers,
   isStreaming,
   message,
-  onApproval,
 }: {
+  answers: PartAnswers;
   isStreaming: boolean;
   message: UIMessage;
-  onApproval: (approvalId: string, approved: boolean) => void;
 }) {
   return (
     <Message from={message.role}>
@@ -557,9 +612,9 @@ function ChatMessage({
       <MessageContent className={message.role === 'assistant' ? 'w-full' : undefined}>
         {message.parts.map((part, index) => (
           <MessagePart
+            answers={answers}
             isStreaming={isStreaming && index === message.parts.length - 1}
             key={`${message.id}-${index}`}
-            onApproval={onApproval}
             part={part}
           />
         ))}

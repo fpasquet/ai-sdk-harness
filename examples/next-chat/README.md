@@ -81,15 +81,25 @@ Every conversation is a session of [`ai-sdk-harness-sessions`](../../packages/ha
 
 **What the package does:** `sharedSandbox()` gives each session a view of the sandbox (`fork()`), with a port of its own for its bridge: four sessions are live at once (`SESSION_PORTS`), and a fifth suspends the one idle the longest. `subscribe()` sends every change of every session; `app/api/sessions/events/route.ts` passes them on to the page as server-sent events.
 
-### Asking before acting
+### An approval policy
+
+![One command allowed by the policy, one refused, one waiting for approval with "Always allow"](../../docs/public/screenshots/next-chat/policy.png)
+
+**What it shows:** with "Approval policy" picked before the first message, the conversation follows the policy of [`ai-sdk-harness-approval`](../../packages/harness-approval/README.md) (`lib/approval.ts`). Asked for three commands, Claude Code ran `pwd` at once, allowed by the policy; `git push` was refused, and the agent told why; `whoami` waits for you, with "Always allow `whoami`" next to Approve and Deny. The conversation is marked "Needs you" meanwhile. Hover the toggle to read the policy.
+
+**What the packages do:** `APPROVAL_POLICY.agentSettings()` runs the agent with `permissionMode: 'allow-reads'`: Claude Code asks before each edit and command. The session manager's `approve` option, `APPROVAL_POLICY.approver()`, answers what the policy decides at once, within the turn and in the same stream, and leaves the rest to you: the session waits, `awaiting-input`. "Always allow" keeps a grant with the conversation (`app/api/sessions/[id]/grants/route.ts`, `sessions.update()`), which the policy reads at the next approval; approving sends the conversation back, and the route calls `continue()`, which reads the answer from it and resumes the turn, even after a suspension. `components/harness/tool-approval.tsx` shows each request and its verdict: it is the `ToolApproval` of the docs' [registry](https://ai-sdk-harness.pages.dev/docs/ui-components).
 
 ![Claude Code waiting for the approval of a shell command: the conversation needs you](../../docs/public/screenshots/next-chat/approval.png)
 
-**What it shows:** with "Asks before acting" picked before the first message, Claude Code asks before it edits a file or runs a command. The conversation is marked "Needs you", and the prompt waits for the answer.
+The policy is offered for Claude Code only: the Codex harness adapter runs Codex with approvals turned off ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). And a Claude Code conversation that was suspended, or that outlived a restart of the server, does not take the answers to its approvals once resumed ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)): the policy answers what it can, and an approval asked again is left to you.
 
-**What the package does:** the agent runs with `permissionMode: 'allow-reads'`. The turn pauses on the tool approval, and the session waits, `awaiting-input`, with what it waits for in `pendingInput`. Approving it with `addToolApprovalResponse()` sends the conversation back (`sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses`); the route sees the agent's message last and calls `continue()`, which reads the answer from it and resumes the turn, even after a suspension.
+### The agent's questions
 
-"Asks before acting" is offered for Claude Code only: the Codex harness adapter runs Codex with approvals turned off ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). And a Claude Code conversation that was suspended, or that outlived a restart of the server, asks for each approval again and again once resumed ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)): approve in the conversation before it is suspended.
+![Claude Code asks which language to use: the answers are given from a form](../../docs/public/screenshots/next-chat/questions.png)
+
+**What it shows:** Claude Code asks its questions with `AskUserQuestion`, whatever the toggle: the conversation needs you, and a form gives the answers. Once sent, the agent goes on with them.
+
+**What the packages do:** the question reaches the page as a call of `askUserQuestions`, which the turn waits for. `components/harness/questions-form.tsx`, the registry's `QuestionsForm`, builds its output with `answersOf()`, and `addToolOutput()` sends the conversation back; `continue()` hands the output to the paused turn.
 
 ### Suspended, then resumed
 
@@ -105,8 +115,8 @@ stateDiagram-v2
   preparing --> idle: sandbox view and harness session ready
   idle --> busy: a message
   busy --> idle: the turn ends
-  busy --> awaiting_input: the agent asks before acting
-  awaiting_input --> busy: approved or denied
+  busy --> awaiting_input: the agent asks, the policy leaves it to you
+  awaiting_input --> busy: approved, denied, or answered
   idle --> suspended: idle, "Suspend now", or the server stops
   awaiting_input --> suspended: idle, or the server stops
   suspended --> preparing: next message
@@ -170,7 +180,8 @@ Each plugin and item of the marketplace, a prompt that puts it to work, and what
 
 | File                                                                | What it does                                                                                                                                                                                                  |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/sessions.ts`, `lib/session-store.ts`                           | The conversations, sessions of `ai-sdk-harness-sessions`: one `HarnessAgent` per harness, model, permission mode and plugins (`withPlugins`), one shared sandbox, a store of JSON files, suspension when idle |
+| `lib/sessions.ts`, `lib/session-store.ts`                           | The conversations, sessions of `ai-sdk-harness-sessions`: one `HarnessAgent` per harness, model, approval policy and plugins (`withPlugins`), one shared sandbox, a store of JSON files, suspension when idle |
+| `lib/approval.ts`, `app/api/sessions/[id]/grants/`                  | The approval policy of `ai-sdk-harness-approval`, and the grants of "Always allow", kept with each conversation                                                                                               |
 | `app/api/sessions/`, `components/session-list.tsx`                  | The list of conversations: their statuses as server-sent events, "Suspend now" and "Delete"                                                                                                                   |
 | `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                                                 |
 | `app/api/chat/route.ts`                                             | Opens the session with the first message, expands a slash command (`expandCommand`), sends the message or the approvals to the session, and streams the turn back                                             |
@@ -178,7 +189,8 @@ Each plugin and item of the marketplace, a prompt that puts it to work, and what
 | `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                            |
 | `components/chat.tsx`                                               | The conversations open in the tab, each with its `useChat`, the suggestions, the prompt input and the agent, model, plugin and approval pickers                                                               |
 | `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                            |
-| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, or a tool call, with its approval buttons while the agent waits                                                                                                   |
+| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, the agent's questions, or a tool call with its approval                                                                                                           |
+| `components/harness/`                                               | `ToolApproval` and `QuestionsForm`, which the docs' shadcn registry serves                                                                                                                                    |
 | `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                     |
 
 The coding agent keeps the conversation in its own session, so the route only sends the new message. Each bridge listens on a port of its own, in a view of the sandbox: the conversations run side by side, and the sandbox stays when a conversation is deleted.
