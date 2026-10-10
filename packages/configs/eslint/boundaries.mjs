@@ -34,14 +34,28 @@ export const notFrom = (folders, message) => ({
 });
 
 /**
- * The layers of a sandbox client (the whole `src/` of `ai-sdk-sandbox-sbx`, `src/client/` of
- * `ai-sdk-sandbox-cloud-run`): `errors/` and `utils/` import nothing of the package, then each
- * layer only imports the ones below it: `transport/` ← `network/` ← `session/` ← `lifecycle/`.
+ * The layers of a sandbox client (the whole `src/` of `ai-sdk-sandbox-sbx` and
+ * `ai-sdk-sandbox-microsandbox`, `src/client/` of `ai-sdk-sandbox-cloud-run`): `errors/` and
+ * `utils/` import nothing of the package, then each layer only imports the ones below it:
+ * `transport/` ← `network/` ← `session/` ← `lifecycle/`.
  *
  * @param {string} root The client's directory, relative to the package (`src`, `src/client`).
  * @param {Pattern[]} [extra] Patterns every file of the client is held to besides.
+ * @param {{ sdk?: string }} [options] `sdk`: the package through which the client reaches its
+ *   sandboxes, which only `transport/` may import at runtime; the other layers import its types.
  */
-export function sandboxClientLayers(root, extra = []) {
+export function sandboxClientLayers(root, extra = [], { sdk } = {}) {
+  /** @type {RestrictedPath[]} */
+  const paths =
+    sdk === undefined
+      ? []
+      : [
+          {
+            name: sdk,
+            allowTypeImports: true,
+            message: `Only transport/ reaches the sandbox: elsewhere, import the types of ${sdk} only.`,
+          },
+        ];
   const above = (/** @type {string} */ layer, /** @type {string[]} */ folders) =>
     restrictImports({
       files: [`${root}/${layer}/**/*.ts`],
@@ -52,9 +66,10 @@ export function sandboxClientLayers(root, extra = []) {
         ),
         ...extra,
       ],
+      paths: layer === 'transport' ? [] : paths,
     });
   return [
-    restrictImports({ files: [`${root}/*.ts`], patterns: extra }),
+    restrictImports({ files: [`${root}/*.ts`], patterns: extra, paths }),
     restrictImports({
       files: [`${root}/errors/**/*.ts`, `${root}/utils/**/*.ts`],
       patterns: [
@@ -64,10 +79,11 @@ export function sandboxClientLayers(root, extra = []) {
         },
         ...extra,
       ],
+      paths,
     }),
     above('transport', ['network', 'session', 'lifecycle']),
     above('network', ['session', 'lifecycle']),
     above('session', ['lifecycle']),
-    restrictImports({ files: [`${root}/lifecycle/**/*.ts`], patterns: extra }),
+    restrictImports({ files: [`${root}/lifecycle/**/*.ts`], patterns: extra, paths }),
   ];
 }
