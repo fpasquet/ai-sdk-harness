@@ -34,6 +34,7 @@
     "@tiptap/suggestion": "^3.31.4",
     "ai": "^7.0.127",
     "ai-sdk-harness-plugins": "workspace:*",
+    "ai-sdk-harness-sessions": "workspace:*",
     "ai-sdk-sandbox-cloud-run": "workspace:*",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "class-variance-authority": "^0.7.1",

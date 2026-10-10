@@ -10,6 +10,7 @@ body:
       options:
         - 'ai-sdk-sandbox-sbx'
         - 'ai-sdk-harness-plugins'
+        - 'ai-sdk-harness-sessions'
         - 'example-next-chat'
         - 'Documentation'
         - 'Other'

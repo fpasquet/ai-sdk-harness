@@ -80,6 +80,6 @@ export async function openSandbox(
       clearEnv: [...new Set([...proxyManaged, ...clearEnv])],
     },
     settings.ports ?? [],
-    settings.brokerCredentials ?? true,
+    { brokerCredentials: settings.brokerCredentials ?? true },
   );
 }

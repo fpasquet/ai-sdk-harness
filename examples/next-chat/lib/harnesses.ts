@@ -5,6 +5,8 @@
 export const HARNESSES = {
   'claude-code': {
     label: 'Claude Code',
+    /** Whether it can ask before it edits a file or runs a command (`permissionMode`). */
+    asksFirst: true,
     models: [
       { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
       { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
@@ -13,6 +15,8 @@ export const HARNESSES = {
   },
   codex: {
     label: 'Codex',
+    // Codex takes no approvals of its own tools: the harness runs it with `allow-all` only.
+    asksFirst: false,
     models: [
       { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
