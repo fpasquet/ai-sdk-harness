@@ -64,15 +64,27 @@ sudo apt install bubblewrap socat ripgrep
 
 Binaries off the `PATH` are named with `runtime: { bwrapPath, socatPath, ripgrepPath }`.
 
-**Ubuntu 24.04 and later** restrict unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`). Ubuntu ships an AppArmor profile that lets `bwrap` through, but the seccomp filter srt adds inside the sandbox, which blocks Unix sockets, needs a nested namespace the restriction refuses: the sandbox fails to start with `apply-seccomp: write /proc/self/setgroups … Permission denied`, and the error says what follows. Either lift the restriction:
+**srt's seccomp filter on Ubuntu.** Inside the sandbox, srt adds a seccomp filter that blocks Unix sockets, which needs a nested user namespace with capabilities. Recent Ubuntu releases refuse it two ways: the sandbox then fails to start with `apply-seccomp: write /proc/self/setgroups … Permission denied`, and the error says which applies.
 
-```bash
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-# and to keep it after a reboot:
-echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/60-srt-userns.conf
+- **Ubuntu 24.04** restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`). Lift the restriction:
+
+  ```bash
+  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+  # and to keep it after a reboot:
+  echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/60-srt-userns.conf
+  ```
+
+- **Releases that ship the `bwrap-userns-restrict` AppArmor profile** (`/etc/apparmor.d/bwrap-userns-restrict`, checked on Ubuntu 26.04) confine everything `bwrap` runs to `unpriv_bwrap`, which denies every capability, whatever the `sysctl` says, and a local rule cannot lift a `deny`. The filter cannot run there.
+
+Where the filter cannot run, run without it, `runtime: { allowAllUnixSockets: true }`: the sandbox keeps its filesystem and network rules, but a process in it can connect to the Unix sockets it can see, such as the Docker daemon's. Hide them with `denyRead`:
+
+```ts
+await createSrtNetworkSandboxSession({
+  runtime: { allowAllUnixSockets: true },
+  denyRead: ['/var/run/docker.sock', '/run/docker.sock', '/run/user'],
+  ports: [4000],
+});
 ```
-
-or run without the seccomp filter, with `runtime: { allowAllUnixSockets: true }`: a process in the sandbox can then connect to the Unix sockets it can see, such as the Docker daemon's, so hide them with `denyRead: ['/var/run/docker.sock', '/run/docker.sock']`.
 
 Inside a Docker container without privileges, add `runtime: { enableWeakerNestedSandbox: true }`, srt's mode for a host that already isolates it.
 
@@ -278,13 +290,13 @@ A resumed sandbox has the files and the rules it was created with. Not its proce
 
 `runtime` configures srt itself. srt keeps one configuration per process: the first sandbox created or resumed applies it, and a later one asking for other settings is refused.
 
-| `runtime` option            | Default       | Description                                                                    |
-| --------------------------- | ------------- | ------------------------------------------------------------------------------ |
-| `allowAllUnixSockets`       | `false`       | Run without srt's seccomp filter (Linux), where user namespaces are restricted |
-| `bwrapPath`                 | on the `PATH` | The `bwrap` binary (Linux)                                                     |
-| `socatPath`                 | on the `PATH` | The `socat` binary (Linux)                                                     |
-| `ripgrepPath`               | on the `PATH` | The `rg` binary                                                                |
-| `enableWeakerNestedSandbox` | `false`       | srt's mode for running inside an unprivileged container (Linux)                |
+| `runtime` option            | Default       | Description                                                       |
+| --------------------------- | ------------- | ----------------------------------------------------------------- |
+| `allowAllUnixSockets`       | `false`       | Run without srt's seccomp filter (Linux), where Ubuntu refuses it |
+| `bwrapPath`                 | on the `PATH` | The `bwrap` binary (Linux)                                        |
+| `socatPath`                 | on the `PATH` | The `socat` binary (Linux)                                        |
+| `ripgrepPath`               | on the `PATH` | The `rg` binary                                                   |
+| `enableWeakerNestedSandbox` | `false`       | srt's mode for running inside an unprivileged container (Linux)   |
 
 ## Errors
 

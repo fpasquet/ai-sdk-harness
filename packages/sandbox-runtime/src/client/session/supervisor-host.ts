@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { cp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -20,16 +21,29 @@ export const SUPERVISOR_DIRECTORY = '.supervisor';
 const RESTRICTED_NAMESPACES = /setgroups|uid map|nested userns|create new namespace/i;
 
 /**
- * `error`, with what to do about it when the host restricts user namespaces: Ubuntu 24.04 and later
- * strip the capabilities of an unprivileged one, which srt's seccomp filter needs.
+ * The AppArmor profile recent Ubuntu releases load for bwrap: what bwrap runs is confined to
+ * `unpriv_bwrap`, which denies every capability, whatever `kernel.apparmor_restrict_unprivileged_userns`
+ * says.
  */
-export function explained(error: unknown): unknown {
+export const BWRAP_APPARMOR_PROFILE = '/etc/apparmor.d/bwrap-userns-restrict';
+
+/**
+ * `error`, with what to do about it when the host refuses srt's seccomp filter the user namespace
+ * it needs: Ubuntu confines what bwrap runs (its `bwrap-userns-restrict` profile), or restricts
+ * unprivileged user namespaces (24.04 and later).
+ */
+export function explained(
+  error: unknown,
+  confinedBwrap: boolean = existsSync(BWRAP_APPARMOR_PROFILE),
+): unknown {
   if (!(error instanceof SrtError) || !RESTRICTED_NAMESPACES.test(error.message)) return error;
-  return new SrtError(
-    `${error.message}\n\nThis host restricts user namespaces (kernel.apparmor_restrict_unprivileged_userns=1 on Ubuntu 24.04 and later). ` +
+  const advice = confinedBwrap
+    ? `This host confines what bwrap runs (AppArmor profile ${BWRAP_APPARMOR_PROFILE}: unpriv_bwrap denies every capability), which srt's seccomp filter needs. ` +
+      'Run without the filter, `runtime: { allowAllUnixSockets: true }`, and hide the Unix sockets the sandbox should not reach with `denyRead`.'
+    : 'This host restricts user namespaces (kernel.apparmor_restrict_unprivileged_userns=1 on Ubuntu 24.04 and later). ' +
       'Lift the restriction with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, ' +
-      "or run without srt's seccomp filter: `runtime: { allowAllUnixSockets: true }`.",
-  );
+      "or run without srt's seccomp filter: `runtime: { allowAllUnixSockets: true }`.";
+  return new SrtError(`${error.message}\n\n${advice}`);
 }
 
 /** Everything needed to start the supervisor of one sandbox. */

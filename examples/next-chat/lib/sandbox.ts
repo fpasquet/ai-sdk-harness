@@ -146,7 +146,7 @@ async function openCloudRun(template: TemplateOf): Promise<Opened> {
 /**
  * A sandbox on this machine, behind srt. It needs `bwrap`, `socat` and `rg` on Linux (`rg` on
  * macOS): `SRT_SOCAT` and `SRT_RIPGREP` name binaries off the `PATH`, `SRT_ALLOW_ALL_UNIX_SOCKETS=1`
- * runs without srt's seccomp filter where user namespaces are restricted (Ubuntu 24.04 and later).
+ * runs without srt's seccomp filter where Ubuntu refuses it (see the README of the package).
  */
 async function openSrt(template: TemplateOf): Promise<Opened> {
   const settings = {

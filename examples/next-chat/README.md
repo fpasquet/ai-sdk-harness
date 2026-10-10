@@ -40,7 +40,7 @@ Then, in `.env.local`:
 
 ```dotenv
 EXAMPLE_SANDBOX=srt
-# SRT_ALLOW_ALL_UNIX_SOCKETS=1   # Ubuntu 24.04 and later, unless user namespaces are unrestricted
+# SRT_ALLOW_ALL_UNIX_SOCKETS=1   # where Ubuntu refuses srt's seccomp filter: the error says so
 ```
 
 The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs and the npm registry only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.

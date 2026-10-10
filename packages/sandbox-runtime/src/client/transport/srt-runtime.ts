@@ -12,9 +12,9 @@ import { SrtError } from '../errors/srt-error.js';
  */
 export interface SrtRuntimeSettings {
   /**
-   * Run without srt's seccomp filter, which blocks Unix sockets on Linux. Needed where user
-   * namespaces are restricted, such as Ubuntu 24.04 and later with
-   * `kernel.apparmor_restrict_unprivileged_userns=1`: the filter's nested namespace fails there.
+   * Run without srt's seccomp filter, which blocks Unix sockets on Linux. Needed where Ubuntu
+   * refuses the filter its nested user namespace: under the `bwrap-userns-restrict` AppArmor
+   * profile of recent releases, or with `kernel.apparmor_restrict_unprivileged_userns=1`.
    * A process in the sandbox can then reach the Unix sockets it can see, such as the Docker
    * daemon's: hide them with `denyRead`.
    *
