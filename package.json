@@ -72,6 +72,7 @@
     "sandbox",
     "docker-sandboxes",
     "sbx",
+    "microsandbox",
     "claude-code",
     "coding-agent"
   ]

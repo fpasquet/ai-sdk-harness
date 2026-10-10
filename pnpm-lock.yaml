@@ -171,6 +171,9 @@ importers:
       ai-sdk-sandbox-cloud-run:
         specifier: workspace:*
         version: link:../../packages/sandbox-cloud-run
+      ai-sdk-sandbox-microsandbox:
+        specifier: workspace:*
+        version: link:../../packages/sandbox-microsandbox
       ai-sdk-sandbox-sbx:
         specifier: workspace:*
         version: link:../../packages/sandbox-sbx
@@ -318,6 +321,49 @@ importers:
         version: 5.0.3(@types/node@24.19.1)(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/sandbox-cloud-run:
+    devDependencies:
+      '@ai-sdk/harness':
+        specifier: ^1.0.138
+        version: 1.0.138(ws@8.22.0)(zod@4.6.5)
+      '@ai-sdk/provider-utils':
+        specifier: ^5.0.53
+        version: 5.0.53(zod@4.6.5)
+      '@repo/build':
+        specifier: workspace:*
+        version: link:../configs/build
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../configs/eslint
+      '@repo/prettier-config':
+        specifier: workspace:*
+        version: link:../configs/prettier
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../configs/typescript
+      '@repo/vitest-config':
+        specifier: workspace:*
+        version: link:../configs/vitest
+      '@types/node':
+        specifier: ^24.13.5
+        version: 24.19.1
+      '@vitest/coverage-v8':
+        specifier: ^5.0.3
+        version: 5.0.3(vitest@5.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@24.19.1)(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      zod:
+        specifier: ^4.5.4
+        version: 4.6.5
+
+  packages/sandbox-microsandbox:
+    dependencies:
+      microsandbox:
+        specifier: ^0.7.8
+        version: 0.7.8
     devDependencies:
       '@ai-sdk/harness':
         specifier: ^1.0.138
@@ -1565,6 +1611,9 @@ packages:
     resolution: {integrity: sha512-j37dj/h6p6pots1L7pLPPNuABEEu9WP4OYg9pW1g+nYG331j0+3canE9OagtYdytYvdSAMG+2fKU5cxep6LgjA==}
     engines: {node: '>=22.12.0'}
 
+  '@microsandbox/types@0.7.8':
+    resolution: {integrity: sha512-GCLuiSbTXU/5s8/VhyQzRc8AtDyz4uaIk3fP0GbWAPvj2xJfR7rpUr51UYZIFd9ONwAqa7XEfpyr8jnlFInkhA==}
+
   '@next/env@16.3.8':
     resolution: {integrity: sha512-Al9zqHVV7TJv0eFuOU4U7Lvv74PTih4Ch63sk2xCIpSTkE3udFnaOcnzP2lQVymiL7yS9Cj2iClUXlR3EQ5sEw==}
 
@@ -2500,6 +2549,38 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@superradcompany/microsandbox-darwin-arm64@0.7.8':
+    resolution: {integrity: sha512-WoTlB2b06o32AXW3D3Xp6GLiSoAXGNqNikbakA/RP2Uqj2Z8mfoDZ7mYKONLG7PXUAWu/vTTqJkOtVt8JFEWvA==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@superradcompany/microsandbox-linux-arm64-gnu@0.7.8':
+    resolution: {integrity: sha512-NRm8GVXlgoPsLYX8BovMTwg4oNWiT0EZp34+6zM7s7slhCbv3TItebbg6urKj8yqKoLP1T+OHH/7Y/RnD9omZw==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@superradcompany/microsandbox-linux-x64-gnu@0.7.8':
+    resolution: {integrity: sha512-4AnLhlDSvgzQPTrKcd6kCpCpgPWq275sGWTy7tg1deo42lU0PXKtwnaUlBx7uBdQO4YFIGfIx0T8lgsGO9h5EA==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@superradcompany/microsandbox-win32-arm64-msvc@0.7.8':
+    resolution: {integrity: sha512-wwXD/B9JwmyDAhrkX2V4L4VHVumDK1JbMnUFTOuNCoozyeNV4fogL+BziINp3HeInBTbKOJrAI7+A8kTawKfPA==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@superradcompany/microsandbox-win32-x64-msvc@0.7.8':
+    resolution: {integrity: sha512-m11kPzyaid/DMXK5kJRvDZEGkdlvndmOzfjNjfhqpL+LFQssnJgQ2WSyYfBQMrHj17pRfDkDxqwZPr9iXZoSMw==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [win32]
 
   '@swc/helpers@0.5.23':
     resolution: {integrity: sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==}
@@ -4610,6 +4691,11 @@ packages:
     resolution: {integrity: sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA==}
     engines: {node: '>=8.6'}
 
+  microsandbox@0.7.8:
+    resolution: {integrity: sha512-bUll2JNeVhAdvtlemsD5rNkVpLU0KQSXVpuSjXFmkG6Z52Z2ZL9sP8hAdFT8pIGoEPLj+OB9ohgFEPsJgBVkFg==}
+    engines: {node: '>= 22'}
+    hasBin: true
+
   miniflare@5.20261001.0-alpha:
     resolution: {integrity: sha512-GaimS5mSIOMyvd16ga+e1/QkI8cmp3z35QPHFex0DktqNQf2RVZQwMPQXdyoUreUiFP/0Gpe2MoQInTyMAD5xA==}
     engines: {node: '>=22.0.0'}
@@ -6625,6 +6711,8 @@ snapshots:
     dependencies:
       '@chevrotain/types': 13.2.0
 
+  '@microsandbox/types@0.7.8': {}
+
   '@next/env@16.3.8': {}
 
   '@next/eslint-plugin-next@16.3.8(eslint@10.12.0(jiti@2.7.0))':
@@ -7539,6 +7627,21 @@ snapshots:
   '@speed-highlight/core@1.2.24': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@superradcompany/microsandbox-darwin-arm64@0.7.8':
+    optional: true
+
+  '@superradcompany/microsandbox-linux-arm64-gnu@0.7.8':
+    optional: true
+
+  '@superradcompany/microsandbox-linux-x64-gnu@0.7.8':
+    optional: true
+
+  '@superradcompany/microsandbox-win32-arm64-msvc@0.7.8':
+    optional: true
+
+  '@superradcompany/microsandbox-win32-x64-msvc@0.7.8':
+    optional: true
 
   '@swc/helpers@0.5.23':
     dependencies:
@@ -9877,6 +9980,16 @@ snapshots:
     dependencies:
       braces: 3.0.3
       picomatch: 2.3.2
+
+  microsandbox@0.7.8:
+    dependencies:
+      '@microsandbox/types': 0.7.8
+    optionalDependencies:
+      '@superradcompany/microsandbox-darwin-arm64': 0.7.8
+      '@superradcompany/microsandbox-linux-arm64-gnu': 0.7.8
+      '@superradcompany/microsandbox-linux-x64-gnu': 0.7.8
+      '@superradcompany/microsandbox-win32-arm64-msvc': 0.7.8
+      '@superradcompany/microsandbox-win32-x64-msvc': 0.7.8
 
   miniflare@5.20261001.0-alpha(@types/node@24.19.1):
     dependencies:

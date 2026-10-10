@@ -24,6 +24,12 @@ The unit tests run against a fake `sbx` and need nothing installed. The e2e test
 pnpm --filter ai-sdk-sandbox-sbx test:e2e   # creates, then removes, sandboxes and a template image
 ```
 
+The unit tests of `ai-sdk-sandbox-microsandbox` run against a fake `microsandbox` SDK, which runs the commands on your machine. Its e2e tests boot real microVMs: they need KVM on Linux (read-write access to `/dev/kvm`) or Apple Silicon, and are skipped without. The runtime comes with the `microsandbox` npm package; an `msb` CLI installed in `~/.microsandbox` takes precedence and must be on the same version as the SDK, or point `MSB_HOME` at another, short, directory:
+
+```bash
+pnpm --filter ai-sdk-sandbox-microsandbox test:e2e   # creates, then removes, microVMs and a snapshot
+```
+
 The unit tests of `ai-sdk-sandbox-cloud-run` run its service over a fake `sandbox` CLI, on your machine and with no isolation. Its e2e tests need the service deployed on Cloud Run (see the package README) and gcloud signed in with an account granted `roles/run.invoker` on it:
 
 ```bash
