@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Box,
   Cloud,
+  Cpu,
   ExternalLink,
   KeyRound,
   Laptop,
@@ -56,7 +57,7 @@ const FEATURES: Feature[] = [
     icon: Network,
     title: 'No port left open',
     description:
-      'The harness bridge is published on the loopback by sbx, or tunnelled through a Cloud Run service behind IAM.',
+      'The harness bridge is published on the loopback by sbx or microsandbox, or tunnelled through a Cloud Run service behind IAM.',
   },
   {
     icon: RotateCcw,
@@ -98,6 +99,20 @@ const PACKAGES: SandboxPackage[] = [
     ],
   },
   {
+    icon: Cpu,
+    name: 'ai-sdk-sandbox-microsandbox',
+    title: 'From any image',
+    status: 'Preview',
+    href: '/docs/packages/sandbox-microsandbox',
+    description:
+      'A microsandbox microVM booted from any OCI image on your machine, through the microsandbox SDK: no daemon, no account.',
+    points: [
+      'Boots in under a second, restored from a snapshot',
+      'Credentials swapped in by its own network stack',
+      'Ports on 127.0.0.1 only',
+    ],
+  },
+  {
     icon: Cloud,
     name: 'ai-sdk-sandbox-cloud-run',
     title: 'On Google Cloud',
@@ -120,6 +135,22 @@ import { createSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
 const agent = new HarnessAgent({ harness: createClaudeCode() });
 
 const sandboxSession = await createSbxNetworkSandboxSession({
+  ports: [4000],
+  setup: ['npm install --global pnpm@10'],
+  template: await agent.getSandboxTemplate(),
+});
+const session = await agent.createSession({ sandboxSession });
+
+const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });`;
+
+const USAGE_MICROSANDBOX = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { createMicrosandboxNetworkSandboxSession } from 'ai-sdk-sandbox-microsandbox';
+
+const agent = new HarnessAgent({ harness: createClaudeCode() });
+
+const sandboxSession = await createMicrosandboxNetworkSandboxSession({
+  image: 'node:24', // any OCI image with Node.js
   ports: [4000],
   setup: ['npm install --global pnpm@10'],
   template: await agent.getSandboxTemplate(),
@@ -172,6 +203,13 @@ export default function LandingPage() {
           >
             Docker Sandbox
           </a>{' '}
+          microVM or a{' '}
+          <a
+            className="text-fd-foreground underline underline-offset-4"
+            href="https://github.com/superradcompany/microsandbox"
+          >
+            microsandbox
+          </a>{' '}
           microVM on your machine, or a{' '}
           <a
             className="text-fd-foreground underline underline-offset-4"
@@ -198,9 +236,12 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <Tabs items={['Docker Sandboxes', 'Cloud Run']}>
+          <Tabs items={['Docker Sandboxes', 'microsandbox', 'Cloud Run']}>
             <Tab value="Docker Sandboxes">
               <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
+            </Tab>
+            <Tab value="microsandbox">
+              <DynamicCodeBlock code={USAGE_MICROSANDBOX} lang="ts" />
             </Tab>
             <Tab value="Cloud Run">
               <DynamicCodeBlock code={USAGE_CLOUD_RUN} lang="ts" />
@@ -214,11 +255,11 @@ export default function LandingPage() {
           Pick your sandbox
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
-          Both packages return the same{' '}
+          Every package returns the same{' '}
           <code className="text-sm">HarnessV1NetworkSandboxSession</code>: switching from one to the
           other is a matter of which function creates it.
         </p>
-        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
           {PACKAGES.map(({ icon: Icon, name, title, status, href, description, points }) => (
             <Link
               className="group flex flex-col rounded-xl border border-fd-border bg-fd-background p-6 transition-colors hover:bg-fd-accent"
@@ -255,8 +296,8 @@ export default function LandingPage() {
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
           The Next.js example: <code className="text-sm">useChat</code> on one side, a{' '}
           <code className="text-sm">HarnessAgent</code> running Claude Code or Codex in a Docker
-          Sandbox, or a Cloud Run sandbox, on the other. Every command the agent runs, it runs in
-          the sandbox.
+          Sandbox, a microsandbox or a Cloud Run sandbox, on the other. Every command the agent
+          runs, it runs in the sandbox.
         </p>
         <Link
           className="mt-10 block overflow-hidden rounded-xl border border-fd-border shadow-sm"

@@ -7,6 +7,11 @@ import {
   resumeCloudRunNetworkSandboxSession,
 } from 'ai-sdk-sandbox-cloud-run';
 import {
+  createMicrosandboxNetworkSandboxSession,
+  MicrosandboxSandboxNotFoundError,
+  resumeMicrosandboxNetworkSandboxSession,
+} from 'ai-sdk-sandbox-microsandbox';
+import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
   SbxSandboxNotFoundError,
@@ -26,7 +31,10 @@ export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
   killAllProcesses(): Promise<void>;
 };
 
-/** The sandbox the agents run in: `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise. */
+/**
+ * The sandbox the agents run in: `EXAMPLE_SANDBOX=microsandbox` for a microsandbox,
+ * `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise.
+ */
 export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 
 /** The sandbox the example creates once, then finds again on every start. */
@@ -47,6 +55,9 @@ const BRIDGE_PORT = 4000;
 /** The bridges install their dependencies with pnpm, which the `shell` kit does not ship. */
 const SBX_SETUP = ['npm install --global --silent pnpm@10'];
 
+/** The `node` image ships Node.js and git, but not pnpm. */
+const MICROSANDBOX_SETUP = ['npm install --global --silent pnpm@10'];
+
 /** The image of the Cloud Run service should ship pnpm; installed here when it does not. */
 const CLOUD_RUN_SETUP = ['command -v pnpm >/dev/null || npm install --global --silent pnpm@10'];
 
@@ -57,6 +68,9 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
   sbx:
     'You are a coding agent working in a Docker Sandbox: a Linux microVM with Node.js and git, ' +
     'isolated from the host. Feel free to create files and run commands to answer.',
+  microsandbox:
+    'You are a coding agent working in a microsandbox: a Linux microVM with Node.js, git and ' +
+    'Python, isolated from the host. Feel free to create files and run commands to answer.',
   'cloud-run':
     'You are a coding agent working in a Cloud Run sandbox: a Linux sandbox with Node.js and git, ' +
     'whose network only reaches the model API and the npm registry. Feel free to create files and ' +
@@ -71,7 +85,8 @@ type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
  * may have left its bridge behind, holding the port: whatever runs in a resumed sandbox is stopped.
  */
 export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox> {
-  const sandbox = await (SANDBOX === 'cloud-run' ? openCloudRun(template) : openSbx(template));
+  const open = { sbx: openSbx, microsandbox: openMicrosandbox, 'cloud-run': openCloudRun }[SANDBOX];
+  const sandbox = await open(template);
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -88,6 +103,25 @@ async function openSbx(template: TemplateOf): Promise<Opened> {
   const session = await createSbxNetworkSandboxSession({
     ...settings,
     setup: SBX_SETUP,
+    template: await template(),
+  });
+  return { resumed: false, session };
+}
+
+/** A microsandbox on this machine, its bridge port published on the loopback when it is created. */
+async function openMicrosandbox(template: TemplateOf): Promise<Opened> {
+  try {
+    return {
+      resumed: true,
+      session: await resumeMicrosandboxNetworkSandboxSession({ sandboxId: SANDBOX_ID }),
+    };
+  } catch (error) {
+    if (!(error instanceof MicrosandboxSandboxNotFoundError)) throw error;
+  }
+  const session = await createMicrosandboxNetworkSandboxSession({
+    sandboxId: SANDBOX_ID,
+    ports: [BRIDGE_PORT],
+    setup: MICROSANDBOX_SETUP,
     template: await template(),
   });
   return { resumed: false, session };

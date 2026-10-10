@@ -11,6 +11,9 @@ const config: NextConfig = {
     '@ai-sdk/harness-codex',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',
+    // A native addon, loaded from its platform package at runtime.
+    'ai-sdk-sandbox-microsandbox',
+    'microsandbox',
   ],
 };
 

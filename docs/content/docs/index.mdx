@@ -1,13 +1,13 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes and Cloud Run sandboxes.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, microsandbox and Cloud Run sandboxes.
 seo:
   title: Community packages for AI SDK harnesses
 ---
 
 The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. The agent runs in a **sandbox**, and a sandbox comes from a package that knows how to create one.
 
-This project publishes such packages, under the `fpasquet` npm account: one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud; another in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns.
+This project publishes such packages, under the `fpasquet` npm account: one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud; another in a [microsandbox](https://github.com/superradcompany/microsandbox) microVM booted from any OCI image on your machine; a third in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns.
 
 <Cards>
   <Card
@@ -24,6 +24,11 @@ This project publishes such packages, under the `fpasquet` npm account: one runs
     href="/docs/packages/sandbox-sbx"
     title="ai-sdk-sandbox-sbx"
     description="Templates, resuming, workspaces, credentials, ports: the whole package."
+  />
+  <Card
+    href="/docs/packages/sandbox-microsandbox"
+    title="ai-sdk-sandbox-microsandbox"
+    description="microVMs booted from any OCI image: images, templates, resuming, credentials, network."
   />
   <Card
     href="/docs/packages/sandbox-cloud-run"
@@ -44,10 +49,11 @@ This project publishes such packages, under the `fpasquet` npm account: one runs
 
 ## Packages
 
-| Package                                                        | Sandbox                                                                                                                    | Status                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs                                 | Preview, 0.x (cloud mode experimental) |
-| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | [Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
+| Package                                                              | Sandbox                                                                                                                    | Status                                 |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)                   | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs                                 | Preview, 0.x (cloud mode experimental) |
+| [`ai-sdk-sandbox-microsandbox`](/docs/packages/sandbox-microsandbox) | [microsandbox](https://github.com/superradcompany/microsandbox) microVMs, booted from any OCI image on your machine        | Preview, 0.x                           |
+| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run)       | [Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
 
 ## Versioning
 
