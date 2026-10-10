@@ -1,0 +1,22 @@
+---
+title: ai-sdk-sandbox-microsandbox
+description: The options of createMicrosandboxNetworkSandboxSession and resumeMicrosandboxNetworkSandboxSession, generated from the source.
+---
+
+## `createMicrosandboxNetworkSandboxSession(options)`
+
+Creates a microsandbox and returns a `MicrosandboxNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable
+  path="packages/sandbox-microsandbox/src/microsandbox-settings.ts"
+  name="MicrosandboxCreationSettings"
+/>
+
+## `resumeMicrosandboxNetworkSandboxSession(options)`
+
+Reattaches to an existing sandbox, starting it if it is stopped. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `MicrosandboxSandboxNotFoundError` when no sandbox has that name.
+
+<AutoTypeTable
+  path="packages/sandbox-microsandbox/src/microsandbox-settings.ts"
+  name="MicrosandboxConnectionSettings"
+/>

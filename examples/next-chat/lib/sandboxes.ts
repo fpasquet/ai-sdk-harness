@@ -9,6 +9,12 @@ export const SANDBOXES = {
     where: 'a Docker Sandbox microVM, not on your machine',
     description: 'running in a local microVM',
   },
+  microsandbox: {
+    label: 'microsandbox',
+    packageName: 'ai-sdk-sandbox-microsandbox',
+    where: 'a microsandbox microVM, not on your machine',
+    description: 'running in a local microVM booted from an OCI image',
+  },
   'cloud-run': {
     label: 'Cloud Run sandbox',
     packageName: 'ai-sdk-sandbox-cloud-run',

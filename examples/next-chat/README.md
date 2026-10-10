@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
+A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -27,6 +27,16 @@ pnpm example:dev                                                   # http://loca
 Claude Code takes `CLAUDE_CODE_OAUTH_TOKEN` (the long-lived token `claude setup-token` prints for a Claude subscription) or `ANTHROPIC_API_KEY`; Codex takes `OPENAI_API_KEY`. Without them, each harness falls back to the login of its own CLI on your machine (`claude`, `codex`), if it finds one. With a ChatGPT login, Codex asks for a `ChatGPT-Account-ID` header a local sandbox proxy cannot add: it is left out with a warning, and Codex works without it.
 
 The very first message takes a few minutes: the sandbox is created, Claude Code and Codex are installed in it, then it is saved as a template image. Every later start reuses both and answers in seconds.
+
+## Run it in a microsandbox
+
+The same chat runs its agents in a [microsandbox](../../packages/sandbox-microsandbox/README.md) instead: a microVM booted from the `node:24` image on your machine, with no daemon and no account. It needs KVM on Linux (read-write access to `/dev/kvm`) or a Mac on Apple Silicon; the runtime comes with the npm package. In `.env.local`:
+
+```dotenv
+EXAMPLE_SANDBOX=microsandbox
+```
+
+The first message pulls the image, installs Claude Code and Codex in a throwaway sandbox and saves its disk as a snapshot, a minute or two; every later sandbox is restored from it in well under a second. The header says which sandbox the agents run in. If you also installed the `msb` CLI, keep it on the version of the `microsandbox` npm package (`msb --version`): its runtime takes precedence, and the SDK only launches its own version.
 
 ## Run it on Cloud Run
 
@@ -71,15 +81,15 @@ curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
 
 ## How it works
 
-| File                                        | What it does                                                                                                                                                                              |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/agent.ts`                              | One `HarnessAgent` per harness and model, the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
-| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                             |
-| `app/api/chat/route.ts`                     | Sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                                   |
-| `lib/harnesses.ts`                          | The coding agents and the models each one offers, shared by the page and the route                                                                                                        |
-| `components/chat.tsx`                       | `useChat`, the conversation, the suggestions, the prompt input and the agent and model pickers                                                                                            |
-| `components/message-part.tsx`               | One part of a message: Markdown, reasoning, or a tool call                                                                                                                                |
-| `components/ai-elements/`, `components/ui/` | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                 |
+| File                                        | What it does                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `lib/agent.ts`                              | One `HarnessAgent` per harness and model, the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation        |
+| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, a microsandbox with `ai-sdk-sandbox-microsandbox`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run` |
+| `app/api/chat/route.ts`                     | Sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                                          |
+| `lib/harnesses.ts`                          | The coding agents and the models each one offers, shared by the page and the route                                                                                                               |
+| `components/chat.tsx`                       | `useChat`, the conversation, the suggestions, the prompt input and the agent and model pickers                                                                                                   |
+| `components/message-part.tsx`               | One part of a message: Markdown, reasoning, or a tool call                                                                                                                                       |
+| `components/ai-elements/`, `components/ui/` | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                        |
 
 The coding agent keeps the conversation in its own session, so the route only sends the new message. The bridge listens on a single port, so the example holds one conversation at a time: a new one ends the previous session and keeps the sandbox.
 
@@ -93,4 +103,12 @@ The sandbox outlives the dev server, so the next start finds it again. To stop o
 sbx stop ai-sdk-harness-example   # stops the microVM, keeps its files
 sbx rm ai-sdk-harness-example     # removes it
 sbx template ls                   # the template images, removable with `sbx template rm`
+```
+
+A microsandbox:
+
+```bash
+msb stop ai-sdk-harness-example   # stops the microVM, keeps its disk
+msb rm ai-sdk-harness-example     # removes it
+msb snapshot ls                   # the template snapshots, removable with `msb snapshot rm`
 ```

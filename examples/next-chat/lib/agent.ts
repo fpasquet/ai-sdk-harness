@@ -55,9 +55,9 @@ export function agentFor(harness: HarnessId, model: string): HarnessAgent {
 }
 
 /**
- * Reattaches to the example's sandbox, a Docker Sandbox or a Cloud Run sandbox (`EXAMPLE_SANDBOX`),
- * or creates it. The first creation installs both Claude Code and Codex in it, then saves it as a
- * template (a few minutes); every later one starts from that template in seconds.
+ * Reattaches to the example's sandbox, a Docker Sandbox, a microsandbox or a Cloud Run sandbox
+ * (`EXAMPLE_SANDBOX`), or creates it. The first creation installs both Claude Code and Codex in it,
+ * then saves it as a template (a few minutes); every later one starts from that template in seconds.
  */
 function createSandbox(): Promise<ExampleSandbox> {
   return openSandbox(() =>
