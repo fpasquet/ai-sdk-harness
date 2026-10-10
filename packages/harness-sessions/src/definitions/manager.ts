@@ -2,7 +2,7 @@ import type { ToolApprovalResponse, ToolResultPart, UIMessage, UIMessageChunk } 
 
 import type { SessionAgent } from './agent.js';
 import type { SessionSandboxes } from './sandboxes.js';
-import type { SessionRecord, SessionSummary } from './session.js';
+import type { ApprovalVerdict, PendingApproval, SessionRecord, SessionSummary } from './session.js';
 import type { SessionStore } from './store.js';
 
 export interface SessionManagerOptions<METADATA> {
@@ -31,6 +31,19 @@ export interface SessionManagerOptions<METADATA> {
    * one, or a resume, rather than refusing it with `SessionCapacityError`. Default: `true`.
    */
   suspendIdleWhenFull?: boolean;
+  /**
+   * Answers the approvals a turn asks for before anyone sees them: an approval policy, the grants
+   * of the session. A verdict is sent at once and the turn goes on, in the same stream, the client
+   * seeing the answer; `undefined` leaves the approval to a person, the session `awaiting-input`.
+   * Default: every approval waits for a person.
+   *
+   * An approval asked again right after it was answered, with the same input, is left to a
+   * person: a harness that does not take the answer (see the README) would ask forever.
+   */
+  approve?: (
+    approval: PendingApproval,
+    context: { session: SessionSummary<METADATA> },
+  ) => ApprovalVerdict | PromiseLike<ApprovalVerdict | undefined> | undefined;
   /** The ids of new sessions and of the messages of their turns. Default: `crypto.randomUUID`. */
   generateId?: () => string;
   /**
@@ -115,6 +128,15 @@ export interface SessionManager<METADATA = unknown> {
    * resumed first, its turn with it.
    */
   continue(id: string, options: ContinueOptions): Promise<SessionTurn<METADATA>>;
+  /**
+   * Changes what your application keeps with a session, its metadata, whatever its status: a
+   * title, the grants of an approval policy… Given a function, it is called with the metadata as
+   * they stand.
+   */
+  update(
+    id: string,
+    changes: { metadata: ((metadata: METADATA) => METADATA) | METADATA },
+  ): Promise<SessionSummary<METADATA>>;
   /** Cuts the turn under way short, and resolves once the session is written. */
   interrupt(id: string): Promise<void>;
   /** Suspends a session idle or awaiting input, as idleness would. */

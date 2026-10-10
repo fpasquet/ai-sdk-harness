@@ -11,6 +11,7 @@ body:
         - 'ai-sdk-sandbox-sbx'
         - 'ai-sdk-harness-plugins'
         - 'ai-sdk-harness-sessions'
+        - 'ai-sdk-harness-approval'
         - 'example-next-chat'
         - 'Documentation'
         - 'Other'

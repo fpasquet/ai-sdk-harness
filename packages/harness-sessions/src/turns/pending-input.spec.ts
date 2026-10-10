@@ -227,4 +227,47 @@ describe('describeResponses', () => {
       '- lookup: error: failed',
     ]);
   });
+
+  it('says the answers to the questions of the agent in words', () => {
+    const questions = {
+      allowPartialAnswers: true,
+      questions: [
+        {
+          id: 'lang',
+          question: 'Which language?',
+          options: [
+            { id: 'ts', label: 'TypeScript' },
+            { id: 'go', label: 'Go' },
+          ],
+        },
+        { id: 'name', question: 'What name?' },
+      ],
+    };
+    const pending = {
+      approvals: [],
+      toolCalls: [{ toolCallId: 'q', toolName: 'askUserQuestions', input: questions }],
+    };
+    const answer = (value: unknown) =>
+      describeResponses(pending, {
+        toolApprovalContinuations: [],
+        toolResultContinuations: [
+          {
+            type: 'tool-result',
+            toolCallId: 'q',
+            toolName: 'askUserQuestions',
+            output: { type: 'json', value: value as never },
+          },
+        ],
+      })
+        .split('\n')
+        .slice(1);
+
+    expect(
+      answer({
+        action: 'partially-answered',
+        answers: { lang: { optionIds: ['ts', 'rust'], freeform: 'or Zig' } },
+      }),
+    ).toEqual(['- Which language? — TypeScript; rust; or Zig', '- What name? — no answer']);
+    expect(answer({ action: 'declined' })).toEqual(['- I declined your questions.']);
+  });
 });

@@ -10,6 +10,7 @@ Open-source monorepo of community packages for the Vercel AI SDK harnesses (`@ai
 | `ai-sdk-sandbox-cloud-run` | `packages/sandbox-cloud-run` | A Cloud Run sandbox session for `HarnessAgent`, and the sandbox service that runs the sandboxes |
 | `ai-sdk-harness-plugins`   | `packages/harness-plugins`   | Plugins for `HarnessAgent`: tools, skills, commands, hooks, subagents, MCP servers              |
 | `ai-sdk-harness-sessions`  | `packages/harness-sessions`  | The lifecycle of `HarnessAgent` sessions: suspended when idle, resumed, several in one sandbox  |
+| `ai-sdk-harness-approval`  | `packages/harness-approval`  | An approval policy for `HarnessAgent` tool calls, grants for a session, the agent's questions   |
 
 Constraints:
 
@@ -76,9 +77,17 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - A session manager (`createSessionManager()`, `src/manager/`) runs the sessions of any `HarnessAgent`: it never wraps nor subclasses the agent, and reads of it only `createSession`, `stream` and `continueStream` (`SessionAgent`, `src/definitions/agent.ts`), of a harness session only `stop`, `destroy` and `hasUnfinishedTurn`.
 - Every change of status goes through one method, `transition()`, which writes the session to the `SessionStore` (queued per session by `SessionJournal`) and sends it to the subscribers. Starts run one at a time: the first one installs the harness in the sandbox. A resume keeps the store's record `suspended` until it is back, so a crash meanwhile leaves it resumable; a resume that fails stays `suspended` with its resume state.
 - How a session gets a sandbox is a `SessionSandboxes` (`src/sandboxes/`): `sharedSandbox()` hands out views of one sandbox (`fork({ ports })` of `ai-sdk-sandbox-sbx` and `ai-sdk-sandbox-cloud-run`), one bridge port each; `sandboxPerSession()` a sandbox each.
-- A turn's UI message stream is teed (`src/turns/turn-stream.ts`): the client reads one branch, the manager the other to its end, so the session is settled and written whether the client stays or not. What a paused turn waits for is read from its last message (`src/turns/pending-input.ts`).
+- The manager reads a turn's UI message streams to their end (`src/turns/turn-stream.ts`) and passes their chunks on to the client, so the session is settled and written whether the client stays or not. A turn may run several streams: when it pauses on approvals the `approve` option answers, the next stream continues the same client message (`src/turns/approval-answers.ts`). What a paused turn waits for is read from its last message (`src/turns/pending-input.ts`).
 - The folders are layered: `utils/` and `definitions/` (types and constants) are leaves, then `errors/` ← `store/`, `sandboxes/` and `turns/`, beside each other ← `manager/` (`eslint.config.mjs`).
 - Unit tests drive the manager with `test/fakes.ts`: an agent whose turns follow a script, built on `createUIMessageStream`, and sandboxes that record what they are asked. `test/*.e2e-spec.ts` run real Claude Code sessions in a Docker Sandbox and are not part of CI. The `examples/next-chat` screenshots `sessions`, `approval` and `resumed` show the package at work in its README.
+
+### `ai-sdk-harness-approval`
+
+- Isomorphic: it runs in the browser too, where the components of the registry use its helpers. No `node:` import in `src/` (`eslint.config.mjs`), and nothing at runtime from `@ai-sdk/harness`: its types only.
+- A policy (`defineApprovalPolicy()`, `src/policy/`) is evaluated on the host, on what the runtime asks about: it never writes into the sandbox. `agentSettings()` picks the `permissionMode` that makes the runtime ask what the policy may restrict; it decides nothing itself.
+- Shell commands are read by `src/utils/shell.ts`, a scanner, not a parser: chains, substitutions and redirections it recognizes; anything it misreads must end up matching no rule, so asked about. Add a case to `shell.spec.ts` with every change.
+- The folders are layered: `definitions/` is a leaf, then `utils/` ← `policy/` ← `describe/`, with `questions/` beside them (`eslint.config.mjs`).
+- The components of the docs' shadcn registry (`/r/<name>.json`, `docs/lib/registry.ts`) are the files of `examples/next-chat/components/harness/`: they run there against real sessions. `test/*.e2e-spec.ts` run a policy against real Claude Code sessions and are not part of CI; the `examples/next-chat` screenshots `policy` and `questions` show the package at work.
 
 ---
 
@@ -129,6 +138,7 @@ Add when the change touches the matching area:
 
 - `pnpm --filter ai-sdk-harness-plugins test:e2e` when changing how plugins reach a runtime (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code and Codex).
 - `pnpm --filter ai-sdk-harness-sessions test:e2e` when changing how sessions start, suspend or resume (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code).
+- `pnpm --filter ai-sdk-harness-approval test:e2e` when changing how a policy reads a call or answers it within a turn (same needs).
 - `pnpm --filter ai-sdk-sandbox-sbx test:e2e` when changing how the package drives `sbx` (needs Docker Sandboxes on the machine; `SBX_E2E_CLOUD=1` adds the cloud mode).
 - `CLOUD_RUN_SANDBOX_URL=… pnpm --filter ai-sdk-sandbox-cloud-run test:e2e` when changing how the service drives the `sandbox` CLI (needs the service deployed on Cloud Run, the gcloud account an invoker).
 - `pnpm docs:build` when editing anything under `docs/` or a README it includes.

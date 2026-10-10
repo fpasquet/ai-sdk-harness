@@ -1,0 +1,69 @@
+---
+title: ai-sdk-harness-approval
+description: The settings of an approval policy, what it makes of a tool call, and the helpers of the components, generated from the source.
+---
+
+## `defineApprovalPolicy(settings)`
+
+Returns an `ApprovalPolicy`: `evaluate()`, `agentSettings()`, `warnings()`, `answer()` and `approver()`.
+
+<AutoTypeTable
+  path="packages/harness-approval/src/definitions/policy.ts"
+  name="ApprovalPolicySettings"
+/>
+
+### `ApprovalRuleSet`
+
+The rules of commands, or of edits: the most restrictive matching rule wins.
+
+<AutoTypeTable path="packages/harness-approval/src/definitions/policy.ts" name="ApprovalRuleSet" />
+
+### `ApprovalEvaluation`
+
+What `evaluate()` makes of a tool call.
+
+<AutoTypeTable
+  path="packages/harness-approval/src/definitions/policy.ts"
+  name="ApprovalEvaluation"
+/>
+
+### `PolicyAgentSettings`
+
+What `agentSettings(harness)` gives, to spread into the settings of a `HarnessAgent`.
+
+<AutoTypeTable
+  path="packages/harness-approval/src/policy/agent-settings.ts"
+  name="PolicyAgentSettings"
+/>
+
+<AutoTypeTable
+  path="packages/harness-approval/src/policy/agent-settings.ts"
+  name="ApprovalHarness"
+/>
+
+### `ApprovalVerdict`
+
+What `approver()` answers, the `approve` option of `createSessionManager()`; `undefined` leaves the approval to a person.
+
+<AutoTypeTable path="packages/harness-approval/src/definitions/policy.ts" name="ApprovalVerdict" />
+
+## Always allow
+
+### `suggestGrant(request)`
+
+<AutoTypeTable path="packages/harness-approval/src/policy/grants.ts" name="GrantSuggestion" />
+
+An `ApprovalGrant` is `{ kind: 'command', prefix }`, `{ kind: 'edit', path? }` or `{ kind: 'tool', toolName }`.
+
+## Components
+
+### `describeToolCall(request)`
+
+<AutoTypeTable
+  path="packages/harness-approval/src/describe/describe-tool-call.ts"
+  name="ToolCallSummary"
+/>
+
+### `answersOf(questions, selection)`
+
+`AgentQuestions` and `AgentAnswers` are the input and the output of `askUserQuestions`, as `@ai-sdk/harness` defines them (`HarnessV1QuestionsToolInput`, `HarnessV1QuestionsToolOutput`).

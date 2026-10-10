@@ -41,7 +41,7 @@ return turn.toUIMessageStreamResponse();
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | A first message                        | Opens a sandbox, or a view of a shared one, and a harness session, in the background: a message sent meanwhile waits |
 | A message while a turn runs            | Refuses it: one turn at a time per session (`SessionConflictError`, status `busy`)                                   |
-| The turn asks approval for a tool call | Keeps the session `awaiting-input` until `continue()` brings the answer, even after a suspension or a restart        |
+| The turn asks approval for a tool call | Asks your `approve` option first, then keeps the session `awaiting-input` until `continue()` brings the answer       |
 | Nobody writes for `idleTimeoutMs`      | Suspends the session: its harness session stops with its state, its sandbox is freed. The next message resumes it    |
 | Every sandbox slot is taken            | Suspends the session idle the longest to make room                                                                   |
 | Your server stops (`shutdown()`)       | Cuts the turns under way short, and suspends every session: the next start resumes them on their next message        |
@@ -226,6 +226,31 @@ const turn =
 
 A session suspended while it waited keeps what it waits for: `continue()` resumes the session, without its paused turn, whose harness bridge the suspension stopped, and tells the agent the answers in a message. With Claude Code, see [Limitations](#limitations).
 
+The agent's questions wait the same way: Claude Code's `AskUserQuestion` reaches you as a call of `askUserQuestions` in `pendingInput.toolCalls`, and its answers are the tool's output, `addToolOutput()` in `useChat`, `toolResultContinuations` otherwise. A session resumed without its turn tells the agent the answers in words, the labels of the options picked.
+
+### Answered by a policy
+
+The `approve` option answers the approvals before anyone sees them. A verdict is sent at once and the turn goes on, in the same stream: the client sees the request, then its answer, then what the agent did. `undefined` leaves the approval to a person. [`ai-sdk-harness-approval`](https://ai-sdk-harness.pages.dev/docs/packages/harness-approval) gives one from a policy, with the "always allow" of each session kept in its metadata:
+
+```ts
+import { type ApprovalGrant, defineApprovalPolicy } from 'ai-sdk-harness-approval';
+
+const policy = defineApprovalPolicy({
+  commands: { allow: ['ls', 'git status', 'pnpm test'], deny: ['git push', 'rm -rf'] },
+});
+
+const sessions = createSessionManager<{ grants?: ApprovalGrant[] }>({
+  agent: () => new HarnessAgent({ harness, ...policy.agentSettings(harness) }),
+  sandboxes,
+  approve: policy.approver({ grants: ({ session }) => session.metadata.grants }),
+});
+
+// "Always allow": kept with the session, read by the next approvals.
+await sessions.update(id, { metadata: (metadata) => ({ ...metadata, grants }) });
+```
+
+When a pause holds several approvals and `approve` answers some, the session waits for the others: `pendingInput.approvals` carries the answers given in `decision`, and `continue()` sends them with the person's, which cannot overturn them. An approval asked again right after `approve` answered it, with the same input, is left to a person: a harness that does not take the answer would otherwise ask forever.
+
 ## Sandboxes
 
 Where each session runs is up to `sandboxes`:
@@ -313,6 +338,7 @@ Keep one manager per store: at its start, a manager takes the sessions the store
 | `closeSuspendedAfterMs` | never                    | Close a session suspended for this long                                                             |
 | `turnTimeoutMs`         | never                    | Cut a turn short after this long                                                                    |
 | `suspendIdleWhenFull`   | `true`                   | When every sandbox slot is taken, suspend the session idle the longest rather than refuse a new one |
+| `approve`               | none                     | Answers an approval before anyone sees it: `{ approved, reason }`, or `undefined` to ask a person   |
 | `generateId`            | `crypto.randomUUID`      | The ids of new sessions and of the messages of their turns                                          |
 | `errorMessage`          | `getHarnessErrorMessage` | What a client is told of an error in a turn; the session's `error` keeps the full message           |
 | `onError`               | `console.error`          | Called with what fails in the background: a start, a suspension, a write to the store               |
@@ -322,6 +348,7 @@ Keep one manager per store: at its start, a manager takes the sessions the store
 | `create({ id, metadata })` | Opens a session, and returns it `preparing`                                                                |
 | `send(id, options)`        | Starts a turn in reply to a message (`message`, `prompt`, `abortSignal`): a `SessionTurn`                  |
 | `continue(id, options)`    | Resumes a paused turn with its answers (`message`, `toolApprovalContinuations`, `toolResultContinuations`) |
+| `update(id, { metadata })` | Changes the metadata of a session, whatever its status: a value, or a function of the current one          |
 | `interrupt(id)`            | Cuts the turn under way short                                                                              |
 | `suspend(id)`              | Suspends an idle session now                                                                               |
 | `close(id)`                | Ends a session for good                                                                                    |
@@ -350,7 +377,7 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 
 ## Development
 
-`pnpm --filter ai-sdk-harness-sessions test:e2e` runs real Claude Code sessions in a Docker Sandbox: two side by side, suspended and resumed, across a restart, and waiting for an approval; it needs `sbx` signed in and a Claude credential. See [CONTRIBUTING.md](https://github.com/fpasquet/ai-sdk-harness/blob/main/CONTRIBUTING.md).
+`pnpm --filter ai-sdk-harness-sessions test:e2e` runs real Claude Code sessions in a Docker Sandbox: two side by side, suspended and resumed, across a restart, and waiting for an approval; it needs `sbx` signed in and a Claude credential. `ai-sdk-harness-approval`'s end-to-end tests cover `approve`. See [CONTRIBUTING.md](https://github.com/fpasquet/ai-sdk-harness/blob/main/CONTRIBUTING.md).
 
 ## License
 

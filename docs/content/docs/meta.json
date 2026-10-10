@@ -4,6 +4,8 @@
     "getting-started",
     "adding-plugins",
     "managing-sessions",
+    "approving-tool-calls",
+    "ui-components",
     "securing-credentials",
     "packages",
     "examples",

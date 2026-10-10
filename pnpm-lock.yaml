@@ -201,6 +201,9 @@ importers:
       ai:
         specifier: ^7.0.127
         version: 7.0.127(zod@4.6.5)
+      ai-sdk-harness-approval:
+        specifier: workspace:*
+        version: link:../../packages/harness-approval
       ai-sdk-harness-plugins:
         specifier: workspace:*
         version: link:../../packages/harness-plugins
@@ -354,6 +357,54 @@ importers:
     dependencies:
       vitest:
         specifier: '>=4.0.0'
+        version: 5.0.3(@types/node@24.19.1)(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+
+  packages/harness-approval:
+    devDependencies:
+      '@ai-sdk/harness':
+        specifier: ^1.0.138
+        version: 1.0.138(ws@8.22.0)(zod@4.6.5)
+      '@ai-sdk/harness-claude-code':
+        specifier: ^1.0.142
+        version: 1.0.142(zod@4.6.5)
+      '@ai-sdk/harness-codex':
+        specifier: ^1.0.140
+        version: 1.0.140(zod@4.6.5)
+      '@repo/build':
+        specifier: workspace:*
+        version: link:../configs/build
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../configs/eslint
+      '@repo/prettier-config':
+        specifier: workspace:*
+        version: link:../configs/prettier
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../configs/typescript
+      '@repo/vitest-config':
+        specifier: workspace:*
+        version: link:../configs/vitest
+      '@types/node':
+        specifier: ^24.13.5
+        version: 24.19.1
+      '@vitest/coverage-v8':
+        specifier: ^5.0.3
+        version: 5.0.3(vitest@5.0.3)
+      ai:
+        specifier: ^7.0.127
+        version: 7.0.127(zod@4.6.5)
+      ai-sdk-harness-sessions:
+        specifier: workspace:*
+        version: link:../harness-sessions
+      ai-sdk-sandbox-sbx:
+        specifier: workspace:*
+        version: link:../sandbox-sbx
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^5.0.3
         version: 5.0.3(@types/node@24.19.1)(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/harness-plugins:
