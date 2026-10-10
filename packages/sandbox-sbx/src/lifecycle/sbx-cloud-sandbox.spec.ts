@@ -131,6 +131,21 @@ describe('cloud sandboxes', () => {
     expect(sbx.state().secrets).toEqual([]);
   });
 
+  it('withdraws a secret the views of a sandbox share once the last of them releases it', async () => {
+    const session = await create();
+    const view = session.fork({ ports: [4001] });
+    await session.addRequestTransformations?.([anthropicTransformation('root')]);
+    await view.addRequestTransformations?.([anthropicTransformation('view')]);
+
+    await view.release();
+    expect(sbx.state().secrets.map(({ name }) => name)).toEqual([
+      'box-api-anthropic-com-authorization',
+    ]);
+
+    await session.release();
+    expect(sbx.state().secrets).toEqual([]);
+  });
+
   it('removes its secrets with the sandbox: they belong to the account', async () => {
     const session = await create();
     await session.addRequestTransformations?.([anthropicTransformation('placeholder')]);

@@ -371,8 +371,20 @@ Whatever it allows, the proxy never connects to a private address: loopback, lin
 | `destroy()`                | Deletes the sandbox and its snapshot. Idempotent                                                  |
 | `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                          |
 | `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                |
+| `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own (see below)    |
 
 `restricted()` returns an `Experimental_SandboxSession`: it can run commands and read and write files, but cannot suspend the sandbox, reach its ports or touch credentials. Pass it to AI SDK tools that accept `experimental_sandbox`.
+
+### Several sessions in one sandbox
+
+A bridge-backed harness, Claude Code or Codex, listens on the first port of the sandbox session it is given. To run several harness sessions side by side in one sandbox, give each its own view with `fork({ ports })`: the same sandbox and files, and a port of its own for its bridge.
+
+```ts
+const first = await agent.createSession({ sandboxSession: sandbox.fork({ ports: [4001] }) });
+const second = await agent.createSession({ sandboxSession: sandbox.fork({ ports: [4002] }) });
+```
+
+A view starts its own processes and hands its own credentials to the service, and its `release()` only touches them: releasing one session leaves the others running. Its `setRequestTransformations()` replaces its own credentials only. `stop()` and `destroy()` act on the whole sandbox, from any view: suspend it once no session uses it. [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions) hands out the ports, releases the views and suspends the sandbox for you.
 
 ## Options
 
@@ -472,7 +484,7 @@ To keep the bill down, suspend idle sandboxes early, destroy finished ones, and 
 - **No Docker, no `docker compose`, no PostgreSQL** in the sandbox: see [Docker and docker compose](#docker-and-docker-compose). Use `ai-sdk-sandbox-sbx` for projects that need containers.
 - **`/tmp` is not part of a snapshot.**
 - **pnpm's side-effects cache is off** in the sandboxes (`npm_config_side_effects_cache=false`): it crashes a Cloud Run sandbox.
-- **One bridge per port.** Run one harness session at a time per sandbox, or give each its own port.
+- **One bridge per port.** Run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
 
 ## Development
 

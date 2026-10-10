@@ -16,6 +16,17 @@ import { CloudRunSandboxSession } from './cloud-run-sandbox-session.js';
 type Protocol = 'http' | 'https' | 'ws';
 type Transformations = ReadonlyArray<HarnessV1RequestTransformation>;
 
+/** Where a view stands among the views of one sandbox. */
+interface ViewSettings {
+  /**
+   * The credentials each view handed to the service, which holds them all for the sandbox: what
+   * the views of one sandbox share.
+   */
+  readonly credentials?: Map<CloudRunNetworkSandboxSession, Transformations>;
+  /** Whether this is a view made by `fork()`, which never withdraws the credentials of others. */
+  readonly forked?: boolean;
+}
+
 /** The hosts a network policy allows: CIDRs have no meaning to a proxy that only sees names. */
 function allowedHostsOf(policy: HarnessV1NetworkPolicy): readonly string[] {
   if (policy.mode === 'allow-all') return ['*'];
@@ -51,24 +62,51 @@ export class CloudRunNetworkSandboxSession
   readonly id: string;
   private exposed: readonly number[];
 
-  constructor(handle: CloudRunSandboxHandle, ports: readonly number[]) {
+  private readonly view: Required<ViewSettings>;
+
+  constructor(handle: CloudRunSandboxHandle, ports: readonly number[], view: ViewSettings = {}) {
     super(handle);
     this.id = handle.name;
     this.defaultWorkingDirectory = handle.workingDirectory;
     this.exposed = [...ports];
+    this.view = { credentials: new Map(), forked: false, ...view };
   }
+
+  /**
+   * Another view of the same sandbox, with ports of its own. It shares the sandbox, its files and
+   * the service that runs it, and nothing else: the processes it starts and the credentials it
+   * hands to the service are its own, and its {@link release} only touches them. What lets several
+   * harness sessions, each with a bridge on its own port, run side by side in one sandbox.
+   *
+   * Its `setRequestTransformations` replaces its own credentials only. `stop()` and `destroy()` act
+   * on the whole sandbox, every view included.
+   */
+  fork = ({ ports }: { ports: readonly number[] }): CloudRunNetworkSandboxSession =>
+    new CloudRunNetworkSandboxSession({ ...this.handle, processes: new Set() }, ports, {
+      credentials: this.view.credentials,
+      forked: true,
+    });
 
   /**
    * Hands credentials to the service, which puts them in the requests on their way out to a base
    * URL. Always there: a harness then never forwards a real credential into the sandbox, where
    * the agent could read it.
    */
-  addRequestTransformations = (transformations: Transformations): Promise<void> =>
-    this.handle.client.addTransformations(this.handle.name, transformations);
+  addRequestTransformations = async (transformations: Transformations): Promise<void> => {
+    const { credentials } = this.view;
+    credentials.set(this, [...(credentials.get(this) ?? []), ...transformations]);
+    await this.handle.client.addTransformations(this.handle.name, transformations);
+  };
 
-  /** Replaces every credential the service holds for the sandbox. */
-  setRequestTransformations = (transformations: Transformations): Promise<void> =>
-    this.handle.client.setTransformations(this.handle.name, transformations);
+  /**
+   * Replaces every credential the service holds for the sandbox; on a view made by {@link fork},
+   * the credentials of that view only.
+   */
+  setRequestTransformations = async (transformations: Transformations): Promise<void> => {
+    if (!this.view.forked) this.view.credentials.clear();
+    this.view.credentials.set(this, transformations);
+    await this.syncCredentials();
+  };
 
   /** Ports the sandbox exposes, resolvable with {@link getPortEndpoint}. */
   get ports(): readonly number[] {
@@ -120,7 +158,8 @@ export class CloudRunNetworkSandboxSession
    */
   release = async (): Promise<void> => {
     await this.killAll();
-    await this.handle.client.setTransformations(this.handle.name, []);
+    this.view.credentials.delete(this);
+    await this.syncCredentials();
   };
 
   /**
@@ -148,4 +187,10 @@ export class CloudRunNetworkSandboxSession
     await this.killAll().catch(() => undefined);
     await this.handle.client.remove(this.handle.name);
   };
+
+  /** Hands the service the credentials every view of the sandbox still holds. */
+  private async syncCredentials(): Promise<void> {
+    const held = [...this.view.credentials.values()].flat();
+    await this.handle.client.setTransformations(this.handle.name, held);
+  }
 }

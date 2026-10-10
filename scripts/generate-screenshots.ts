@@ -5,7 +5,8 @@
  * Builds and starts the example, opens it in headless Chrome, sends one prompt to Claude Code
  * running in a Docker Sandbox, then one to Codex, and captures the empty chat with its plugins, the
  * commands the prompt completes, each answered conversation and the command the agent ran, then
- * one conversation per plugin use case, all at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
+ * one conversation per plugin use case, then the sessions: two conversations working side by side,
+ * one waiting for an approval, one resumed after a suspension. All at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
  * Claude credential; the real turns run on Haiku, and on Codex with its credential or the login
  * of its CLI. The library-docs use case needs the server to reach the Context7 MCP server.
  *
@@ -15,7 +16,8 @@
  *   SKIP_BUILD  reuse the already-built example
  *   SKIP_APP    an instance already serves $EXAMPLE_URL (no boot, no teardown)
  *
- * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else.
+ * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
+ * among them takes the screenshots of the sessions too.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
  * CODEX_PROMPT. The conversations run in a throwaway sandbox, removed at the end; the template
@@ -24,7 +26,8 @@
 import type { Browser, Page } from 'playwright-core';
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 
@@ -38,6 +41,8 @@ const CHROME_BIN = process.env.CHROME_BIN;
 const WIDTH = Number(process.env.WIDTH ?? 1440);
 const HEIGHT = Number(process.env.HEIGHT ?? 1000);
 const SANDBOX_ID = 'ai-sdk-harness-screenshots';
+/** The sessions of the run, kept apart from those of the developer's own runs, and removed. */
+const SESSIONS_DIR = mkdtempSync(join(tmpdir(), 'ai-sdk-harness-screenshots-'));
 const PROMPT =
   process.env.PROMPT ??
   'Write primes.js that prints the first five prime numbers, run it, then show them in a Markdown table with their rank.';
@@ -112,7 +117,7 @@ function run(command: string, args: string[]): void {
 function startExample(): ChildProcess {
   return spawn('pnpm', ['--filter', 'example-next-chat', 'start'], {
     detached: true,
-    env: { ...process.env, EXAMPLE_SANDBOX_ID: SANDBOX_ID },
+    env: { ...process.env, EXAMPLE_SANDBOX_ID: SANDBOX_ID, EXAMPLE_SESSIONS_DIR: SESSIONS_DIR },
     stdio: 'inherit',
   });
 }
@@ -139,21 +144,37 @@ async function capture(page: Page, name: string): Promise<void> {
 /** The prompt: a Tiptap editor, not a textarea. */
 const promptOf = (page: Page) => page.getByRole('textbox', { name: 'Message to the agent' });
 
-/** Sends the prompt and waits until the submit button is back to idle: no spinner, no stop. */
-async function converse(page: Page, prompt: string): Promise<void> {
+/** Sends the prompt, without waiting for the answer. */
+async function say(page: Page, prompt: string): Promise<void> {
   await promptOf(page).fill(prompt);
   // A message that opens with `/` may have the list of commands open: Enter would pick one.
   await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');
+}
+
+/**
+ * Waits until the submit button of the conversation shown is back to idle: no spinner, no stop.
+ * The other conversations stay mounted, hidden: only the visible button counts.
+ */
+async function settled(page: Page): Promise<void> {
   await page.waitForFunction(
-    () => {
-      const button = document.querySelector('button[aria-label="Submit"]');
-      return button !== null && button.querySelector('.animate-spin, .lucide-square') === null;
-    },
+    () =>
+      [...document.querySelectorAll<HTMLElement>('button[aria-label="Submit"]')].some(
+        (button) =>
+          button.offsetParent !== null &&
+          button.querySelector('.animate-spin, .lucide-square') === null,
+      ),
     null,
     { timeout: TURN_TIMEOUT_MS, polling: 1000 },
   );
   await page.waitForTimeout(1000);
+}
+
+/** Sends the prompt and waits for the turn to end. */
+async function converse(page: Page, prompt: string): Promise<void> {
+  await say(page, prompt);
+  await page.waitForTimeout(1000);
+  await settled(page);
 }
 
 /** Opens the first tool call matching `name`, when the agent made one, and brings it into view. */
@@ -203,6 +224,55 @@ async function openTool(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
+/** The conversation of the sidebar whose title matches `title`. */
+const conversation = (page: Page, title: RegExp) =>
+  page.locator('aside nav > div').filter({ hasText: title }).first();
+
+/**
+ * The sessions: two conversations working at once in the one sandbox, one waiting for the approval
+ * of a command, and one resumed, where it was, after a suspension.
+ */
+async function captureSessions(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  // Back to Claude Code, which asks before acting: the Codex conversation left it picked.
+  await page.getByRole('combobox', { name: 'Coding agent' }).click();
+  await page.getByRole('option', { name: 'Claude Code' }).click();
+  await say(
+    page,
+    'Write count.sh that prints the numbers 1 to 6, one every two seconds, run it, then say in one sentence what it printed.',
+  );
+  await page.waitForTimeout(3000);
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await say(
+    page,
+    'Write date.js that prints the date in ISO 8601, run it with node, and give its output.',
+  );
+  await page.getByText('Working').nth(1).waitFor({ timeout: TURN_TIMEOUT_MS });
+  await page.waitForTimeout(4000);
+  await capture(page, 'sessions');
+  await settled(page);
+
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await page.getByRole('button', { name: /acts freely/i }).click();
+  await say(page, 'Run `uname -a` in the shell, and tell me which kernel this sandbox runs.');
+  await page.getByRole('button', { name: 'Approve' }).waitFor({ timeout: TURN_TIMEOUT_MS });
+  await page.waitForTimeout(1000);
+  await capture(page, 'approval');
+  await page.getByRole('button', { name: 'Approve' }).click();
+  await page.waitForTimeout(1000);
+  await settled(page);
+
+  const primes = conversation(page, /primes/i);
+  await primes.hover();
+  await primes.getByRole('button', { name: 'Conversation actions' }).click();
+  await page.getByRole('menuitem', { name: /suspend now/i }).click();
+  await primes.getByText('Suspended').waitFor({ timeout: TURN_TIMEOUT_MS });
+  await primes.click();
+  await page.waitForTimeout(1000);
+  await converse(page, 'Which numbers did primes.js print? Answer from memory, in one line.');
+  await capture(page, 'resumed');
+}
+
 /** Starts a new conversation with Codex, picked in the harness selector. */
 async function switchToCodex(page: Page): Promise<void> {
   await page.getByRole('button', { name: /new chat/i }).click();
@@ -220,6 +290,12 @@ async function shoot(browser: Browser): Promise<void> {
   await page.waitForLoadState('networkidle');
   if (ONLY !== undefined) {
     await captureUseCases(page);
+    if (ONLY.includes('sessions')) {
+      // The conversation the sessions suspend and resume.
+      await page.getByRole('button', { name: /new chat/i }).click();
+      await converse(page, PROMPT);
+      await captureSessions(page);
+    }
     return;
   }
   await capture(page, 'empty');
@@ -232,6 +308,7 @@ async function shoot(browser: Browser): Promise<void> {
   await switchToCodex(page);
   await converse(page, CODEX_PROMPT);
   await capture(page, 'codex');
+  await captureSessions(page);
 }
 
 async function main(): Promise<void> {
@@ -249,6 +326,7 @@ async function main(): Promise<void> {
     await browser?.close();
     if (app?.pid !== undefined) process.kill(-app.pid, 'SIGTERM');
     if (app) spawnSync('sbx', ['rm', '--force', SANDBOX_ID], { stdio: 'inherit' });
+    rmSync(SESSIONS_DIR, { recursive: true, force: true });
   }
 }
 

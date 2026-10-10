@@ -15,3 +15,5 @@ pnpm-debug.log*
 next-env.d.ts
 .vercel
 .wrangler
+# The sessions of the next-chat example, resume states (and their secrets) included.
+.data
