@@ -14,6 +14,7 @@ import {
   Moon,
   Network,
   RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -38,7 +39,7 @@ const FEATURES: Feature[] = [
     icon: Box,
     title: 'Nothing runs in your app',
     description:
-      'Every command and file operation of the agent runs in its sandbox: a microVM, or a Cloud Run sandbox with no network of its own.',
+      'Every command and file operation of the agent runs in its sandbox: a microVM, a Cloud Run sandbox with no network of its own, or srt on your machine.',
   },
   {
     icon: KeyRound,
@@ -111,6 +112,20 @@ const PACKAGES: SandboxPackage[] = [
       'Calls authenticated by Cloud Run IAM',
     ],
   },
+  {
+    icon: ShieldCheck,
+    name: 'ai-sdk-sandbox-runtime',
+    title: 'Behind srt',
+    status: 'Preview',
+    href: '/docs/packages/sandbox-runtime',
+    description:
+      'Anthropic Sandbox Runtime on your machine: bubblewrap or sandbox-exec, no container to pull or boot.',
+    points: [
+      'Starts in milliseconds, works on your files where they are',
+      'Your home hidden, only the allowed hosts reachable',
+      "Credentials put in by srt's proxy",
+    ],
+  },
 ];
 
 const USAGE_SBX = `import { HarnessAgent } from '@ai-sdk/harness/agent';
@@ -144,6 +159,22 @@ const session = await agent.createSession({ sandboxSession });
 
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });
 await sandboxSession.stop(); // suspended to Cloud Storage: nothing billed until it resumes`;
+
+const USAGE_SRT = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { createSrtNetworkSandboxSession } from 'ai-sdk-sandbox-runtime';
+
+const agent = new HarnessAgent({ harness: createClaudeCode() });
+
+// Linux: sudo apt install bubblewrap socat ripgrep
+const sandboxSession = await createSrtNetworkSandboxSession({
+  ports: [4000],
+  workspace: process.cwd(), // read-write; the rest of the host read-only, your home hidden
+  template: await agent.getSandboxTemplate(),
+});
+const session = await agent.createSession({ sandboxSession });
+
+const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });`;
 
 export default function LandingPage() {
   return (
@@ -179,7 +210,14 @@ export default function LandingPage() {
           >
             Cloud Run sandbox
           </a>{' '}
-          on Google Cloud, scaled to zero between turns.
+          on Google Cloud, scaled to zero between turns, or your own machine behind{' '}
+          <a
+            className="text-fd-foreground underline underline-offset-4"
+            href="https://github.com/anthropics/sandbox-runtime"
+          >
+            Anthropic Sandbox Runtime
+          </a>
+          .
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -198,12 +236,15 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <Tabs items={['Docker Sandboxes', 'Cloud Run']}>
+          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'srt']}>
             <Tab value="Docker Sandboxes">
               <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
             </Tab>
             <Tab value="Cloud Run">
               <DynamicCodeBlock code={USAGE_CLOUD_RUN} lang="ts" />
+            </Tab>
+            <Tab value="srt">
+              <DynamicCodeBlock code={USAGE_SRT} lang="ts" />
             </Tab>
           </Tabs>
         </div>
@@ -214,11 +255,11 @@ export default function LandingPage() {
           Pick your sandbox
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
-          Both packages return the same{' '}
+          Every package returns the same{' '}
           <code className="text-sm">HarnessV1NetworkSandboxSession</code>: switching from one to the
           other is a matter of which function creates it.
         </p>
-        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
           {PACKAGES.map(({ icon: Icon, name, title, status, href, description, points }) => (
             <Link
               className="group flex flex-col rounded-xl border border-fd-border bg-fd-background p-6 transition-colors hover:bg-fd-accent"

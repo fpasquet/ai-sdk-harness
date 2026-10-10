@@ -15,6 +15,12 @@ export const SANDBOXES = {
     where: 'a Cloud Run sandbox on Google Cloud',
     description: 'running in a Cloud Run sandbox on Google Cloud',
   },
+  srt: {
+    label: 'srt sandbox',
+    packageName: 'ai-sdk-sandbox-runtime',
+    where: 'srt on your machine, behind its rules',
+    description: 'running on your machine behind Anthropic Sandbox Runtime (srt)',
+  },
 } as const;
 
 export type SandboxId = keyof typeof SANDBOXES;
@@ -24,6 +30,6 @@ export function sandboxIdOf(value: string | undefined): SandboxId {
   if (value === undefined || value === '') return 'sbx';
   if (value in SANDBOXES) return value as SandboxId;
   throw new Error(
-    `EXAMPLE_SANDBOX=${value} is not a sandbox of the example: use ${Object.keys(SANDBOXES).join(' or ')}.`,
+    `EXAMPLE_SANDBOX=${value} is not a sandbox of the example: use ${Object.keys(SANDBOXES).join(', ')}.`,
   );
 }

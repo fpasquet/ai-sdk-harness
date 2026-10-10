@@ -7,6 +7,11 @@ import {
   resumeCloudRunNetworkSandboxSession,
 } from 'ai-sdk-sandbox-cloud-run';
 import {
+  createSrtNetworkSandboxSession,
+  resumeSrtNetworkSandboxSession,
+  SrtSandboxNotFoundError,
+} from 'ai-sdk-sandbox-runtime';
+import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
   SbxSandboxNotFoundError,
@@ -26,7 +31,10 @@ export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
   killAllProcesses(): Promise<void>;
 };
 
-/** The sandbox the agents run in: `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise. */
+/**
+ * The sandbox the agents run in: `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, `srt` for srt on this
+ * machine, a Docker Sandbox otherwise.
+ */
 export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 
 /** The sandbox the example creates once, then finds again on every start. */
@@ -61,6 +69,10 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
     'You are a coding agent working in a Cloud Run sandbox: a Linux sandbox with Node.js and git, ' +
     'whose network only reaches the model API and the npm registry. Feel free to create files and ' +
     'run commands to answer.',
+  srt:
+    "You are a coding agent working in an srt sandbox on the user's machine: you may write in your " +
+    "working directory, read the rest of the machine but the user's home, and reach the model APIs " +
+    'and the npm registry only. Feel free to create files and run commands to answer.',
 };
 
 /** The template a new sandbox starts from, made only when one is created. */
@@ -71,7 +83,7 @@ type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
  * may have left its bridge behind, holding the port: whatever runs in a resumed sandbox is stopped.
  */
 export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox> {
-  const sandbox = await (SANDBOX === 'cloud-run' ? openCloudRun(template) : openSbx(template));
+  const sandbox = await OPENERS[SANDBOX](template);
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -130,3 +142,34 @@ async function openCloudRun(template: TemplateOf): Promise<Opened> {
   });
   return { resumed: false, session };
 }
+
+/**
+ * A sandbox on this machine, behind srt. It needs `bwrap`, `socat` and `rg` on Linux (`rg` on
+ * macOS): `SRT_SOCAT` and `SRT_RIPGREP` name binaries off the `PATH`, `SRT_ALLOW_ALL_UNIX_SOCKETS=1`
+ * runs without srt's seccomp filter where user namespaces are restricted (Ubuntu 24.04 and later).
+ */
+async function openSrt(template: TemplateOf): Promise<Opened> {
+  const settings = {
+    sandboxId: SANDBOX_ID,
+    ports: [BRIDGE_PORT],
+    runtime: {
+      socatPath: process.env.SRT_SOCAT,
+      ripgrepPath: process.env.SRT_RIPGREP,
+      allowAllUnixSockets: process.env.SRT_ALLOW_ALL_UNIX_SOCKETS === '1',
+    },
+  };
+  try {
+    return { resumed: true, session: await resumeSrtNetworkSandboxSession(settings) };
+  } catch (error) {
+    if (!(error instanceof SrtSandboxNotFoundError)) throw error;
+  }
+  const session = await createSrtNetworkSandboxSession({ ...settings, template: await template() });
+  return { resumed: false, session };
+}
+
+/** How the example opens each sandbox. */
+const OPENERS: Record<SandboxId, (template: TemplateOf) => Promise<Opened>> = {
+  sbx: openSbx,
+  'cloud-run': openCloudRun,
+  srt: openSrt,
+};

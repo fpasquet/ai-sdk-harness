@@ -1,13 +1,13 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes and Cloud Run sandboxes.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes and Anthropic Sandbox Runtime.
 seo:
   title: Community packages for AI SDK harnesses
 ---
 
 The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. The agent runs in a **sandbox**, and a sandbox comes from a package that knows how to create one.
 
-This project publishes such packages, under the `fpasquet` npm account: one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud; another in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns.
+This project publishes such packages, under the `fpasquet` npm account: one runs the agent in a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, on your machine or in Docker Sandboxes Cloud; another in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns; a third on your machine itself, behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime), the sandbox Claude Code puts around its own commands.
 
 <Cards>
   <Card
@@ -31,6 +31,11 @@ This project publishes such packages, under the `fpasquet` npm account: one runs
     description="Cloud Run sandboxes on Google Cloud: deploying the service, templates, suspending, credentials."
   />
   <Card
+    href="/docs/packages/sandbox-runtime"
+    title="ai-sdk-sandbox-runtime"
+    description="srt on your machine: what it needs on Linux, what the agent may read, write and reach, credentials."
+  />
+  <Card
     href="/docs/examples/next-chat"
     title="Next.js chat"
     description="A useChat page streaming Claude Code turns from a Docker Sandbox."
@@ -44,10 +49,11 @@ This project publishes such packages, under the `fpasquet` npm account: one runs
 
 ## Packages
 
-| Package                                                        | Sandbox                                                                                                                    | Status                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs                                 | Preview, 0.x (cloud mode experimental) |
-| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | [Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
+| Package                                                        | Sandbox                                                                                                                    | Status                                   |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`), local or cloud microVMs                                 | Preview, 0.x (cloud mode experimental)   |
+| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | [Cloud Run sandboxes](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                             |
+| [`ai-sdk-sandbox-runtime`](/docs/packages/sandbox-runtime)     | [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) (srt) on this host: bubblewrap or sandbox-exec  | Preview, 0.x (srt is a research preview) |
 
 ## Versioning
 

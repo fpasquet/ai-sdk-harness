@@ -11,6 +11,9 @@ const config: NextConfig = {
     '@ai-sdk/harness-codex',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',
+    // Copies its supervisor from next to its own module, and lets the sandbox read srt's helpers.
+    'ai-sdk-sandbox-runtime',
+    '@anthropic-ai/sandbox-runtime',
   ],
 };
 

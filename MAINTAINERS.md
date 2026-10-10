@@ -30,7 +30,7 @@ pnpm pack:dry-run   # what actually ends up in the tarball
 pnpm attw           # Are the Types Wrong? ESM-only type resolution
 ```
 
-The e2e suites need what GitHub-hosted runners do not have: run them locally before releasing a change to how a package drives its sandboxes. `ai-sdk-sandbox-sbx` needs Docker Sandboxes; `ai-sdk-sandbox-cloud-run` needs its service deployed on Cloud Run (see its README), its URL in `CLOUD_RUN_SANDBOX_URL` and gcloud signed in as an invoker, and is skipped otherwise.
+The e2e suites need what GitHub-hosted runners do not have: run them locally before releasing a change to how a package drives its sandboxes. `ai-sdk-sandbox-sbx` needs Docker Sandboxes; `ai-sdk-sandbox-cloud-run` needs its service deployed on Cloud Run (see its README), its URL in `CLOUD_RUN_SANDBOX_URL` and gcloud signed in as an invoker, and is skipped otherwise. `ai-sdk-sandbox-runtime` needs `bwrap`, `socat` and `rg` (Linux) or `rg` (macOS), a host where srt may use user namespaces (or `SRT_ALLOW_ALL_UNIX_SOCKETS=1`), and a Claude Code credential for its harness suite.
 
 ```bash
 pnpm test:e2e
