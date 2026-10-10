@@ -6,7 +6,8 @@
  * running in a Docker Sandbox, then one to Codex, and captures the empty chat with its plugins, the
  * commands the prompt completes, each answered conversation and the command the agent ran, then
  * one conversation per plugin use case, then the sessions: two conversations working side by side,
- * one waiting for an approval, one resumed after a suspension. All at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
+ * one resumed after a suspension; then the approvals: a policy allowing, refusing and asking, a
+ * command waiting for approval, the agent's questions. All at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
  * Claude credential; the real turns run on Haiku, and on Codex with its credential or the login
  * of its CLI. The library-docs use case needs the server to reach the Context7 MCP server.
  *
@@ -17,7 +18,7 @@
  *   SKIP_APP    an instance already serves $EXAMPLE_URL (no boot, no teardown)
  *
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
- * among them takes the screenshots of the sessions too.
+ * among them takes the screenshots of the sessions too, `approvals` those of the approvals.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
  * CODEX_PROMPT. The conversations run in a throwaway sandbox, removed at the end; the template
@@ -229,12 +230,12 @@ const conversation = (page: Page, title: RegExp) =>
   page.locator('aside nav > div').filter({ hasText: title }).first();
 
 /**
- * The sessions: two conversations working at once in the one sandbox, one waiting for the approval
- * of a command, and one resumed, where it was, after a suspension.
+ * The sessions: two conversations working at once in the one sandbox, and one resumed, where it
+ * was, after a suspension.
  */
 async function captureSessions(page: Page): Promise<void> {
   await page.getByRole('button', { name: /new chat/i }).click();
-  // Back to Claude Code, which asks before acting: the Codex conversation left it picked.
+  // Back to Claude Code: the Codex conversation left it picked.
   await page.getByRole('combobox', { name: 'Coding agent' }).click();
   await page.getByRole('option', { name: 'Claude Code' }).click();
   await say(
@@ -252,16 +253,6 @@ async function captureSessions(page: Page): Promise<void> {
   await capture(page, 'sessions');
   await settled(page);
 
-  await page.getByRole('button', { name: /new chat/i }).click();
-  await page.getByRole('button', { name: /acts freely/i }).click();
-  await say(page, 'Run `uname -a` in the shell, and tell me which kernel this sandbox runs.');
-  await page.getByRole('button', { name: 'Approve' }).waitFor({ timeout: TURN_TIMEOUT_MS });
-  await page.waitForTimeout(1000);
-  await capture(page, 'approval');
-  await page.getByRole('button', { name: 'Approve' }).click();
-  await page.waitForTimeout(1000);
-  await settled(page);
-
   const primes = conversation(page, /primes/i);
   await primes.hover();
   await primes.getByRole('button', { name: 'Conversation actions' }).click();
@@ -271,6 +262,63 @@ async function captureSessions(page: Page): Promise<void> {
   await page.waitForTimeout(1000);
   await converse(page, 'Which numbers did primes.js print? Answer from memory, in one line.');
   await capture(page, 'resumed');
+}
+
+/** Starts a new conversation with Claude Code, under the approval policy of the example. */
+async function newGuardedChat(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await page.getByRole('combobox', { name: 'Coding agent' }).click();
+  await page.getByRole('option', { name: 'Claude Code' }).click();
+  const toggle = page.getByRole('button', { name: /acts freely|approval policy/i });
+  await toggle.waitFor();
+  if (/acts freely/i.test(await toggle.innerText())) await toggle.click();
+  await page.getByRole('button', { name: /approval policy/i }).waitFor();
+  // Away from the toggle, whose card shows the policy on hover.
+  await page.mouse.move(WIDTH - 10, HEIGHT - 10);
+  await page.waitForTimeout(500);
+}
+
+/**
+ * The approvals: the policy allowing a command, refusing one and asking about the third, a command
+ * waiting for approval, and the agent's questions answered from a form.
+ */
+async function captureApprovals(page: Page): Promise<void> {
+  await newGuardedChat(page);
+  await say(
+    page,
+    'Run these three shell commands one at a time with the Bash tool, in this order: `pwd`, then `git push origin main`, then `whoami`. If one is refused, do not retry it: go on with the next. Then say in one sentence what happened.',
+  );
+  await page.getByRole('button', { name: 'Approve' }).waitFor({ timeout: TURN_TIMEOUT_MS });
+  await page.waitForTimeout(1000);
+  await capture(page, 'policy');
+  await page.getByRole('button', { name: /always allow/i }).click();
+  await page.waitForTimeout(1000);
+  await settled(page);
+
+  await newGuardedChat(page);
+  await say(page, 'Run `uname -a` in the shell, and tell me which kernel this sandbox runs.');
+  await page.getByRole('button', { name: 'Approve' }).waitFor({ timeout: TURN_TIMEOUT_MS });
+  await page.waitForTimeout(1000);
+  await capture(page, 'approval');
+  await page.getByRole('button', { name: 'Approve' }).click();
+  await page.waitForTimeout(1000);
+  await settled(page);
+
+  await newGuardedChat(page);
+  await say(
+    page,
+    'Before you write anything, ask me with the AskUserQuestion tool which language to write a hello world in, offering TypeScript, Python and Go, and whether to add a test, yes or no. Then write it and run it.',
+  );
+  const send = page.getByRole('button', { name: /send answers/i });
+  await send.waitFor({ timeout: TURN_TIMEOUT_MS });
+  for (const group of await page.getByRole('radiogroup').all()) {
+    await group.getByRole('radio').first().click();
+  }
+  await page.waitForTimeout(500);
+  await capture(page, 'questions');
+  await send.click();
+  await page.waitForTimeout(1000);
+  await settled(page);
 }
 
 /** Starts a new conversation with Codex, picked in the harness selector. */
@@ -286,6 +334,18 @@ async function shoot(browser: Browser): Promise<void> {
     viewport: { width: WIDTH, height: HEIGHT },
     colorScheme: 'light',
   });
+  try {
+    await shootPage(page);
+  } catch (error) {
+    // What the page showed when it failed, to see why.
+    const failure = join(tmpdir(), 'ai-sdk-harness-screenshots-failure.png');
+    await page.screenshot({ path: failure, fullPage: true });
+    console.error(`The page as it failed: ${failure}`);
+    throw error;
+  }
+}
+
+async function shootPage(page: Page): Promise<void> {
   await page.goto(EXAMPLE_URL);
   await page.waitForLoadState('networkidle');
   if (ONLY !== undefined) {
@@ -296,6 +356,7 @@ async function shoot(browser: Browser): Promise<void> {
       await converse(page, PROMPT);
       await captureSessions(page);
     }
+    if (ONLY.includes('approvals')) await captureApprovals(page);
     return;
   }
   await capture(page, 'empty');
@@ -309,6 +370,7 @@ async function shoot(browser: Browser): Promise<void> {
   await converse(page, CODEX_PROMPT);
   await capture(page, 'codex');
   await captureSessions(page);
+  await captureApprovals(page);
 }
 
 async function main(): Promise<void> {

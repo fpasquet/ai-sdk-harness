@@ -1,0 +1,70 @@
+---
+title: UI components
+description: shadcn/ui components for harness agents — the approval of a tool call, with "Always allow", and the agent's questions — installed from this site's registry.
+seo:
+  description: 'Install ToolApproval and QuestionsForm, shadcn/ui components for AI SDK harness agents, with npx shadcn add: approve, deny or always allow a tool call of Claude Code, and answer its AskUserQuestion questions in a useChat page.'
+---
+
+Components for a `useChat` page talking to a `HarnessAgent`, in the line of [AI Elements](https://ai-sdk.dev/elements): they are [shadcn/ui](https://ui.shadcn.com) components, copied into your project, yours to change. They run in the [Next.js example](/docs/examples/next-chat), whose source is what the registry serves.
+
+## Install
+
+```bash
+npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/tool-approval.json
+npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
+```
+
+Each goes to `components/harness/`, with what it needs: [`ai-sdk-harness-approval`](/docs/packages/harness-approval) for its helpers, and the shadcn/ui `button` and `input`. The index of the registry is at [`/r/registry.json`](/r/registry.json).
+
+## `ToolApproval`
+
+The approval of a tool call. While it waits, what the call does — "Run a command?" and the command, "Write a file?" and its path — with Deny, Always allow and Approve. Once answered, the verdict and its reason: "Approved: Allowed by the approval policy (`ls`)" when an [approval policy](/docs/approving-tool-calls) answered within the turn.
+
+![A command allowed by the policy, one refused, one waiting with Always allow](/screenshots/next-chat/policy.png)
+
+```tsx
+import { ToolApproval, type ToolApprovalResponse } from '@/components/harness/tool-approval';
+
+// For each tool part of a message, isToolUIPart(part):
+<ToolApproval part={part} onRespond={respond} />;
+
+function respond({ approvalId, approved, reason, grants }: ToolApprovalResponse) {
+  // grants: what "Always allow" grants, from suggestGrant(). Keep them with the session.
+  addToolApprovalResponse({ id: approvalId, approved, reason });
+}
+```
+
+| Prop        | Description                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| `part`      | A tool part of a `useChat` message. Renders nothing when the call asked no approval             |
+| `onRespond` | Called with the answer: `{ approvalId, approved, reason?, grants? }`. Without it, it only shows |
+| `className` | Classes for its container                                                                       |
+
+## `QuestionsForm`
+
+The questions of the agent, `askUserQuestions` — Claude Code's `AskUserQuestion`: each with its options, one to pick or several, and a free answer when it takes one, hidden as it is typed when it is a secret. Skip declines them. `AnsweredQuestions` shows the answers once given.
+
+![The agent's questions, answered from a form](/screenshots/next-chat/questions.png)
+
+```tsx
+import { AnsweredQuestions, QuestionsForm } from '@/components/harness/questions-form';
+
+if (getToolName(part) === 'askUserQuestions') {
+  return part.state === 'output-available' ? (
+    <AnsweredQuestions answers={part.output} questions={part.input} />
+  ) : (
+    <QuestionsForm
+      questions={part.input}
+      onSubmit={(output) =>
+        addToolOutput({ tool: 'askUserQuestions', toolCallId: part.toolCallId, output })
+      }
+    />
+  );
+}
+```
+
+| Prop        | Description                                                                       |
+| ----------- | --------------------------------------------------------------------------------- |
+| `questions` | The input of the call, `AgentQuestions`                                           |
+| `onSubmit`  | Called with its output, `AgentAnswers`: answered, partially answered, or declined |
+| `disabled`  | Locks the form, while the answers are sent                                        |

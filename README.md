@@ -18,6 +18,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 | [`ai-sdk-sandbox-cloud-run`](packages/sandbox-cloud-run) | Runs a harness agent in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-cloud-run)](https://www.npmjs.com/package/ai-sdk-sandbox-cloud-run) |
 | [`ai-sdk-harness-plugins`](packages/harness-plugins)     | Plugins for a harness agent: tools, skills, rules, slash commands, hooks, subagents and MCP servers, Claude Code plugins included                  | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-plugins)](https://www.npmjs.com/package/ai-sdk-harness-plugins)     |
 | [`ai-sdk-harness-sessions`](packages/harness-sessions)   | The lifecycle of a harness agent's sessions: suspended when idle, resumed on the next message and after a restart, several in one sandbox          | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-sessions)](https://www.npmjs.com/package/ai-sdk-harness-sessions)   |
+| [`ai-sdk-harness-approval`](packages/harness-approval)   | A person in the loop: an approval policy for the agent's commands and edits, "always allow" for a session, and the agent's questions answered      | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-approval)](https://www.npmjs.com/package/ai-sdk-harness-approval)   |
 
 ```ts
 import { HarnessAgent } from '@ai-sdk/harness/agent';
@@ -44,6 +45,7 @@ packages/
   sandbox-cloud-run/  ai-sdk-sandbox-cloud-run, published to npm (client and sandbox service)
   harness-plugins/    ai-sdk-harness-plugins, published to npm
   harness-sessions/   ai-sdk-harness-sessions, published to npm
+  harness-approval/   ai-sdk-harness-approval, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   next-chat/          a Next.js useChat page talking to Claude Code in a Docker Sandbox

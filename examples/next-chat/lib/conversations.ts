@@ -1,3 +1,4 @@
+import type { ApprovalGrant } from 'ai-sdk-harness-approval';
 import type { SessionStatus } from 'ai-sdk-harness-sessions';
 
 import type { HarnessId } from '@/lib/harnesses';
@@ -12,10 +13,12 @@ export interface Conversation {
   /** The ids of what it picked in the marketplace: plugins, and items on their own. */
   selection: string[];
   /**
-   * Whether the agent asks before it edits a file or runs a command (`permissionMode:
-   * 'allow-reads'`): the session waits for your approval meanwhile.
+   * Whether the agent follows the example's approval policy (`APPROVAL_POLICY`): what it allows
+   * runs, what it denies is refused, and the rest waits for your approval.
    */
   askFirst: boolean;
+  /** What you allowed for the rest of the conversation, with "Always allow". */
+  grants?: ApprovalGrant[];
   /** The first message, shortened: what the list of conversations shows. */
   title: string;
 }

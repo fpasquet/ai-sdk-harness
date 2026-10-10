@@ -44,3 +44,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - 'packages/harness-sessions/**'
+
+'package: harness-approval':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/harness-approval/**'
