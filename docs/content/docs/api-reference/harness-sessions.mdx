@@ -1,0 +1,81 @@
+---
+title: ai-sdk-harness-sessions
+description: The options of the session manager, the shape of a session and of a store, generated from the source.
+---
+
+## `createSessionManager(options)`
+
+Returns a `SessionManager`, which runs the sessions of your application.
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/definitions/manager.ts"
+  name="SessionManagerOptions"
+/>
+
+### `SessionManager`
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/manager.ts" name="SessionManager" />
+
+### `SendOptions`
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/manager.ts" name="SendOptions" />
+
+### `ContinueOptions`
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/manager.ts" name="ContinueOptions" />
+
+### `SessionTurn`
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/manager.ts" name="SessionTurn" />
+
+## Sessions
+
+### `SessionSummary`
+
+What `list()` gives of each session; `SessionRecord` adds its `messages`.
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/session.ts" name="SessionSummary" />
+
+### `PendingInput`
+
+What a session `awaiting-input` waits for.
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/session.ts" name="PendingInput" />
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/session.ts" name="PendingApproval" />
+
+## `SessionStore`
+
+Where sessions are kept. `createMemorySessionStore()` keeps them in memory.
+
+<AutoTypeTable path="packages/harness-sessions/src/definitions/store.ts" name="SessionStore" />
+
+## Sandboxes
+
+### `sharedSandbox(options)`
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/sandboxes/shared-sandbox.ts"
+  name="SharedSandboxOptions"
+/>
+
+### `sandboxPerSession(options)`
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/sandboxes/sandbox-per-session.ts"
+  name="SandboxPerSessionOptions"
+/>
+
+### `SessionSandboxes`
+
+What a strategy of your own implements.
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/definitions/sandboxes.ts"
+  name="SessionSandboxes"
+/>
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/definitions/sandboxes.ts"
+  name="SessionSandboxLease"
+/>

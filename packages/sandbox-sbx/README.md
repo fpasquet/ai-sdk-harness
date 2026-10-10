@@ -261,8 +261,22 @@ await createSbxNetworkSandboxSession({
 | `extendTtl(duration)` | Extends the time-to-live of a cloud sandbox (`'1h'`), within its 24 hours                         |
 | `destroy()`           | Removes the sandbox, its files and its secrets                                                    |
 | `restricted()`        | The files-and-processes view of the same sandbox, to hand to tools (see below)                    |
+| `fork({ ports })`     | Another view of the same sandbox, with ports, processes and credentials of its own (see below)    |
 
 `restricted()` returns an `Experimental_SandboxSession`: it can run commands and read and write files, but cannot stop the sandbox, publish ports or touch credentials. Pass it to AI SDK tools that accept `experimental_sandbox`.
+
+## Several sessions in one sandbox
+
+A bridge-backed harness, Claude Code or Codex, listens on the first port of the sandbox session it is given. To run several harness sessions side by side in one sandbox, give each its own view with `fork({ ports })`: the same microVM and files, and a port of its own for its bridge.
+
+```ts
+const sandbox = await createSbxNetworkSandboxSession({ sandboxId: 'shared', ports: [4000] });
+
+const first = await agent.createSession({ sandboxSession: sandbox.fork({ ports: [4001] }) });
+const second = await agent.createSession({ sandboxSession: sandbox.fork({ ports: [4002] }) });
+```
+
+A view starts its own processes, publishes its own ports and registers its own credentials, and its `release()` only touches them: releasing one session leaves the others running. Its `setRequestTransformations()` replaces its own credentials only. A cloud sandbox holds one secret per host and header, which the views share: the last view to release it withdraws it. `stop()` and `destroy()` act on the whole sandbox, from any view. [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions) hands out the ports and releases the views for you.
 
 ## Options
 
@@ -301,7 +315,7 @@ await createSbxNetworkSandboxSession({
 
 ## Limitations
 
-- **One bridge per port.** A bridge-backed harness listens on the first port: run one harness session at a time per sandbox, or give each its own port.
+- **One bridge per port.** A bridge-backed harness listens on the first port: run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
 
 ## Development
 

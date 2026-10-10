@@ -39,3 +39,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - 'packages/harness-plugins/**'
+
+'package: harness-sessions':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/harness-sessions/**'

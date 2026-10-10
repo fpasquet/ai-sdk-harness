@@ -491,4 +491,58 @@ describe('SbxNetworkSandboxSession', () => {
       expect('stop' in restricted).toBe(false);
     });
   });
+
+  describe('fork', () => {
+    it('gives a view of the same sandbox with ports of its own', async () => {
+      const session = await open({ ports: [4000] });
+      const view = session.fork({ ports: [4001] });
+
+      await view.writeTextFile({ path: 'shared.txt', content: 'same microVM' });
+      const endpoint = await view.getPortEndpoint({ port: 4001 });
+
+      expect(view.id).toBe(session.id);
+      expect(view.ports).toEqual([4001]);
+      expect(await session.readTextFile({ path: 'shared.txt' })).toBe('same microVM');
+      expect(endpoint.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      await expect(view.getPortEndpoint({ port: 4000 })).rejects.toBeInstanceOf(
+        HarnessCapabilityUnsupportedError,
+      );
+    });
+
+    it('releases its own processes, ports and placeholders, and nothing of the other views', async () => {
+      const session = await open({ ports: [4000] });
+      const view = session.fork({ ports: [4001] });
+      await session.getPortEndpoint({ port: 4000 });
+      await view.getPortEndpoint({ port: 4001 });
+      await session.addRequestTransformations?.([anthropicTransformation('main')]);
+      await view.addRequestTransformations?.([anthropicTransformation('view')]);
+      const kept = await session.spawn({ command: 'sleep 30' });
+      const stopped = await view.spawn({ command: 'sleep 30' });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      await view.release();
+
+      expect((await stopped.wait()).exitCode).not.toBe(0);
+      expect(sbx.state().ports.map(({ binding }) => binding.split(':').at(-1))).toEqual(['4000']);
+      expect(sbx.state().secrets.map(({ placeholder }) => placeholder)).toEqual(['main']);
+      await kept.kill();
+    });
+
+    it('replaces its own placeholders only with setRequestTransformations', async () => {
+      const session = await open();
+      const view = session.fork({ ports: [4001] });
+      await session.addRequestTransformations?.([anthropicTransformation('main')]);
+      await view.addRequestTransformations?.([anthropicTransformation('old')]);
+
+      await view.setRequestTransformations?.([anthropicTransformation('new')]);
+
+      expect(sbx.state().secrets.map(({ placeholder }) => placeholder)).toEqual(['main', 'new']);
+    });
+
+    it('keeps brokering off when the sandbox has it off', async () => {
+      const session = await open({ brokerCredentials: false });
+
+      expect(session.fork({ ports: [4001] }).addRequestTransformations).toBeUndefined();
+    });
+  });
 });

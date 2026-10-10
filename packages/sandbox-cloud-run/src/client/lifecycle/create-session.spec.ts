@@ -338,6 +338,24 @@ describe('the lifecycle of a Cloud Run sandbox', () => {
     expect(stdout).toBe('none\n');
   });
 
+  it('releases what a view made by fork started, and nothing of the other views', async () => {
+    const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    const view = session.fork({ ports: [4001] });
+    await started(await session.spawn({ command: 'echo started; sleep 33' }));
+    await started(await view.spawn({ command: 'echo started; sleep 34' }));
+
+    await view.release();
+
+    const { stdout } = await session.run({
+      // A killed process may take a moment to go.
+      command:
+        'for i in 1 2 3 4 5; do pgrep -f "slee[p] 34" >/dev/null || break; sleep 0.2; done; ' +
+        'pgrep -f "slee[p] 33" >/dev/null && echo kept; pgrep -f "slee[p] 34" || echo gone',
+    });
+    expect(stdout).toBe('kept\ngone\n');
+    await session.release();
+  });
+
   it('releases what a session holds, and keeps the sandbox running', async () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
     await started(await session.spawn({ command: 'echo started; sleep 32' }));
@@ -487,6 +505,24 @@ describe('the network of a Cloud Run sandbox', () => {
 
     expect(stdout).toBe('200 from upstream\n');
     expect(received[0]?.headers['authorization']).toBe('Bearer placeholder');
+  });
+
+  it('keeps the credentials of the other views when a view made by fork is released', async () => {
+    const session = await createCloudRunNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+    });
+    const view = session.fork({ ports: [4001] });
+    await session.addRequestTransformations?.([anthropicTransformation('placeholder')]);
+    await view.addRequestTransformations?.([anthropicTransformation('other')]);
+
+    await view.release();
+    const { stdout } = await view.run({ command: fetchFrom('MODEL_BASE_URL', '/z') });
+
+    expect(view.ports).toEqual([4001]);
+    expect(stdout).toBe('200 from upstream\n');
+    expect(received[0]?.headers['authorization']).toBe('Bearer real-token');
   });
 
   it('takes base URLs from the caller, on top of the service', async () => {

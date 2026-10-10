@@ -12,11 +12,15 @@ import {
   KeyRound,
   Laptop,
   Layers,
+  ListChecks,
+  MessagesSquare,
   Moon,
   Network,
+  PauseCircle,
   Plug,
   Puzzle,
   RotateCcw,
+  ServerCog,
   ShieldCheck,
   SquareSlash,
   Workflow,
@@ -117,6 +121,45 @@ const PLUGIN_FEATURES: Feature[] = [
   },
 ];
 
+const SESSION_FEATURES: Feature[] = [
+  {
+    icon: MessagesSquare,
+    title: 'Many conversations, one sandbox',
+    description:
+      'Each session works in a view of the sandbox, fork(), with a port of its own for its bridge: they run side by side.',
+  },
+  {
+    icon: PauseCircle,
+    title: 'Suspended when idle',
+    description:
+      'A session nobody writes to stops its harness session and frees its port; the next message resumes it where it was.',
+  },
+  {
+    icon: ServerCog,
+    title: 'Kept across restarts',
+    description:
+      'shutdown() suspends every session when your server stops; the next start resumes them, from a store you plug in.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Waiting for approvals',
+    description:
+      'A turn paused on a tool approval waits as long as it takes, suspended or not, until continue() brings the answer.',
+  },
+  {
+    icon: ListChecks,
+    title: 'Statuses to follow',
+    description:
+      'preparing, busy, idle, awaiting input, suspended: subscribe() sends every change, for a list that follows them live.',
+  },
+  {
+    icon: Layers,
+    title: 'Any sandbox, any runtime',
+    description:
+      'A shared sandbox, a sandbox per session or your own strategy, for every HarnessAgent: Claude Code, Codex and the others.',
+  },
+];
+
 interface SandboxPackage {
   description: string;
   href: string;
@@ -164,9 +207,37 @@ interface Shot {
   shows: string;
   src: string;
   title: string;
-  /** What the plugin did to get there. */
+  /** What the package did to get there. */
   how: string;
 }
+
+/** The sessions of the Next.js example, captured from real turns. */
+const SESSION_SHOTS: Shot[] = [
+  {
+    src: '/screenshots/next-chat/sessions.png',
+    alt: 'Two conversations of the Next.js example working at once, the others ready or suspended',
+    title: 'Two conversations at once',
+    shows:
+      'Two conversations work at the same time in the one Docker Sandbox; the list follows each session as the server changes it.',
+    how: 'sharedSandbox() gives each session a view of the sandbox with a port of its own; subscribe() sends every change to the page as server-sent events.',
+  },
+  {
+    src: '/screenshots/next-chat/approval.png',
+    alt: 'A shell command waiting for approval in the Next.js example, the conversation marked "Needs you"',
+    title: 'A command waiting for approval',
+    shows:
+      'Claude Code asks before running a command: the conversation needs you, and the turn waits for the answer.',
+    how: 'The session is awaiting-input with what it waits for; continue() reads the answer useChat sends back and resumes the turn, even after a suspension.',
+  },
+  {
+    src: '/screenshots/next-chat/resumed.png',
+    alt: 'A conversation resumed after a suspension: the agent remembers what it did',
+    title: 'Suspended, then resumed',
+    shows:
+      'The conversation was suspended, its port handed back; the next message resumed it, and the agent answered from what it did before.',
+    how: 'suspend() stops the harness session and keeps its resume state in the store; send() reattaches the sandbox and resumes the harness session from it.',
+  },
+];
 
 /**
  * The plugins at work in the Next.js example, captured from real turns: a whole plugin, then an
@@ -278,6 +349,21 @@ const message = '/review the error handling';
 const prompt = expandCommand(message, [guard])?.prompt ?? message;
 const { text } = await agent.generate({ session, prompt });`;
 
+const USAGE_SESSIONS = `import { createSessionManager, sharedSandbox } from 'ai-sdk-harness-sessions';
+
+const sessions = createSessionManager({
+  agent: () => agent,
+  // One sandbox for every session, each with a port of its own for its bridge.
+  sandboxes: sharedSandbox({ open: openSandbox, ports: Array.from({ length: 4 }, (_, i) => 4001 + i) }),
+  // Suspended after 10 minutes without a message; the next one resumes it.
+  idleTimeoutMs: 10 * 60_000,
+});
+
+// A route handler: create the session with the first message, stream each turn to useChat.
+await sessions.create({ id, metadata: { title: 'Fix the tests' } });
+const turn = await sessions.send(id, { message, abortSignal: request.signal });
+return turn.toUIMessageStreamResponse();`;
+
 const USAGE_CLOUD_RUN = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCloudRunNetworkSandboxSession } from 'ai-sdk-sandbox-cloud-run';
@@ -329,8 +415,10 @@ export default function LandingPage() {
           >
             Cloud Run sandbox
           </a>{' '}
-          on Google Cloud, scaled to zero between turns. And the plugins that extend it: tools,
-          skills, rules, slash commands, hooks, subagents and MCP servers, for every runtime.
+          on Google Cloud, scaled to zero between turns. The plugins that extend it: tools, skills,
+          rules, slash commands, hooks, subagents and MCP servers, for every runtime. And the
+          sessions that run your users&apos; conversations with it, suspended when idle and resumed
+          where they were.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -349,7 +437,7 @@ export default function LandingPage() {
           </a>
         </div>
         <div className="mt-14 w-full max-w-3xl text-left">
-          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'Plugins']}>
+          <Tabs items={['Docker Sandboxes', 'Cloud Run', 'Plugins', 'Sessions']}>
             <Tab value="Docker Sandboxes">
               <DynamicCodeBlock code={USAGE_SBX} lang="ts" />
             </Tab>
@@ -358,6 +446,9 @@ export default function LandingPage() {
             </Tab>
             <Tab value="Plugins">
               <DynamicCodeBlock code={USAGE_PLUGINS} lang="ts" />
+            </Tab>
+            <Tab value="Sessions">
+              <DynamicCodeBlock code={USAGE_SESSIONS} lang="ts" />
             </Tab>
           </Tabs>
         </div>
@@ -417,51 +508,45 @@ export default function LandingPage() {
           plugin directory, or written as JSON, with single items for a marketplace, and applies
           what an agent picks to whichever runtime it drives.
         </p>
-        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {PLUGIN_SHOTS.map(({ alt, how, shows, src, title }) => (
-            <figure
-              className="overflow-hidden rounded-xl border border-fd-border bg-fd-background"
-              key={src}
-            >
-              <Image
-                alt={alt}
-                className="h-auto w-full border-b border-fd-border"
-                height={1000}
-                sizes="(max-width: 768px) 100vw, 576px"
-                src={src}
-                width={1440}
-              />
-              <figcaption className="space-y-2 p-5 text-sm">
-                <h3 className="font-medium text-fd-foreground">{title}</h3>
-                <p className="text-fd-muted-foreground">{shows}</p>
-                <p className="text-fd-muted-foreground">
-                  <span className="font-medium text-fd-foreground">What the plugin does: </span>
-                  {how}
-                </p>
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-        <div className="mt-8 grid grid-cols-1 overflow-hidden rounded-xl border border-fd-border md:grid-cols-3">
-          {PLUGIN_FEATURES.map(({ icon: Icon, title, description }) => (
-            <div
-              className="-mr-px -mb-px border-r border-b border-fd-border bg-fd-background p-6"
-              key={title}
-            >
-              <div className="mb-3 flex items-center gap-3">
-                <Icon className="size-5 text-fd-muted-foreground" />
-                <h3 className="font-medium text-fd-foreground">{title}</h3>
-              </div>
-              <p className="text-sm text-fd-muted-foreground">{description}</p>
-            </div>
-          ))}
-        </div>
+        <ShotGrid label="What the plugin does" shots={PLUGIN_SHOTS} />
+        <FeatureGrid features={PLUGIN_FEATURES} />
         <div className="mt-8 flex justify-center">
           <Link
             className="inline-flex h-10 items-center gap-2 rounded-full border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
             href="/docs/adding-plugins"
           >
             Add plugins to your agent <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl px-4 py-12">
+        <h2 className="text-center text-2xl font-semibold tracking-tight text-fd-foreground md:text-3xl">
+          Run your users&apos; conversations
+        </h2>
+        <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
+          <Link
+            className="text-fd-foreground underline underline-offset-4"
+            href="/docs/packages/harness-sessions"
+          >
+            <code className="text-sm">ai-sdk-harness-sessions</code>
+          </Link>{' '}
+          runs the sessions of a <code className="text-sm">HarnessAgent</code>: several side by side
+          in one sandbox, one turn at a time each, suspended when nobody writes to them and resumed
+          where they were, across restarts of your server.
+        </p>
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {SESSION_SHOTS.map((shot) => (
+            <Shot key={shot.src} label="What the package does" shot={shot} />
+          ))}
+        </div>
+        <FeatureGrid features={SESSION_FEATURES} />
+        <div className="mt-8 flex justify-center">
+          <Link
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-fd-border bg-fd-background px-5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
+            href="/docs/managing-sessions"
+          >
+            Manage your agent&apos;s sessions <ArrowRight className="size-4" />
           </Link>
         </div>
       </section>
@@ -493,21 +578,69 @@ export default function LandingPage() {
       </section>
 
       <section className="mx-auto w-full max-w-6xl px-4 py-12">
-        <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-fd-border md:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, description }) => (
-            <div
-              className="-mr-px -mb-px border-r border-b border-fd-border bg-fd-background p-6"
-              key={title}
-            >
-              <div className="mb-3 flex items-center gap-3">
-                <Icon className="size-5 text-fd-muted-foreground" />
-                <h3 className="font-medium text-fd-foreground">{title}</h3>
-              </div>
-              <p className="text-sm text-fd-muted-foreground">{description}</p>
-            </div>
-          ))}
-        </div>
+        <FeatureGrid className="mt-0" features={FEATURES} />
       </section>
     </main>
+  );
+}
+
+/** A screenshot of the example, what it shows, and what the package did to get there. */
+function Shot({ label, shot: { alt, how, shows, src, title } }: { label: string; shot: Shot }) {
+  return (
+    <figure className="overflow-hidden rounded-xl border border-fd-border bg-fd-background">
+      <Image
+        alt={alt}
+        className="h-auto w-full border-b border-fd-border"
+        height={1000}
+        sizes="(max-width: 768px) 100vw, 576px"
+        src={src}
+        width={1440}
+      />
+      <figcaption className="space-y-2 p-5 text-sm">
+        <h3 className="font-medium text-fd-foreground">{title}</h3>
+        <p className="text-fd-muted-foreground">{shows}</p>
+        <p className="text-fd-muted-foreground">
+          <span className="font-medium text-fd-foreground">{label}: </span>
+          {how}
+        </p>
+      </figcaption>
+    </figure>
+  );
+}
+
+function ShotGrid({ label, shots }: { label: string; shots: Shot[] }) {
+  return (
+    <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
+      {shots.map((shot) => (
+        <Shot key={shot.src} label={label} shot={shot} />
+      ))}
+    </div>
+  );
+}
+
+function FeatureGrid({
+  className = 'mt-8',
+  features,
+}: {
+  className?: string;
+  features: Feature[];
+}) {
+  return (
+    <div
+      className={`${className} grid grid-cols-1 overflow-hidden rounded-xl border border-fd-border md:grid-cols-3`}
+    >
+      {features.map(({ icon: Icon, title, description }) => (
+        <div
+          className="-mr-px -mb-px border-r border-b border-fd-border bg-fd-background p-6"
+          key={title}
+        >
+          <div className="mb-3 flex items-center gap-3">
+            <Icon className="size-5 text-fd-muted-foreground" />
+            <h3 className="font-medium text-fd-foreground">{title}</h3>
+          </div>
+          <p className="text-sm text-fd-muted-foreground">{description}</p>
+        </div>
+      ))}
+    </div>
   );
 }
