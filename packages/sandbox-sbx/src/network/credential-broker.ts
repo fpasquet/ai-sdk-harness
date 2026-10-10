@@ -80,16 +80,34 @@ export function placeholderBroker(cli: SbxCli, sandbox: string): CredentialBroke
 }
 
 /**
+ * How many views of one sandbox (`fork()`) hold each named secret of a cloud sandbox: a view that
+ * releases a secret another one still holds leaves it to the proxy.
+ */
+export type SecretHolders = Map<string, number>;
+
+/**
  * Cloud sandboxes: the proxy sets the whole header on the requests to the host, whatever the
  * sandbox sent in it. Each secret is named after the sandbox, the host and the header, so
- * registering it again replaces it rather than piling up.
+ * registering it again replaces it rather than piling up. The views of one sandbox share these
+ * names, counted in `holders`: the last view to release a secret withdraws it.
  */
-export function headerBroker(cli: SbxCli, sandbox: string): CredentialBroker {
+export function headerBroker(
+  cli: SbxCli,
+  sandbox: string,
+  holders: SecretHolders = new Map(),
+): CredentialBroker {
   const names = new Set<string>();
   const remove = (name: string) => cli.run(['secret', 'rm', name, '--force']);
 
   const release = async (): Promise<void> => {
-    for (const name of names) await remove(name);
+    for (const name of names) {
+      const held = (holders.get(name) ?? 1) - 1;
+      if (held > 0) holders.set(name, held);
+      else {
+        holders.delete(name);
+        await remove(name);
+      }
+    }
     names.clear();
   };
   return {
@@ -112,6 +130,7 @@ export function headerBroker(cli: SbxCli, sandbox: string): CredentialBroker {
           '--value',
           secret,
         ]);
+        if (!names.has(name)) holders.set(name, (holders.get(name) ?? 0) + 1);
         names.add(name);
       }
     },

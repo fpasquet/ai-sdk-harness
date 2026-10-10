@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
+A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -46,7 +46,7 @@ CLOUD_RUN_SANDBOX_URL=<the URL printed above>
 
 The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs and the npm registry, nothing else.
 
-After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends the conversation: the agent's session is stopped with its state, and the sandbox saved to a snapshot. Nothing runs, nothing is billed. The next message brings the sandbox back and the agent picks the conversation up where it was:
+After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends a conversation: its harness session is stopped with its state. Once no conversation holds the sandbox, the sandbox is saved to a snapshot: nothing runs, nothing is billed. The next message brings the sandbox back, and the agent picks the conversation up where it was:
 
 ```mermaid
 stateDiagram-v2
@@ -56,9 +56,9 @@ stateDiagram-v2
   Idle --> Suspended: 5 minutes without a message
   Suspended --> Working: next message, sandbox restored, conversation resumed
   note right of Suspended
-    Agent session stopped with its state,
-    sandbox saved to Cloud Storage,
-    nothing running, nothing billed
+    Harness session stopped with its state;
+    with no conversation left, sandbox saved
+    to Cloud Storage: nothing billed
   end note
 ```
 
@@ -67,6 +67,51 @@ To delete the sandbox:
 ```bash
 curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
+```
+
+## Conversations
+
+Every conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md) (`lib/sessions.ts`), listed on the left with its status as the server changes it.
+
+### Several at once
+
+![Two conversations working at once in the one Docker Sandbox, the others ready or suspended](../../docs/public/screenshots/next-chat/sessions.png)
+
+**What it shows:** two conversations work at the same time, each a Claude Code session of its own in the one sandbox. A conversation keeps streaming while another one is shown: every conversation opened in the tab stays mounted. The list says what each session is doing — preparing, working, ready, waiting for you, suspended —, how many turns it had, and when it last changed.
+
+**What the package does:** `sharedSandbox()` gives each session a view of the sandbox (`fork()`), with a port of its own for its bridge: four sessions are live at once (`SESSION_PORTS`), and a fifth suspends the one idle the longest. `subscribe()` sends every change of every session; `app/api/sessions/events/route.ts` passes them on to the page as server-sent events.
+
+### Asking before acting
+
+![Claude Code waiting for the approval of a shell command: the conversation needs you](../../docs/public/screenshots/next-chat/approval.png)
+
+**What it shows:** with "Asks before acting" picked before the first message, Claude Code asks before it edits a file or runs a command. The conversation is marked "Needs you", and the prompt waits for the answer.
+
+**What the package does:** the agent runs with `permissionMode: 'allow-reads'`. The turn pauses on the tool approval, and the session waits, `awaiting-input`, with what it waits for in `pendingInput`. Approving it with `addToolApprovalResponse()` sends the conversation back (`sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses`); the route sees the agent's message last and calls `continue()`, which reads the answer from it and resumes the turn, even after a suspension.
+
+"Asks before acting" is offered for Claude Code only: the Codex harness adapter runs Codex with approvals turned off ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). And a Claude Code conversation that was suspended, or that outlived a restart of the server, asks for each approval again and again once resumed ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)): approve in the conversation before it is suspended.
+
+### Suspended, then resumed
+
+![A conversation suspended from the list, then resumed: the agent answers from what it did before](../../docs/public/screenshots/next-chat/resumed.png)
+
+**What it shows:** the conversation was suspended ("Suspend now" in its menu, or 15 minutes without a message, 5 on Cloud Run), its port handed back. Its next message resumed it, and Claude Code answered from the conversation it had before.
+
+**What the package does:** `suspend()` stops the harness session, keeps its resume state in the store, and releases the sandbox view. The next `send()` takes a view again and resumes the harness session from that state. On Cloud Run, the sandbox itself is suspended once no conversation holds it (`stopWhenUnused`). The sessions are kept in `.data/sessions`, as JSON files (`lib/session-store.ts`): stopping the dev server suspends them (`shutdown()`), and they resume after it starts again.
+
+```mermaid
+stateDiagram-v2
+  [*] --> preparing: first message
+  preparing --> idle: sandbox view and harness session ready
+  idle --> busy: a message
+  busy --> idle: the turn ends
+  busy --> awaiting_input: the agent asks before acting
+  awaiting_input --> busy: approved or denied
+  idle --> suspended: idle, "Suspend now", or the server stops
+  awaiting_input --> suspended: idle, or the server stops
+  suspended --> preparing: next message
+  idle --> [*]: Delete
+  suspended --> [*]: Delete
 ```
 
 ## A marketplace
@@ -123,19 +168,20 @@ Each plugin and item of the marketplace, a prompt that puts it to work, and what
 
 ## How it works
 
-| File                                                                | What it does                                                                                                                                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lib/agent.ts`                                                      | One `HarnessAgent` per harness, model and plugins (`withPlugins`), the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
-| `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                                                      |
-| `app/api/chat/route.ts`                                             | Expands a slash command (`expandCommand`), sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                 |
-| `lib/plugins.ts`, `plugins/`, `marketplace/`                        | The marketplace: three plugins written in code, a Claude Code plugin loaded from its directory, and a plugin and items written in JSON; one catalog, which the page describes and the route resolves               |
-| `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                                 |
-| `components/chat.tsx`                                               | `useChat`, the conversation, the suggestions, the prompt input and the agent, model and plugin pickers                                                                                                             |
-| `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                                 |
-| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, or a tool call                                                                                                                                                         |
-| `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                          |
+| File                                                                | What it does                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/sessions.ts`, `lib/session-store.ts`                           | The conversations, sessions of `ai-sdk-harness-sessions`: one `HarnessAgent` per harness, model, permission mode and plugins (`withPlugins`), one shared sandbox, a store of JSON files, suspension when idle |
+| `app/api/sessions/`, `components/session-list.tsx`                  | The list of conversations: their statuses as server-sent events, "Suspend now" and "Delete"                                                                                                                   |
+| `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                                                 |
+| `app/api/chat/route.ts`                                             | Opens the session with the first message, expands a slash command (`expandCommand`), sends the message or the approvals to the session, and streams the turn back                                             |
+| `lib/plugins.ts`, `plugins/`, `marketplace/`                        | The marketplace: three plugins written in code, a Claude Code plugin loaded from its directory, and a plugin and items written in JSON; one catalog, which the page describes and the route resolves          |
+| `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                            |
+| `components/chat.tsx`                                               | The conversations open in the tab, each with its `useChat`, the suggestions, the prompt input and the agent, model, plugin and approval pickers                                                               |
+| `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                            |
+| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, or a tool call, with its approval buttons while the agent waits                                                                                                   |
+| `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                     |
 
-The coding agent keeps the conversation in its own session, so the route only sends the new message. The bridge listens on a single port, so the example holds one conversation at a time: a new one ends the previous session and keeps the sandbox.
+The coding agent keeps the conversation in its own session, so the route only sends the new message. Each bridge listens on a port of its own, in a view of the sandbox: the conversations run side by side, and the sandbox stays when a conversation is deleted.
 
 `next.config.ts` keeps the harness packages out of the server bundle (`serverExternalPackages`): the harnesses read their sandbox bridge from files next to their own module.
 
@@ -148,3 +194,5 @@ sbx stop ai-sdk-harness-example   # stops the microVM, keeps its files
 sbx rm ai-sdk-harness-example     # removes it
 sbx template ls                   # the template images, removable with `sbx template rm`
 ```
+
+The conversations are kept in `.data/sessions`: remove the directory to forget them.

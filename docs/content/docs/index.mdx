@@ -1,14 +1,15 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes and plugins.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes, plugins and sessions.
 seo:
   title: Community packages for AI SDK harnesses
 ---
 
-The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. This project publishes community packages for it, under the `fpasquet` npm account, of two kinds:
+The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) drive a coding-agent runtime (Claude Code, Codex, OpenCode…) from your application, through a `HarnessAgent`. This project publishes community packages for it, under the `fpasquet` npm account, of three kinds:
 
 - **Sandboxes**: where the agent runs. Every command and file operation of the agent happens there, and the credentials stay outside.
 - **Plugins**: what the agent can do. Tools, skills, rules, slash commands, hooks, subagents and MCP servers, bundled into plugins that apply to every runtime.
+- **Sessions**: the conversations of your users with the agent. Several side by side in one sandbox, suspended when idle, resumed on the next message and after a restart.
 
 <Cards>
   <Card
@@ -20,6 +21,11 @@ The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) d
     href="/docs/adding-plugins"
     title="Adding plugins"
     description="Give the agent a hook, a slash command, a skill and an MCP server, in code or JSON, then let it pick from a marketplace."
+  />
+  <Card
+    href="/docs/managing-sessions"
+    title="Managing sessions"
+    description="Run many conversations in one sandbox, suspend them when idle, resume them after a restart, and wait for approvals."
   />
   <Card
     href="/docs/securing-credentials"
@@ -59,6 +65,12 @@ A sandbox package gives `HarnessAgent.createSession({ sandboxSession })` what it
 ![A hook at work in the Next.js example: the agent may not read the .env file](/screenshots/next-chat/item-hook.png)
 
 A hook at work in the [Next.js example](/docs/examples/next-chat): written in JSON with its script, it runs in the sandbox before each read or shell command of Claude Code. It blocked the reading of `.env`, and told the agent why.
+
+## Sessions
+
+[`ai-sdk-harness-sessions`](/docs/packages/harness-sessions) (Preview, 0.x) runs the sessions of a `HarnessAgent` for you, whatever the runtime and the sandbox: one turn at a time per session, several sessions side by side in one sandbox (each in a view of it, `fork()`), a session suspended when nobody writes to it and resumed on the next message, a turn paused until the user approves a command, and every session suspended when your server stops, to be resumed after it starts again.
+
+![Two conversations of the Next.js example working at once in one Docker Sandbox](/screenshots/next-chat/sessions.png)
 
 ## Versioning
 

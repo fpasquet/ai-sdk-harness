@@ -23,6 +23,9 @@ export class ExampleConfigurationError extends Error {
 
 /** What the example needs of a sandbox, whichever package made it. */
 export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
+  fork(options: { ports: readonly number[] }): HarnessV1NetworkSandboxSession & {
+    release(): Promise<void>;
+  };
   killAllProcesses(): Promise<void>;
 };
 
@@ -33,15 +36,18 @@ export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 const SANDBOX_ID = process.env.EXAMPLE_SANDBOX_ID ?? 'ai-sdk-harness-example';
 
 /**
- * How long a conversation may stay idle before its sandbox is suspended: 5 minutes on Cloud Run,
- * where an idle sandbox is still billed while its bridge stays connected; never for a local Docker
- * Sandbox. `EXAMPLE_SUSPEND_AFTER_MS` overrides it, 0 never suspends.
+ * How long a conversation may stay idle before it is suspended: 5 minutes on Cloud Run, where a
+ * sandbox is billed while it runs, 15 minutes with a local Docker Sandbox.
+ * `EXAMPLE_SUSPEND_AFTER_MS` overrides it, 0 never suspends.
  */
 export const SUSPEND_AFTER_MS = Number(
-  process.env.EXAMPLE_SUSPEND_AFTER_MS ?? (SANDBOX === 'cloud-run' ? 5 * 60_000 : 0),
+  process.env.EXAMPLE_SUSPEND_AFTER_MS ?? (SANDBOX === 'cloud-run' ? 5 : 15) * 60_000,
 );
 
-/** Where the harness bridge listens inside the sandbox. */
+/**
+ * A port the sandbox is opened with. The conversations' bridges listen on ports of their own, in
+ * views of the sandbox (`lib/sessions.ts`).
+ */
 const BRIDGE_PORT = 4000;
 
 /** The bridges install their dependencies with pnpm, which the `shell` kit does not ship. */
@@ -67,8 +73,9 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
 type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
 
 /**
- * Reattaches to the example's sandbox, or creates it from `template()`. A previous run of the example
- * may have left its bridge behind, holding the port: whatever runs in a resumed sandbox is stopped.
+ * Reattaches to the example's sandbox, or creates it from `template()`. A previous run of the
+ * example may have left its bridges behind, holding their ports: whatever runs in a resumed sandbox
+ * is stopped.
  */
 export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox> {
   const sandbox = await (SANDBOX === 'cloud-run' ? openCloudRun(template) : openSbx(template));
