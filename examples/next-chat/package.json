@@ -23,6 +23,7 @@
     "@radix-ui/react-use-controllable-state": "^1.2.6",
     "ai": "^7.0.127",
     "ai-sdk-sandbox-cloud-run": "workspace:*",
+    "ai-sdk-sandbox-runtime": "workspace:*",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

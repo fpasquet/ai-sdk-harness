@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
+A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -27,6 +27,23 @@ pnpm example:dev                                                   # http://loca
 Claude Code takes `CLAUDE_CODE_OAUTH_TOKEN` (the long-lived token `claude setup-token` prints for a Claude subscription) or `ANTHROPIC_API_KEY`; Codex takes `OPENAI_API_KEY`. Without them, each harness falls back to the login of its own CLI on your machine (`claude`, `codex`), if it finds one. With a ChatGPT login, Codex asks for a `ChatGPT-Account-ID` header a local sandbox proxy cannot add: it is left out with a warning, and Codex works without it.
 
 The very first message takes a few minutes: the sandbox is created, Claude Code and Codex are installed in it, then it is saved as a template image. Every later start reuses both and answers in seconds.
+
+## Run it behind srt
+
+On Linux or macOS, the chat can run its agents on your machine itself, behind srt, with neither Docker Sandboxes nor a cloud account. On Linux, install what srt needs first (see [the requirements](../../packages/sandbox-runtime/README.md#linux)):
+
+```bash
+sudo apt install bubblewrap socat ripgrep
+```
+
+Then, in `.env.local`:
+
+```dotenv
+EXAMPLE_SANDBOX=srt
+# SRT_ALLOW_ALL_UNIX_SOCKETS=1   # where Ubuntu refuses srt's seccomp filter: the error says so
+```
+
+The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs and the npm registry only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
 
 ## Run it on Cloud Run
 
@@ -74,7 +91,7 @@ curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
 | File                                        | What it does                                                                                                                                                                              |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lib/agent.ts`                              | One `HarnessAgent` per harness and model, the sandbox (resumed when it exists, created from a template with both harnesses otherwise) and the harness session of the current conversation |
-| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                             |
+| `lib/sandbox.ts`                            | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox, a Cloud Run sandbox or an srt sandbox                                                                                        |
 | `app/api/chat/route.ts`                     | Sends the last user message to the session and streams the turn back with `toUIMessageStreamResponse()`                                                                                   |
 | `lib/harnesses.ts`                          | The coding agents and the models each one offers, shared by the page and the route                                                                                                        |
 | `components/chat.tsx`                       | `useChat`, the conversation, the suggestions, the prompt input and the agent and model pickers                                                                                            |

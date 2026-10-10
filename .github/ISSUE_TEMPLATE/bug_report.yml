@@ -9,6 +9,7 @@ body:
       label: Package
       options:
         - 'ai-sdk-sandbox-sbx'
+        - 'ai-sdk-sandbox-runtime'
         - 'example-next-chat'
         - 'Documentation'
         - 'Other'
@@ -48,6 +49,7 @@ body:
         - Node:
         - pnpm:
         - sbx (`sbx version`):
+        - srt (`@anthropic-ai/sandbox-runtime` version, and `bwrap --version` on Linux):
         - @ai-sdk/harness:
         - OS:
     validations:
