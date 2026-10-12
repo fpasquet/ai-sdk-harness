@@ -1,0 +1,8 @@
+{
+  "kind": "command",
+  "name": "npm",
+  "description": "Size an npm package up before adding it",
+  "argumentHint": "<package>",
+  "prompt": "Look the npm package $1 up with the npm-latest tool, then tell me in a few lines what it is, its latest version and license, and how many dependencies it would add.",
+  "requires": ["tool:npm-latest"]
+}

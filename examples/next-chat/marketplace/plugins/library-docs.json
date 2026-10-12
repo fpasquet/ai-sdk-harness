@@ -1,0 +1,19 @@
+{
+  "name": "library-docs",
+  "description": "Up-to-date library documentation from the Context7 MCP server, connected by the server: a whole plugin kept as data.",
+  "mcpServers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  },
+  "commands": [
+    {
+      "name": "docs",
+      "description": "Answer a question from a library's documentation",
+      "argumentHint": "<library> <question>",
+      "prompt": "Answer this question from the current documentation of the library: resolve the library id with the context7_resolve-library-id tool, then query its documentation with context7_query-docs, and cite what you used. $ARGUMENTS",
+      "requires": ["mcp-server:context7"]
+    }
+  ]
+}

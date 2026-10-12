@@ -1,0 +1,18 @@
+{
+  "kind": "tool",
+  "name": "npm-latest",
+  "type": "http",
+  "description": "Read the latest version of an npm package from the registry: its version, description, license and dependencies.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "The package name, scope included: @ai-sdk/harness"
+      }
+    },
+    "required": ["name"],
+    "additionalProperties": false
+  },
+  "url": "https://registry.npmjs.org/{name}/latest"
+}

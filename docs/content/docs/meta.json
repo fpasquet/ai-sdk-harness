@@ -2,6 +2,7 @@
   "pages": [
     "index",
     "getting-started",
+    "adding-plugins",
     "securing-credentials",
     "packages",
     "examples",

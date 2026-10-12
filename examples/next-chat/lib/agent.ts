@@ -1,8 +1,10 @@
 import type { HarnessAgentResumeSessionState, HarnessAgentSession } from '@ai-sdk/harness/agent';
+import type { Plugin } from 'ai-sdk-harness-plugins';
 
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
 import { createHarnessSandboxTemplate, HarnessAgent } from '@ai-sdk/harness/agent';
+import { withPlugins } from 'ai-sdk-harness-plugins';
 
 import type { HarnessId } from '@/lib/harnesses';
 import type { ExampleSandbox } from '@/lib/sandbox';
@@ -20,7 +22,10 @@ const HARNESS_ADAPTERS = {
 };
 
 interface ExampleState {
-  /** One agent per harness and model, built the first time a conversation asks for it. */
+  /**
+   * One agent per harness, model and selection of the marketplace (by its fingerprint), built the
+   * first time a conversation asks for it.
+   */
   agents: Map<string, HarnessAgent>;
   /** The one sandbox of this process. */
   sandbox?: Promise<ExampleSandbox>;
@@ -38,17 +43,30 @@ interface ExampleState {
 const globals = globalThis as { __aiSdkSbxExample?: ExampleState };
 const state: ExampleState = (globals.__aiSdkSbxExample ??= { agents: new Map() });
 
-/** The agent running `harness` on `model`. */
-export function agentFor(harness: HarnessId, model: string): HarnessAgent {
-  const key = `${harness}:${model}`;
+/**
+ * The agent running `harness` on `model`, with `plugins`: their tools and skills join the agent,
+ * and their hooks, subagents and files are written in each session's working directory. What a
+ * runtime cannot take (Codex and hooks) is left out, with a warning in the server's log.
+ */
+export function agentFor(
+  harness: HarnessId,
+  model: string,
+  { fingerprint, plugins }: { fingerprint: string; plugins: Plugin[] },
+): HarnessAgent {
+  const key = `${harness}:${model}:${fingerprint}`;
   let agent = state.agents.get(key);
   if (agent === undefined) {
-    agent = new HarnessAgent({
-      id: `example-${harness}`,
-      harness: HARNESS_ADAPTERS[harness],
-      model,
-      instructions: SANDBOX_INSTRUCTIONS[SANDBOX],
-    });
+    agent = new HarnessAgent(
+      withPlugins(
+        {
+          id: `example-${harness}`,
+          harness: HARNESS_ADAPTERS[harness],
+          model,
+          instructions: SANDBOX_INSTRUCTIONS[SANDBOX],
+        },
+        plugins,
+      ),
+    );
     state.agents.set(key, agent);
   }
   return agent;

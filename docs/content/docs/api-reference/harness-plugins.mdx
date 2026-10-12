@@ -1,0 +1,122 @@
+---
+title: ai-sdk-harness-plugins
+description: The shape of a plugin, and the options of withPlugins, generated from the source.
+---
+
+## `definePlugin(plugin)`
+
+Checks a plugin, written in code or as JSON, and returns it as it is. Throws `InvalidPluginError`, whose `issues` list every mistake by field.
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="Plugin" />
+
+### `PluginCommand`
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginCommand" />
+
+### `PluginHook`
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginHook" />
+
+### `PluginSubagent`
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginSubagent" />
+
+### `PluginRule`
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginRule" />
+
+### `PluginFile`
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginFile" />
+
+## `withPlugins(settings, plugins, options)`
+
+Returns the `HarnessAgent` settings with the plugins applied.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/agent/with-plugins.ts"
+  name="WithPluginsOptions"
+/>
+
+## `expandCommand(text, plugins)`
+
+The prompt `text` stands for when it calls a command of the plugins, or `undefined`.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/commands/expand-command.ts"
+  name="ExpandedCommand"
+/>
+
+## `createCatalog(sources)`
+
+A marketplace: plugins of code, and plugins and items kept as data.
+
+<AutoTypeTable path="packages/harness-plugins/src/catalog/catalog.ts" name="CatalogSources" />
+
+<AutoTypeTable path="packages/harness-plugins/src/catalog/catalog.ts" name="Catalog" />
+
+### `CatalogEntry`
+
+<AutoTypeTable path="packages/harness-plugins/src/catalog/catalog.ts" name="CatalogEntry" />
+
+### `CatalogItemDescription`
+
+What `describe()` gives for each item: safe to send to a browser.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/catalog/describe-catalog.ts"
+  name="CatalogItemDescription"
+/>
+
+### `PluginDescription`
+
+What `describe()` gives for each plugin: safe to send to a browser.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/catalog/describe-plugin.ts"
+  name="PluginDescription"
+/>
+
+## `mcpToolsPlugin(options)`
+
+A plugin of the tools of an MCP server your server is connected to.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/mcp/mcp-tools-plugin.ts"
+  name="McpToolsPluginOptions"
+/>
+
+## `resolvePlugins(plugins, options)`
+
+Resolves plugins that hold `registered` tools, secrets or MCP servers your server connects to.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/config/resolve-plugins.ts"
+  name="ResolvePluginsOptions"
+/>
+
+### `ResolveOptions`
+
+What `catalog.resolve()` and `resolvePlugins()` take at runtime.
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/config/resolve-plugins.ts"
+  name="ResolveOptions"
+/>
+
+<AutoTypeTable
+  path="packages/harness-plugins/src/config/resolve-plugins.ts"
+  name="ResolvedPlugins"
+/>
+
+### `Item`
+
+An item on its own: a tool, a skill, a command, a hook, a subagent or an MCP server, with its `kind`.
+
+<AutoTypeTable path="packages/harness-plugins/src/config/item-schema.ts" name="Item" />
+
+### `ToolDefinition`
+
+A tool written as configuration: a request your server makes, a command run in the sandbox, or a reference to a tool your application implements.
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="ToolDefinition" />
