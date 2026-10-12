@@ -150,6 +150,39 @@ export function withResponses(
   );
 }
 
+interface Questions {
+  questions: { id: string; question: string; options?: { id: string; label: string }[] }[];
+}
+interface Answers {
+  action: string;
+  answers?: Record<string, { optionIds?: string[]; freeform?: string }>;
+}
+
+const isQuestions = (input: unknown): input is Questions =>
+  Array.isArray((input as Partial<Questions> | undefined)?.questions);
+const isAnswers = (output: unknown): output is Answers =>
+  typeof (output as Partial<Answers> | undefined)?.action === 'string';
+
+/**
+ * The answers to the agent's questions, `askUserQuestions`, in words: the labels of the options
+ * picked rather than their ids, which the agent no longer sees once its turn was lost.
+ */
+function answersOf(input: unknown, output: unknown): string | undefined {
+  if (!isQuestions(input) || !isAnswers(output)) return undefined;
+  if (output.answers === undefined) return `- I ${output.action} your questions.`;
+  const { answers } = output;
+  return input.questions
+    .map(({ id, question, options = [] }) => {
+      const answer = answers[id];
+      const picked = (answer?.optionIds ?? []).map(
+        (optionId) => options.find((option) => option.id === optionId)?.label ?? optionId,
+      );
+      const said = [...picked, ...(answer?.freeform ? [answer.freeform] : [])].join('; ');
+      return `- ${question} — ${said || 'no answer'}`;
+    })
+    .join('\n');
+}
+
 /** A short form of a tool call's input, for a message. */
 const inputOf = (input: unknown): string => {
   const text = typeof input === 'string' ? input : JSON.stringify(input);
@@ -170,6 +203,8 @@ export function describeResponses(pending: PendingInput, responses: InputRespons
   const results = responses.toolResultContinuations.map(({ toolCallId, toolName, output }) => {
     const call = pending.toolCalls.find((toolCall) => toolCall.toolCallId === toolCallId);
     const shown = shownOutput(output);
+    const answers = shown.error === undefined ? answersOf(call?.input, shown.value) : undefined;
+    if (answers !== undefined) return answers;
     const value = shown.error === undefined ? inputOf(shown.value) : `error: ${shown.error}`;
     return `- ${call?.toolName ?? toolName}: ${value}`;
   });

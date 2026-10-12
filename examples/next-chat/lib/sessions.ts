@@ -1,5 +1,5 @@
 import type { Plugin } from 'ai-sdk-harness-plugins';
-import type { SessionManager } from 'ai-sdk-harness-sessions';
+import type { SessionManager, SessionSummary } from 'ai-sdk-harness-sessions';
 
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { Conversation } from '@/lib/conversations';
 import type { HarnessId } from '@/lib/harnesses';
 
+import { APPROVAL_POLICY } from '@/lib/approval';
 import { resolveSelection } from '@/lib/plugins';
 import { openSandbox, SANDBOX, SANDBOX_INSTRUCTIONS, SUSPEND_AFTER_MS } from '@/lib/sandbox';
 import { createFileSessionStore } from '@/lib/session-store';
@@ -47,6 +48,10 @@ const HARNESS_ADAPTERS = {
  */
 const SESSION_PORTS = Array.from({ length: 4 }, (_, i) => 4001 + i);
 
+const approveByPolicy = APPROVAL_POLICY.approver<{ session: SessionSummary<Conversation> }>({
+  grants: ({ session }) => session.metadata.grants,
+});
+
 interface ExampleState {
   /**
    * One agent per harness, model, permission mode and marketplace selection (by its fingerprint),
@@ -65,7 +70,8 @@ const state: ExampleState = (globals.__aiSdkSessionsExample ??= { agents: new Ma
  * The agent running `harness` on `model`, with `plugins`: their tools and skills join the agent,
  * and their hooks, subagents and files are written in each session's working directory. What a
  * runtime cannot take (Codex and hooks) is left out, with a warning in the server's log. With
- * `askFirst`, the agent asks before it edits a file or runs a command.
+ * `askFirst`, the agent asks before it edits a file or runs a command, for the approval policy to
+ * decide: `APPROVAL_POLICY.agentSettings()` gives it the permission mode that makes it ask.
  */
 function agentFor(
   { harness, model, askFirst }: Pick<Conversation, 'askFirst' | 'harness' | 'model'>,
@@ -74,14 +80,17 @@ function agentFor(
   const key = `${harness}:${model}:${askFirst}:${fingerprint}`;
   let agent = state.agents.get(key);
   if (agent === undefined) {
+    const adapter = HARNESS_ADAPTERS[harness as HarnessId];
     agent = new HarnessAgent(
       withPlugins(
         {
           id: `example-${harness}`,
-          harness: HARNESS_ADAPTERS[harness as HarnessId],
+          harness: adapter,
           model,
           instructions: SANDBOX_INSTRUCTIONS[SANDBOX],
-          permissionMode: askFirst ? ('allow-reads' as const) : ('allow-all' as const),
+          ...(askFirst
+            ? APPROVAL_POLICY.agentSettings(adapter)
+            : { permissionMode: 'allow-all' as const }),
         },
         plugins,
       ),
@@ -124,6 +133,10 @@ function createExampleSessions(): SessionManager<Conversation> {
       process.env.EXAMPLE_SESSIONS_DIR ?? join(process.cwd(), '.data/sessions'),
     ),
     idleTimeoutMs: SUSPEND_AFTER_MS,
+    // A conversation that asks first: the policy answers what it decides, within the turn, and
+    // allows what you allowed for the rest of the conversation. The rest waits for you.
+    approve: (approval, context) =>
+      context.session.metadata.askFirst ? approveByPolicy(approval, context) : undefined,
   });
   // Suspended rather than lost when the dev server stops: the next start resumes them.
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
