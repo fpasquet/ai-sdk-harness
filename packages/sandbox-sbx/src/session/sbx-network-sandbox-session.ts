@@ -7,7 +7,7 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
-import type { CredentialBroker } from '../network/credential-broker.js';
+import type { CredentialBroker, SecretHolders } from '../network/credential-broker.js';
 import type { PortPublisher, PublishedPort } from '../network/port-publisher.js';
 import type { SbxSandboxHandle } from './sbx-sandbox-session.js';
 
@@ -18,6 +18,16 @@ import { KILL_ALL } from '../transport/sandbox-scripts.js';
 import { SbxSandboxSession } from './sbx-sandbox-session.js';
 
 type Protocol = 'http' | 'https' | 'ws';
+
+/** How a view of the sandbox deals with credentials. */
+interface CredentialSettings {
+  /** Keep credentials out of the sandbox, swapped in by the proxy. */
+  readonly brokerCredentials: boolean;
+  /** What the views of one sandbox share: how many of them hold each secret of a cloud sandbox. */
+  readonly secretHolders?: SecretHolders;
+  /** Whether this is a view made by `fork()`, which never withdraws the credentials of others. */
+  readonly forked?: boolean;
+}
 
 /**
  * The whole of a Docker Sandbox, as `HarnessAgent.createSession({ sandboxSession })` expects it:
@@ -56,26 +66,45 @@ export class SbxNetworkSandboxSession
   /** Sandbox port → where it is published. */
   private readonly published = new Map<number, Promise<PublishedPort>>();
 
-  constructor(handle: SbxSandboxHandle, ports: readonly number[], brokerCredentials: boolean) {
+  private readonly credentials: Required<CredentialSettings>;
+
+  constructor(handle: SbxSandboxHandle, ports: readonly number[], credentials: CredentialSettings) {
     super(handle);
     this.id = handle.name;
     this.defaultWorkingDirectory = handle.workingDirectory;
     this.cloud = handle.cli.cloud;
     this.exposed = [...ports];
+    this.credentials = { secretHolders: new Map(), forked: false, ...credentials };
     this.broker = this.cloud
-      ? headerBroker(handle.cli, handle.name)
+      ? headerBroker(handle.cli, handle.name, this.credentials.secretHolders)
       : placeholderBroker(handle.cli, handle.name);
     this.publisher = this.cloud
       ? cloudPorts(handle.cli, handle.name)
       : loopbackPorts(handle.cli, handle.name);
-    if (brokerCredentials) {
+    if (credentials.brokerCredentials) {
       this.addRequestTransformations = (transformations) => this.broker.add(transformations);
       this.setRequestTransformations = async (transformations) => {
-        await this.broker.clear();
+        await (this.credentials.forked ? this.broker.release() : this.broker.clear());
         await this.broker.add(transformations);
       };
     }
   }
+
+  /**
+   * Another view of the same sandbox, with ports of its own. It shares the microVM, its files and
+   * its CLI, and nothing else: the processes it starts, the ports it publishes and the credentials
+   * it registers are its own, and its {@link release} only touches them. What lets several harness
+   * sessions, each with a bridge on its own port, run side by side in one sandbox.
+   *
+   * Its `setRequestTransformations` replaces its own credentials only. A cloud sandbox holds one
+   * secret per host and header: the views share it, and the last one to release it withdraws it.
+   * `stop()` and `destroy()` act on the whole sandbox, every view included.
+   */
+  fork = ({ ports }: { ports: readonly number[] }): SbxNetworkSandboxSession =>
+    new SbxNetworkSandboxSession({ ...this.handle, processes: new Set() }, ports, {
+      ...this.credentials,
+      forked: true,
+    });
 
   /** Ports the sandbox exposes, resolvable with {@link getPortEndpoint}. */
   get ports(): readonly number[] {

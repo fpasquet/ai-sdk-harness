@@ -9,6 +9,7 @@ Open-source monorepo of community packages for the Vercel AI SDK harnesses (`@ai
 | `ai-sdk-sandbox-sbx`       | `packages/sandbox-sbx`       | A Docker Sandboxes (`sbx`) sandbox session for `HarnessAgent`, local or in the cloud            |
 | `ai-sdk-sandbox-cloud-run` | `packages/sandbox-cloud-run` | A Cloud Run sandbox session for `HarnessAgent`, and the sandbox service that runs the sandboxes |
 | `ai-sdk-harness-plugins`   | `packages/harness-plugins`   | Plugins for `HarnessAgent`: tools, skills, commands, hooks, subagents, MCP servers              |
+| `ai-sdk-harness-sessions`  | `packages/harness-sessions`  | The lifecycle of `HarnessAgent` sessions: suspended when idle, resumed, several in one sandbox  |
 
 Constraints:
 
@@ -39,7 +40,7 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - The client code of a sandbox package (`src/` of `ai-sdk-sandbox-sbx`, `src/client/` of `ai-sdk-sandbox-cloud-run`) is split into the same folders, so the packages read alike: `errors/` (public errors), `utils/`, `transport/` (the only way to reach a sandbox), `network/` (what crosses the sandbox's boundary: credentials and ports; `ai-sdk-sandbox-sbx` only, the Cloud Run service handles it on its side), `session/` (the `SandboxSession` implementations) and `lifecycle/` (create, resume, templates). Its root keeps the settings types and `provider-id.ts`. No barrel files: `src/index.ts` is the only one.
 - Each layer of a client only imports the ones below it: `errors/` and `utils/` import nothing of the package, then `transport/` ← `network/` ← `session/` ← `lifecycle/`. `sandboxClientLayers()` of `@repo/eslint-config/boundaries` enforces it with `no-restricted-imports`, and each package's `eslint.config.mjs` declares its other boundaries the same way. A new boundary goes there, not in a review comment.
 - `packages/configs/*` are private `@repo/*` presets, never published.
-- `examples/*` are consumer-side demonstrations. They are in `.changeset/config.json#ignore` and never enter the release flow. `examples/next-chat` runs on either package: `EXAMPLE_SANDBOX` (`sbx` by default, or `cloud-run`) picks the sandbox, see its `.env.example`.
+- `examples/*` are consumer-side demonstrations. They are in `.changeset/config.json#ignore` and never enter the release flow. `examples/next-chat` runs on either package: `EXAMPLE_SANDBOX` (`sbx` by default, or `cloud-run`) picks the sandbox, see its `.env.example`. Its conversations are sessions of `ai-sdk-harness-sessions`, kept in `.data/sessions` (ignored by Git: it holds resume states).
 - `docs/` is a Fumadocs site, built as a static export and deployed to Cloudflare Pages on pushes to `main`, independently of package releases. Static export means no server at runtime: every route is prerendered and images are served unoptimized. Package pages (`content/docs/packages/*.mdx`) `<include>` the package README: the README is the single source of a package's documentation. API reference pages (`content/docs/api-reference/*.mdx`) render the settings types with `<AutoTypeTable>`. `docs/AGENTS.md` holds the Next.js rules of the site.
 - `scripts/` holds repository tooling (`generate-screenshots.ts`), not runtime code.
 
@@ -69,6 +70,15 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - A marketplace is a catalog (`src/catalog/`) of plugins and items, each with an id (`plugin:<name>`, `<plugin>/<kind>:<name>`, `<kind>:<name>`). A selection is a list of ids, expanded with the items' `requires`; an item on its own resolves to a plugin of its own.
 - The folders are layered like the sandbox clients: `errors/` and `utils/` are leaves, then `definitions/` ← `commands/` ← `runtimes/` ← `session/` ← `mcp/` ← `config/`, and beside each other at the top `catalog/`, `loader/` and `agent/` (`eslint.config.mjs`).
 - Unit tests run `onSession` against `test/host-sandbox.ts`, a stand-in sandbox on a temporary directory of the host, Git included; `test/fixtures/claude-plugin` is a Claude Code plugin with every part the loader reads, and `test/fixtures/mcp-server.mjs` an MCP server with no dependency, run on the host and in the sandboxes. `test/*.e2e-spec.ts` run real Claude Code and Codex turns in a Docker Sandbox and are not part of CI. The README shows the plugin and items of `examples/next-chat/marketplace/` beside their screenshots: `src/readme.spec.ts` keeps its JSON identical to theirs, so edit both together and retake the screenshots (`pnpm screenshots`) when a change shows.
+
+### `ai-sdk-harness-sessions`
+
+- A session manager (`createSessionManager()`, `src/manager/`) runs the sessions of any `HarnessAgent`: it never wraps nor subclasses the agent, and reads of it only `createSession`, `stream` and `continueStream` (`SessionAgent`, `src/definitions/agent.ts`), of a harness session only `stop`, `destroy` and `hasUnfinishedTurn`.
+- Every change of status goes through one method, `transition()`, which writes the session to the `SessionStore` (queued per session by `SessionJournal`) and sends it to the subscribers. Starts run one at a time: the first one installs the harness in the sandbox. A resume keeps the store's record `suspended` until it is back, so a crash meanwhile leaves it resumable; a resume that fails stays `suspended` with its resume state.
+- How a session gets a sandbox is a `SessionSandboxes` (`src/sandboxes/`): `sharedSandbox()` hands out views of one sandbox (`fork({ ports })` of `ai-sdk-sandbox-sbx` and `ai-sdk-sandbox-cloud-run`), one bridge port each; `sandboxPerSession()` a sandbox each.
+- A turn's UI message stream is teed (`src/turns/turn-stream.ts`): the client reads one branch, the manager the other to its end, so the session is settled and written whether the client stays or not. What a paused turn waits for is read from its last message (`src/turns/pending-input.ts`).
+- The folders are layered: `utils/` and `definitions/` (types and constants) are leaves, then `errors/` ← `store/`, `sandboxes/` and `turns/`, beside each other ← `manager/` (`eslint.config.mjs`).
+- Unit tests drive the manager with `test/fakes.ts`: an agent whose turns follow a script, built on `createUIMessageStream`, and sandboxes that record what they are asked. `test/*.e2e-spec.ts` run real Claude Code sessions in a Docker Sandbox and are not part of CI. The `examples/next-chat` screenshots `sessions`, `approval` and `resumed` show the package at work in its README.
 
 ---
 
@@ -118,6 +128,7 @@ Every change must pass:
 Add when the change touches the matching area:
 
 - `pnpm --filter ai-sdk-harness-plugins test:e2e` when changing how plugins reach a runtime (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code and Codex).
+- `pnpm --filter ai-sdk-harness-sessions test:e2e` when changing how sessions start, suspend or resume (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code).
 - `pnpm --filter ai-sdk-sandbox-sbx test:e2e` when changing how the package drives `sbx` (needs Docker Sandboxes on the machine; `SBX_E2E_CLOUD=1` adds the cloud mode).
 - `CLOUD_RUN_SANDBOX_URL=… pnpm --filter ai-sdk-sandbox-cloud-run test:e2e` when changing how the service drives the `sandbox` CLI (needs the service deployed on Cloud Run, the gcloud account an invoker).
 - `pnpm docs:build` when editing anything under `docs/` or a README it includes.
