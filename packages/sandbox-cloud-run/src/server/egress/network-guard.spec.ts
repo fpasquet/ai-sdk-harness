@@ -28,10 +28,23 @@ describe('the network guard', () => {
       'fd00::1',
       'fe80::1',
       '::ffff:169.254.169.254',
+      // NAT64 and 6to4 addresses carrying a private IPv4 one.
+      '64:ff9b::a9fe:a9fe',
+      '64:ff9b::169.254.169.254',
+      '64:ff9b::7f00:1',
+      '2002:a9fe:a9fe::1',
+      '2002:c0a8:101::',
     ]) {
       expect(isPrivateAddress(address), address).toBe(true);
     }
-    for (const address of ['8.8.8.8', '1.1.1.1', '2001:4860:4860::8888', 'not an address']) {
+    for (const address of [
+      '8.8.8.8',
+      '1.1.1.1',
+      '2001:4860:4860::8888',
+      '64:ff9b::808:808',
+      '2002:808:808::1',
+      'not an address',
+    ]) {
       expect(isPrivateAddress(address), address).toBe(false);
     }
   });

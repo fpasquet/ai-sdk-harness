@@ -85,6 +85,16 @@ describe('the service configuration', () => {
     });
   });
 
+  it('warns that SANDBOX_ALLOW_EGRESS opens a way out beside the proxy', () => {
+    const warnings: string[] = [];
+    const logger = { ...silentLogger, warn: (message: string) => warnings.push(message) };
+
+    sandboxesConfig({}, logger);
+    expect(warnings).toEqual([]);
+    sandboxesConfig({ SANDBOX_ALLOW_EGRESS: 'true' }, logger);
+    expect(warnings).toEqual([expect.stringContaining('metadata server')]);
+  });
+
   it('refuses private networks on Cloud Run', () => {
     expect(() =>
       sandboxesConfig(
