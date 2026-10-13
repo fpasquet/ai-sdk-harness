@@ -33,7 +33,8 @@
         "SBX_*",
         "MSB_*",
         "EXAMPLE_*",
-        "CLOUD_RUN_*"
+        "CLOUD_RUN_*",
+        "SRT_*"
       ],
       "cache": false,
       "persistent": true
@@ -68,7 +69,7 @@
     },
     "test:e2e": {
       "dependsOn": ["^build"],
-      "passThroughEnv": ["SBX_*", "MSB_*", "MICROSANDBOX_*", "CLOUD_RUN_*"],
+      "passThroughEnv": ["SBX_*", "MSB_*", "MICROSANDBOX_*", "CLOUD_RUN_*", "SRT_*"],
       "cache": false
     },
     "typecheck": {

@@ -10,6 +10,7 @@ body:
       options:
         - 'ai-sdk-sandbox-sbx'
         - 'ai-sdk-sandbox-microsandbox'
+        - 'ai-sdk-sandbox-runtime'
         - 'ai-sdk-harness-plugins'
         - 'ai-sdk-harness-sessions'
         - 'ai-sdk-harness-approval'
@@ -53,6 +54,7 @@ body:
         - pnpm:
         - sbx (`sbx version`):
         - microsandbox (`msb --version`):
+        - srt (`@anthropic-ai/sandbox-runtime` version, and `bwrap --version` on Linux):
         - @ai-sdk/harness:
         - OS:
     validations:

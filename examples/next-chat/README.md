@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), or in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
+A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -78,6 +78,23 @@ To delete the sandbox:
 curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
 ```
+
+## Run it behind srt
+
+On Linux or macOS, the chat can run its agents on your machine itself, behind srt, with neither Docker Sandboxes nor a cloud account. On Linux, install what srt needs first (see [the requirements](../../packages/sandbox-runtime/README.md#linux)):
+
+```bash
+sudo apt install bubblewrap socat ripgrep
+```
+
+Then, in `.env.local`:
+
+```dotenv
+EXAMPLE_SANDBOX=srt
+# SRT_ALLOW_ALL_UNIX_SOCKETS=1   # where Ubuntu refuses srt's seccomp filter: the error says so
+```
+
+The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs and the npm registry only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
 
 ## Conversations
 
@@ -188,20 +205,20 @@ Each plugin and item of the marketplace, a prompt that puts it to work, and what
 
 ## How it works
 
-| File                                                                | What it does                                                                                                                                                                                                  |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/sessions.ts`, `lib/session-store.ts`                           | The conversations, sessions of `ai-sdk-harness-sessions`: one `HarnessAgent` per harness, model, approval policy and plugins (`withPlugins`), one shared sandbox, a store of JSON files, suspension when idle |
-| `lib/approval.ts`, `app/api/sessions/[id]/grants/`                  | The approval policy of `ai-sdk-harness-approval`, and the grants of "Always allow", kept with each conversation                                                                                               |
-| `app/api/sessions/`, `components/session-list.tsx`                  | The list of conversations: their statuses as server-sent events, "Suspend now" and "Delete"                                                                                                                   |
-| `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, or a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run`                                                                 |
-| `app/api/chat/route.ts`                                             | Opens the session with the first message, expands a slash command (`expandCommand`), sends the message or the approvals to the session, and streams the turn back                                             |
-| `lib/plugins.ts`, `plugins/`, `marketplace/`                        | The marketplace: three plugins written in code, a Claude Code plugin loaded from its directory, and a plugin and items written in JSON; one catalog, which the page describes and the route resolves          |
-| `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                            |
-| `components/chat.tsx`                                               | The conversations open in the tab, each with its `useChat`, the suggestions, the prompt input and the agent, model, plugin and approval pickers                                                               |
-| `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                            |
-| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, the agent's questions, or a tool call with its approval                                                                                                           |
-| `components/harness/`                                               | `ToolApproval` and `QuestionsForm`, which the docs' shadcn registry serves                                                                                                                                    |
-| `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                     |
+| File                                                                | What it does                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/sessions.ts`, `lib/session-store.ts`                           | The conversations, sessions of `ai-sdk-harness-sessions`: one `HarnessAgent` per harness, model, approval policy and plugins (`withPlugins`), one shared sandbox, a store of JSON files, suspension when idle                                                                                  |
+| `lib/approval.ts`, `app/api/sessions/[id]/grants/`                  | The approval policy of `ai-sdk-harness-approval`, and the grants of "Always allow", kept with each conversation                                                                                                                                                                                |
+| `app/api/sessions/`, `components/session-list.tsx`                  | The list of conversations: their statuses as server-sent events, "Suspend now" and "Delete"                                                                                                                                                                                                    |
+| `lib/sandbox.ts`                                                    | Opens the sandbox `EXAMPLE_SANDBOX` names: a Docker Sandbox with `ai-sdk-sandbox-sbx`, a Cloud Run sandbox with `ai-sdk-sandbox-cloud-run` or an srt sandbox with `ai-sdk-sandbox-runtime`, shared by the conversations; or a microsandbox per conversation with `ai-sdk-sandbox-microsandbox` |
+| `app/api/chat/route.ts`                                             | Opens the session with the first message, expands a slash command (`expandCommand`), sends the message or the approvals to the session, and streams the turn back                                                                                                                              |
+| `lib/plugins.ts`, `plugins/`, `marketplace/`                        | The marketplace: three plugins written in code, a Claude Code plugin loaded from its directory, and a plugin and items written in JSON; one catalog, which the page describes and the route resolves                                                                                           |
+| `lib/harnesses.ts`                                                  | The coding agents and the models each one offers, shared by the page and the route                                                                                                                                                                                                             |
+| `components/chat.tsx`                                               | The conversations open in the tab, each with its `useChat`, the suggestions, the prompt input and the agent, model, plugin and approval pickers                                                                                                                                                |
+| `components/marketplace-picker.tsx`, `components/prompt-editor.tsx` | The marketplace cards of a new conversation, from its public description, and the prompt (a Tiptap editor) that completes the commands and skills picked after `/`                                                                                                                             |
+| `components/message-part.tsx`                                       | One part of a message: Markdown, reasoning, the agent's questions, or a tool call with its approval                                                                                                                                                                                            |
+| `components/harness/`                                               | `ToolApproval` and `QuestionsForm`, which the docs' shadcn registry serves                                                                                                                                                                                                                     |
+| `components/ai-elements/`, `components/ui/`                         | Vendored from the AI Elements and shadcn/ui registries with `shadcn add`, and left as upstream ships them                                                                                                                                                                                      |
 
 The coding agent keeps the conversation in its own session, so the route only sends the new message. Each bridge listens on a port of its own, in a view of the sandbox: the conversations run side by side, and the sandbox stays when a conversation is deleted.
 

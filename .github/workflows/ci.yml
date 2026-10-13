@@ -76,8 +76,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Unit tests only: they run against a fake `sbx` and a fake Cloud Run `sandbox` CLI. The e2e
-      # suites need Docker Sandboxes and a deployed Cloud Run service (see MAINTAINERS.md).
+      # Unit tests only: they run against a fake `sbx`, a fake Cloud Run `sandbox` CLI and a fake
+      # srt. The e2e suites need Docker Sandboxes, a deployed Cloud Run service and srt's binaries
+      # (see MAINTAINERS.md).
       - name: Test with coverage
         run: pnpm test:cov
 
