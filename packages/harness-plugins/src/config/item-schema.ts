@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 import type {
   Plugin,
   PluginCommand,
+  PluginEval,
   PluginFile,
   PluginHook,
   PluginMcpServer,
@@ -15,6 +16,7 @@ import type {
 import {
   commandFields,
   declaredPlaceholders,
+  evalsField,
   files,
   hookFields,
   mcpServerFields,
@@ -47,7 +49,13 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
  * an MCP server. Each is what it would be in a {@link Plugin}, with its `kind` and its `name`; a
  * tool is a {@link ToolDefinition}, one whose logic is code being one your application registers.
  */
-export type Item =
+export type Item = ItemDefinition & {
+  /** What the item promises, as eval cases: see {@link PluginEval}. */
+  evals?: PluginEval[];
+};
+
+/** An {@link Item}, without its eval cases: what it brings to the agent. */
+export type ItemDefinition =
   | (PluginCommand & { kind: 'command' })
   | (PluginHook & {
       kind: 'hook';
@@ -63,27 +71,31 @@ export type Item =
 
 const kind = <KIND extends ItemKind>(value: KIND) => ({ kind: z.literal(value) });
 
+/** The eval cases every kind of item may carry, last of its fields. */
+const evals = { evals: evalsField };
+
 /** The schema of each kind of {@link Item}: what `defineItem` checks, and a form builds from. */
 export const itemSchemas = {
   tool: z.discriminatedUnion('type', [
-    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'] }),
+    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'], ...evals }),
     z
-      .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http })
+      .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http, ...evals })
       .superRefine(declaredPlaceholders),
-    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields.registered }),
+    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields.registered, ...evals }),
   ]),
-  skill: z.strictObject({ ...kind('skill'), ...skillFields }),
-  rule: z.strictObject({ ...kind('rule'), ...ruleFields }),
-  command: z.strictObject({ ...kind('command'), ...commandFields }),
+  skill: z.strictObject({ ...kind('skill'), ...skillFields, ...evals }),
+  rule: z.strictObject({ ...kind('rule'), ...ruleFields, ...evals }),
+  command: z.strictObject({ ...kind('command'), ...commandFields, ...evals }),
   hook: z
     .strictObject({
       ...kind('hook'),
       ...hookFields,
       name: skillFields.name,
       files: files.optional(),
+      ...evals,
     })
     .refine(oneHandler, ONE_HANDLER),
-  subagent: z.strictObject({ ...kind('subagent'), ...subagentFields }),
+  subagent: z.strictObject({ ...kind('subagent'), ...subagentFields, ...evals }),
   'mcp-server': z
     .discriminatedUnion('type', [
       z.strictObject({
@@ -91,12 +103,14 @@ export const itemSchemas = {
         name: serverName,
         description: z.string().optional(),
         ...mcpServerFields.stdio,
+        ...evals,
       }),
       z.strictObject({
         ...kind('mcp-server'),
         name: serverName,
         description: z.string().optional(),
         ...mcpServerFields.http,
+        ...evals,
       }),
     ])
     .refine(noSecretInSandbox, NO_SECRET_IN_SANDBOX),
@@ -109,7 +123,12 @@ export const itemSchema = z.union(Object.values(itemSchemas));
  * The plugin an item on its own stands for once resolved: named after its kind and its name, with
  * the item as its only one — and the hook's files as its own, under its `${PLUGIN_ROOT}`.
  */
-export function pluginOfItem(item: Item): Plugin {
+export function pluginOfItem({ evals, ...item }: Item): Plugin {
+  const plugin = pluginOfDefinition(item);
+  return evals === undefined ? plugin : { ...plugin, evals };
+}
+
+function pluginOfDefinition(item: ItemDefinition): Plugin {
   // Split rather than trimmed with a regular expression, which would run in quadratic time.
   const words = item.name
     .toLowerCase()

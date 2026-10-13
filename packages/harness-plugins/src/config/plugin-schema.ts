@@ -199,6 +199,24 @@ export const subagentFields = {
 export const toolName = z.string().regex(TOOL_NAME, 'must be letters, digits, _ or -, 64 at most');
 export const serverName = z.string().regex(SERVER_NAME, 'must be letters, digits, _ or -');
 
+/** The cases of a plugin or an item: their expectations are `ai-sdk-harness-evals`' to check. */
+export const evalsField = z
+  .array(
+    z.strictObject({
+      name: text,
+      prompt: z.union([text, z.array(text).min(1)]),
+      expect: z.record(z.string(), z.unknown()).optional(),
+      harnesses: z.array(text).optional(),
+      trials: z.number().int().positive().optional(),
+      tags: z.array(text).optional(),
+    }),
+  )
+  .refine(
+    (cases) => new Set(cases.map(({ name }) => name)).size === cases.length,
+    'must not hold two cases of one name',
+  )
+  .optional();
+
 const pluginHead = { name: slug, description: z.string(), version: z.string().optional() };
 
 const pluginFields = {
@@ -209,6 +227,7 @@ const pluginFields = {
   subagents: z.array(z.strictObject(subagentFields)).optional(),
   mcpServers: z.record(serverName, mcpServerSchema).optional(),
   files: files.optional(),
+  evals: evalsField,
 };
 
 /** A plugin, its tools AI SDK tools or definitions: what `definePlugin` checks. */

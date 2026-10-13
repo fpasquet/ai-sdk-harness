@@ -113,6 +113,7 @@ describe('definePlugin', () => {
       'subagents',
       'mcpServers',
       'files',
+      'evals',
     ]);
   });
 
@@ -217,6 +218,7 @@ describe('defineItem', () => {
       'argumentHint',
       'prompt',
       'requires',
+      'evals',
     ]);
     expect(itemJsonSchema('tool')).toHaveProperty('oneOf');
   });

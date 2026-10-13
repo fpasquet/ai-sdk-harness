@@ -416,3 +416,65 @@ describe('a rule in a catalog', () => {
     ]);
   });
 });
+
+describe('eval cases in a catalog', () => {
+  const tour = {
+    name: 'tour',
+    description: 'Tours the code.',
+    commands: [{ name: 'tour', description: 'Tour', prompt: 'Give a tour.' }],
+    evals: [{ name: 'tours', prompt: '/tour', expect: { includes: 'README' } }],
+  };
+  const npm = {
+    kind: 'tool',
+    name: 'npm-latest',
+    type: 'http',
+    description: 'The latest version of a package.',
+    url: 'https://registry.npmjs.org/zod/latest',
+    evals: [
+      {
+        name: 'reads the registry',
+        prompt: ['Hi', 'Latest zod?'],
+        expect: { calledTools: ['npm-latest'] },
+        harnesses: ['claude-code'],
+        trials: 2,
+      },
+    ],
+  };
+
+  it('keeps the cases of a plugin and of an item on its own on their entries', () => {
+    const catalog = createCatalog({ plugins: [tour], items: [npm] });
+
+    const byId = Object.fromEntries(catalog.entries().map((entry) => [entry.id, entry.evals]));
+    expect(byId).toEqual({
+      'plugin:tour': tour.evals,
+      'tour/command:tour': undefined,
+      'tool:npm-latest': npm.evals,
+    });
+  });
+
+  it('leaves them out of the agent, the description and the fingerprint', async () => {
+    const catalog = createCatalog({ plugins: [tour], items: [npm] });
+    const without = createCatalog({
+      plugins: [{ ...tour, evals: undefined }],
+      items: [{ ...npm, evals: [] }],
+    });
+
+    const { plugins } = await catalog.resolve(['tool:npm-latest']);
+    expect(plugins[0]).toMatchObject({ name: 'tool-npm-latest', evals: npm.evals });
+    expect(plugins[0]!.tools!['npm-latest']).not.toHaveProperty('evals');
+    expect(JSON.stringify(await catalog.describe())).not.toContain('reads the registry');
+    const ids = ['plugin:tour', 'tool:npm-latest'];
+    expect(catalog.fingerprint(ids)).toBe(without.fingerprint(ids));
+  });
+
+  it('refuses a case without a prompt, or two of one name', () => {
+    expect(() =>
+      createCatalog({ plugins: [{ ...tour, evals: [{ name: 'a', prompt: [] }] }] }),
+    ).toThrow(InvalidPluginError);
+    expect(() =>
+      createCatalog({
+        items: [{ ...npm, evals: [npm.evals[0], npm.evals[0]] }],
+      }),
+    ).toThrow(/two cases of one name/);
+  });
+});

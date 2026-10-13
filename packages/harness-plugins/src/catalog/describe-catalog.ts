@@ -76,7 +76,8 @@ export async function describeCatalog(
   );
   const items = entries
     .filter((entry) => entry.kind !== 'plugin')
-    .map((entry) => ({
+    // Its eval cases stay on the server, with the rest of what the item does.
+    .map(({ evals: _evals, ...entry }) => ({
       ...byKey.get(`${entry.plugin ?? ''}|${entry.kind}:${entry.name}`),
       ...entry,
     }))

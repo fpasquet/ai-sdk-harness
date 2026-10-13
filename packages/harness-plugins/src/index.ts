@@ -37,6 +37,7 @@ export type {
   InputSchema,
   Plugin,
   PluginCommand,
+  PluginEval,
   PluginFile,
   PluginHook,
   PluginHookEvent,

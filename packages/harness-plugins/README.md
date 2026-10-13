@@ -325,6 +325,29 @@ const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plug
 - `catalog.describe()` is what a marketplace page shows of every plugin and item — never code, prompts or secrets: safe for a browser.
 - `catalog.fingerprint(selection)` changes when what the selection resolves to is edited: key your built agents by it.
 
+### Eval cases
+
+A plugin, or an item on its own, can carry what it promises as eval cases, `evals`: a prompt — or the prompts of several turns — and what the agent must have done. They are data like the rest of it, kept in the same manifest:
+
+```json
+{
+  "kind": "command",
+  "name": "npm",
+  "description": "Size an npm package up before adding it",
+  "prompt": "Look the npm package $1 up with the npm-latest tool…",
+  "requires": ["tool:npm-latest"],
+  "evals": [
+    {
+      "name": "/npm sizes a package up from the registry",
+      "prompt": "/npm left-pad",
+      "expect": { "calledTools": ["npm-latest"], "includes": { "regex": "WTFPL", "flags": "i" } }
+    }
+  ]
+}
+```
+
+This package only keeps them: they never reach the agent, `describe()` or the fingerprint, and `catalog.entries()` gives each entry its own. [`ai-sdk-harness-evals`](https://ai-sdk-harness.pages.dev/docs/packages/harness-evals#evaluating-a-marketplace) runs them, on the agent with the entry and without it, and checks their `expect` — `includes`, `calledTools`, `loadedSkills`, `judge`… `harnesses: ["claude-code"]` marks a case made for some runtimes only, `trials` how many times it runs.
+
 ## Reference
 
 ### Tools
