@@ -114,6 +114,7 @@ const commands = {
     for (const name of args.slice(1).filter((arg) => !arg.startsWith('-'))) {
       delete state.sandboxes[name];
       state.secrets = state.secrets.filter(({ scope }) => scope !== name);
+      state.rules = (state.rules ?? []).filter(({ scope }) => scope !== `sandbox:${name}`);
     }
     save(state);
   },
@@ -169,6 +170,30 @@ const commands = {
         .filter((secret) => secret.scope === scope)
         .map(({ scope, placeholder, targets }) => ({ scope, placeholder, targets }));
       process.stdout.write(JSON.stringify({ secrets: [], custom_secrets }));
+    }
+    save(state);
+  },
+  policy() {
+    state.rules ??= [];
+    const [, verb] = args;
+    if (verb === 'ls') {
+      process.stdout.write(JSON.stringify({ rules: state.rules }));
+    } else if (verb === 'allow' || verb === 'deny') {
+      const scope = flag('--sandbox');
+      state.rules.push({
+        id: `rule-${state.rules.length + 1}-${verb}`,
+        scope: scope === undefined ? 'global' : `sandbox:${scope}`,
+        decision: verb,
+        resource_type: 'network',
+        protocol: flag('--protocol') ?? 'tcp',
+        resources: args.at(-1).split(','),
+      });
+    } else if (verb === 'rm') {
+      if (!args.includes('--force'))
+        fail('stdin is not a terminal; use --force to skip confirmation');
+      const id = flag('--id');
+      if (!state.rules.some((rule) => rule.id === id)) fail(`no rule ${id}`);
+      state.rules = state.rules.filter((rule) => rule.id !== id);
     }
     save(state);
   },
