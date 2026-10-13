@@ -35,6 +35,7 @@ import {
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
+import { ChangesPanel } from '@/components/changes-panel';
 import {
   everything,
   expandSelection,
@@ -108,10 +109,13 @@ function useNow(): number {
 export function ChatApp({
   initialSessions,
   marketplace,
+  repository,
   sandbox,
 }: {
   initialSessions: SessionSummary<Conversation>[];
   marketplace: CatalogDescription;
+  /** The repository each conversation works on a checkout of, with `EXAMPLE_REPOSITORY`. */
+  repository?: string | undefined;
   sandbox: SandboxId;
 }) {
   const [sessions, setSessions] = useState(initialSessions);
@@ -178,6 +182,7 @@ export function ChatApp({
             marketplace={marketplace}
             onDraftChange={setDraft}
             onNewChat={newChat}
+            repository={repository}
             sandbox={sandbox}
             session={byId.get(id)}
           />
@@ -217,6 +222,7 @@ interface ChatProps {
   marketplace: CatalogDescription;
   onDraftChange: (agent: Agent) => void;
   onNewChat: () => void;
+  repository: string | undefined;
   sandbox: SandboxId;
   /** The conversation's session, once the server opened it. */
   session: SessionSummary<Conversation> | undefined;
@@ -230,6 +236,7 @@ function Chat({
   marketplace,
   onDraftChange,
   onNewChat,
+  repository,
   sandbox,
   session,
 }: ChatProps) {
@@ -297,6 +304,9 @@ function Chat({
         sandbox={sandbox}
         session={session}
       />
+      {repository !== undefined && (
+        <ChangesPanel id={id} repository={repository} session={session} />
+      )}
       <ConversationView className="flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (

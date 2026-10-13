@@ -1,0 +1,121 @@
+---
+title: Working on a repository
+description: Give each session of your agent a checkout of your repository with ai-sdk-harness-workspace, and take what it changed back as a patch.
+seo:
+  description: 'Make an AI SDK HarnessAgent work on a Git repository with ai-sdk-harness-workspace: a worktree per session in one Docker Sandbox, the repository fetched from GitHub with a brokered token or sent from your server, and the agent changes read back as a patch your server commits and pushes.'
+---
+
+This guide starts from the chat of [Managing sessions](/docs/managing-sessions) and puts a repository in it: each conversation works in a checkout of its own, so several agents work on one repository at once without stepping on each other, and what an agent changed comes back to your server as a patch, which your server commits and pushes with its own identity. Every option is in the [package's documentation](/docs/packages/harness-workspace).
+
+<Steps>
+<Step>
+
+### Install the package
+
+```bash
+pnpm add ai-sdk-harness-workspace
+```
+
+</Step>
+<Step>
+
+### Pick where the code comes from
+
+From a Git server, the sandbox fetches it; a private repository's token stays on your server, the sandbox's proxy putting it in the requests on their way out:
+
+```ts
+import { gitRepository } from 'ai-sdk-harness-workspace';
+
+const source = gitRepository({
+  url: 'https://github.com/acme/widgets.git',
+  credentials: async () => ({ token: await installationToken('acme/widgets') }),
+});
+```
+
+Or from a clone on your server, which you keep up to date: the sandbox gets Git bundles of what it lacks, and nothing in it can reach the repository.
+
+```ts
+import { hostRepository } from 'ai-sdk-harness-workspace';
+
+const source = hostRepository({ path: '/srv/repositories/widgets', ref: 'main' });
+```
+
+</Step>
+<Step>
+
+### Create the workspace
+
+Give the agent the workspace, and the session manager its sandboxes. `setup` runs in each new checkout before the agent starts:
+
+```ts title="lib/sessions.ts"
+import { createSessionManager, sharedSandbox } from 'ai-sdk-harness-sessions';
+import { createWorkspace, withWorkspace } from 'ai-sdk-harness-workspace';
+
+export const workspace = createWorkspace({ source, setup: ['pnpm install --frozen-lockfile'] });
+
+const agent = new HarnessAgent(withWorkspace({ harness, model: 'claude-sonnet-5-5' }, workspace));
+
+export const sessions = createSessionManager<{ title: string }>({
+  agent: () => agent,
+  sandboxes: workspace.sandboxes(
+    sharedSandbox({ open: openSandbox, ports: Array.from({ length: 4 }, (_, i) => 4001 + i) }),
+  ),
+  idleTimeoutMs: 10 * 60_000,
+});
+```
+
+A new session now starts with the repository checked out in its working directory, on the branch `session/<id>`. A suspended one keeps its checkout, and finds it again when it resumes; a closed one has it removed.
+
+</Step>
+<Step>
+
+### Show what the agent changed
+
+A route lists the files the session changed since its checkout started, its commits included:
+
+```ts title="app/api/sessions/[id]/changes/route.ts"
+import { workspace } from '@/lib/sessions';
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const checkout = workspace.session((await params).id);
+  if (checkout === undefined) return new Response('The session is not live.', { status: 409 });
+  return Response.json({ base: checkout.base, files: await checkout.changedFiles() });
+}
+```
+
+</Step>
+<Step>
+
+### Commit and push it from your server
+
+`changes()` gives the work as a binary patch. Apply it on a clone of your server at the commit the checkout started from, and push it with your server's credentials: the agent never held them.
+
+```ts title="lib/publish.ts"
+import { execFile } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+
+const git = (...args: string[]) => promisify(execFile)('git', ['-C', CLONE, ...args]);
+
+export async function publish(id: string, title: string) {
+  const checkout = workspace.session(id);
+  if (checkout === undefined) throw new Error('The session is not live.');
+  const branch = `agent/${id}`;
+  await writeFile(`/tmp/${id}.patch`, await checkout.changes());
+  await git('fetch', 'origin');
+  await git('checkout', '-B', branch, checkout.base);
+  await git('apply', '--binary', '--index', `/tmp/${id}.patch`);
+  await git('commit', '-m', title);
+  await git('push', '--force-with-lease', 'origin', branch);
+}
+```
+
+Read the patch before you publish it: it is what the agent made it.
+
+</Step>
+</Steps>
+
+## Next
+
+- Give the agent a tool that runs your test suite in its checkout, with `workspace.fromSandbox()`: see [Tools that work in the checkout](/docs/packages/harness-workspace#tools-that-work-in-the-checkout).
+- Keep the agent from pushing or deleting on its own with an [approval policy](/docs/approving-tool-calls): `deny: [{ match: 'git push', reason: 'The application publishes the changes.' }]`.

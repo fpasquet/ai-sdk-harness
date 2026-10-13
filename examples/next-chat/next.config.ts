@@ -18,6 +18,8 @@ const config: NextConfig = {
     'ai-sdk-sandbox-runtime',
     '@anthropic-ai/sandbox-runtime',
     'ai-sdk-harness-sessions',
+    // Runs git on this host for hostRepository().
+    'ai-sdk-harness-workspace',
     // Starts stdio MCP servers with cross-spawn, which a bundle would break.
     '@ai-sdk/mcp',
   ],

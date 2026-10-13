@@ -1,11 +1,13 @@
 import type { Plugin } from 'ai-sdk-harness-plugins';
 import type { SessionManager, SessionSummary } from 'ai-sdk-harness-sessions';
+import type { Workspace } from 'ai-sdk-harness-workspace';
 
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
 import { createHarnessSandboxTemplate, HarnessAgent } from '@ai-sdk/harness/agent';
 import { withPlugins } from 'ai-sdk-harness-plugins';
 import { createSessionManager, sandboxPerSession, sharedSandbox } from 'ai-sdk-harness-sessions';
+import { withWorkspace } from 'ai-sdk-harness-workspace';
 import { join } from 'node:path';
 
 import type { Conversation } from '@/lib/conversations';
@@ -23,6 +25,7 @@ import {
   SUSPEND_AFTER_MS,
 } from '@/lib/sandbox';
 import { createFileSessionStore } from '@/lib/session-store';
+import { createExampleWorkspace } from '@/lib/workspace';
 
 /**
  * The two harnesses, each authenticated from the environment: Claude Code from
@@ -67,16 +70,28 @@ interface ExampleState {
    */
   agents: Map<string, HarnessAgent>;
   sessions?: SessionManager<Conversation>;
+  /** The repository the conversations work on, with `EXAMPLE_REPOSITORY`. */
+  workspace?: undefined | Workspace;
 }
 
 // Kept on globalThis so `next dev` reloading this module keeps the conversations, and does not
 // start a second manager on the same store.
 const globals = globalThis as { __aiSdkSessionsExample?: ExampleState };
-const state: ExampleState = (globals.__aiSdkSessionsExample ??= { agents: new Map() });
+const state: ExampleState = (globals.__aiSdkSessionsExample ??= {
+  agents: new Map(),
+  workspace: createExampleWorkspace(),
+});
+
+/**
+ * The workspace of `EXAMPLE_REPOSITORY`: each conversation's checkout, for the page to show what
+ * its agent changed. `undefined` without a repository.
+ */
+export const workspace = (): undefined | Workspace => state.workspace;
 
 /**
  * The agent running `harness` on `model`, with `plugins`: their tools and skills join the agent,
- * and their hooks, subagents and files are written in each session's working directory. What a
+ * and their hooks, subagents and files are written in each session's working directory — in the
+ * checkout of `EXAMPLE_REPOSITORY`, made first, when there is one. What a
  * runtime cannot take (Codex and hooks) is left out, with a warning in the server's log. With
  * `askFirst`, the agent asks before it edits a file or runs a command, for the approval policy to
  * decide: `APPROVAL_POLICY.agentSettings()` gives it the permission mode that makes it ask.
@@ -89,19 +104,17 @@ function agentFor(
   let agent = state.agents.get(key);
   if (agent === undefined) {
     const adapter = HARNESS_ADAPTERS[harness as HarnessId];
+    const settings = {
+      id: `example-${harness}`,
+      harness: adapter,
+      model,
+      instructions: SANDBOX_INSTRUCTIONS[SANDBOX],
+      ...(askFirst
+        ? APPROVAL_POLICY.agentSettings(adapter)
+        : { permissionMode: 'allow-all' as const }),
+    };
     agent = new HarnessAgent(
-      withPlugins(
-        {
-          id: `example-${harness}`,
-          harness: adapter,
-          model,
-          instructions: SANDBOX_INSTRUCTIONS[SANDBOX],
-          ...(askFirst
-            ? APPROVAL_POLICY.agentSettings(adapter)
-            : { permissionMode: 'allow-all' as const }),
-        },
-        plugins,
-      ),
+      withPlugins(state.workspace ? withWorkspace(settings, state.workspace) : settings, plugins),
     );
     state.agents.set(key, agent);
   }
@@ -130,23 +143,26 @@ const harnessTemplate = () =>
   createHarnessSandboxTemplate({ harnesses: Object.values(HARNESS_ADAPTERS) });
 
 function createExampleSessions(): SessionManager<Conversation> {
+  const sandboxes =
+    SANDBOX === 'microsandbox'
+      ? sandboxPerSession({
+          create: (id, { abortSignal }) =>
+            createConversationMicrosandbox(id, harnessTemplate, abortSignal),
+          resume: (id, { abortSignal }) => resumeConversationMicrosandbox(id, abortSignal),
+          maxSessions: MICROSANDBOX_CONVERSATIONS,
+        })
+      : sharedSandbox({
+          // The first creation installs both Claude Code and Codex in the sandbox, then saves it
+          // as a template (a few minutes); every later one starts from that template in seconds.
+          open: () => openSandbox(harnessTemplate),
+          ports: SESSION_PORTS,
+          stopWhenUnused: SANDBOX === 'cloud-run',
+        });
   const manager = createSessionManager<Conversation>({
     agent: async ({ metadata }) => agentFor(metadata, await resolveSelection(metadata.selection)),
-    sandboxes:
-      SANDBOX === 'microsandbox'
-        ? sandboxPerSession({
-            create: (id, { abortSignal }) =>
-              createConversationMicrosandbox(id, harnessTemplate, abortSignal),
-            resume: (id, { abortSignal }) => resumeConversationMicrosandbox(id, abortSignal),
-            maxSessions: MICROSANDBOX_CONVERSATIONS,
-          })
-        : sharedSandbox({
-            // The first creation installs both Claude Code and Codex in the sandbox, then saves it
-            // as a template (a few minutes); every later one starts from that template in seconds.
-            open: () => openSandbox(harnessTemplate),
-            ports: SESSION_PORTS,
-            stopWhenUnused: SANDBOX === 'cloud-run',
-          }),
+    // With `EXAMPLE_REPOSITORY`, each conversation gets a checkout of it in its sandbox: kept while
+    // it is suspended, removed when it is closed.
+    sandboxes: state.workspace ? state.workspace.sandboxes(sandboxes) : sandboxes,
     store: createFileSessionStore<Conversation>(
       process.env.EXAMPLE_SESSIONS_DIR ?? join(process.cwd(), '.data/sessions'),
     ),
