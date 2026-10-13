@@ -324,6 +324,27 @@ A view starts its own processes, publishes its own ports and registers its own c
 - `SbxError`: an `sbx` command exited with a non-zero status. Carries `args`, `exitCode` and `stderr`.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a credential the proxy cannot broker.
 
+## Security checklist
+
+What the sandbox does, or does not, against the essential risks of running an agent's code: ✅ covered, ⚠️ partly or with care, ❌ not covered. The same table describes every sandbox package of this repository. The rest is your application's and the harness's: approving sensitive actions, budgets, audit, and reviewing what leaves the sandbox before it runs anywhere else.
+
+| Control                        | Status | How                                                                                                                                                                                                  |
+| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Isolation boundary             | ✅     | A microVM of Docker Sandboxes                                                                                                                                                                        |
+| Nothing of the host by default | ✅     | Nothing mounted but `workspace` and `readOnlyWorkspaces`; the sandbox runs its own Docker, never the host's                                                                                          |
+| Writes to the host             | ⚠️     | `workspace` is read-write: review what the agent writes there, or use `clone: true`. `readOnlyWorkspaces` are read-only                                                                              |
+| Privileges                     | ⚠️     | The sandbox user has `sudo` without a password: root, inside the microVM only                                                                                                                        |
+| Docker and Compose             | ✅     | Every sandbox runs a Docker daemon of its own                                                                                                                                                        |
+| Outbound allow list            | ✅     | `networkPolicy` and `setNetworkPolicy()`, rules of the Docker Sandboxes proxy scoped to the sandbox; in the cloud, the account's policy                                                              |
+| Private networks and metadata  | ✅     | Refused by the proxy, under any `networkPolicy`                                                                                                                                                      |
+| Inbound ports                  | ⚠️     | Declared `ports` only, on the host's loopback, where any local process can connect; at a public URL in the cloud                                                                                     |
+| Credentials out of the sandbox | ⚠️     | The sandbox holds a placeholder; the real value is in the proxy, and on the `sbx` command line while it is registered ([docker/sbx-releases#706](https://github.com/docker/sbx-releases/issues/706)) |
+| Credential scope               | ⚠️     | Only to its API's host, but in any header that carries the placeholder ([docker/sbx-releases#707](https://github.com/docker/sbx-releases/issues/707))                                                |
+| Environment                    | ✅     | Only the variables a command names; the `proxy-managed` ones are dropped                                                                                                                             |
+| Resource limits                | ⚠️     | `cpus` and `memory`; no cap on connections                                                                                                                                                           |
+| Lifetime limits                | ⚠️     | `ttl` in the cloud only                                                                                                                                                                              |
+| Teardown                       | ✅     | `destroy()` removes the sandbox, with the secrets and rules scoped to it                                                                                                                             |
+
 ## Limitations
 
 - **A secret is put in any header that carries its placeholder.** The proxy cannot restrict it to the credential's own header ([docker/sbx-releases#707](https://github.com/docker/sbx-releases/issues/707)): an allowed API that echoes the request's headers back could hand the real value to the sandbox.
