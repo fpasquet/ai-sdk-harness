@@ -11,6 +11,11 @@ import {
   resumeMicrosandboxNetworkSandboxSession,
 } from 'ai-sdk-sandbox-microsandbox';
 import {
+  createSrtNetworkSandboxSession,
+  resumeSrtNetworkSandboxSession,
+  SrtSandboxNotFoundError,
+} from 'ai-sdk-sandbox-runtime';
+import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
   SbxSandboxNotFoundError,
@@ -35,7 +40,7 @@ export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
 
 /**
  * The sandbox the agents run in: `EXAMPLE_SANDBOX=microsandbox` for a microsandbox,
- * `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise.
+ * `cloud-run` for Cloud Run, `srt` for srt on this machine, a Docker Sandbox otherwise.
  */
 export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 
@@ -95,6 +100,10 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
     'You are a coding agent working in a Cloud Run sandbox: a Linux sandbox with Node.js and git, ' +
     'whose network only reaches the model API and the npm registry. Feel free to create files and ' +
     'run commands to answer.',
+  srt:
+    "You are a coding agent working in an srt sandbox on the user's machine: you may write in your " +
+    "working directory, read the rest of the machine but the user's home, and reach the model APIs " +
+    'and the npm registry only. Feel free to create files and run commands to answer.',
 };
 
 /** The template a new sandbox starts from, made only when one is created. */
@@ -111,8 +120,7 @@ export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox>
       'A microsandbox is opened per conversation: see createConversationMicrosandbox.',
     );
   }
-  const open = { sbx: openSbx, 'cloud-run': openCloudRun }[SANDBOX];
-  const sandbox = await open(template);
+  const sandbox = await OPENERS[SANDBOX](template);
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -212,3 +220,37 @@ async function openCloudRun(template: TemplateOf): Promise<Opened> {
   });
   return { resumed: false, session };
 }
+
+/**
+ * A sandbox on this machine, behind srt. It needs `bwrap`, `socat` and `rg` on Linux (`rg` on
+ * macOS): `SRT_SOCAT` and `SRT_RIPGREP` name binaries off the `PATH`, `SRT_ALLOW_ALL_UNIX_SOCKETS=1`
+ * runs without srt's seccomp filter where Ubuntu refuses it (see the README of the package).
+ */
+async function openSrt(template: TemplateOf): Promise<Opened> {
+  const settings = {
+    sandboxId: SANDBOX_ID,
+    ports: [BRIDGE_PORT],
+    runtime: {
+      socatPath: process.env.SRT_SOCAT,
+      ripgrepPath: process.env.SRT_RIPGREP,
+      allowAllUnixSockets: process.env.SRT_ALLOW_ALL_UNIX_SOCKETS === '1',
+    },
+  };
+  try {
+    return { resumed: true, session: await resumeSrtNetworkSandboxSession(settings) };
+  } catch (error) {
+    if (!(error instanceof SrtSandboxNotFoundError)) throw error;
+  }
+  const session = await createSrtNetworkSandboxSession({ ...settings, template: await template() });
+  return { resumed: false, session };
+}
+
+/** How each sandbox shared between the conversations opens; a microsandbox is one per conversation. */
+const OPENERS: Record<
+  Exclude<SandboxId, 'microsandbox'>,
+  (template: TemplateOf) => Promise<Opened>
+> = {
+  sbx: openSbx,
+  'cloud-run': openCloudRun,
+  srt: openSrt,
+};

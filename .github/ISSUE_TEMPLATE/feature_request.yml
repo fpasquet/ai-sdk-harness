@@ -10,6 +10,7 @@ body:
       options:
         - 'ai-sdk-sandbox-sbx'
         - 'ai-sdk-sandbox-microsandbox'
+        - 'ai-sdk-sandbox-runtime'
         - 'ai-sdk-harness-plugins'
         - 'ai-sdk-harness-sessions'
         - 'ai-sdk-harness-approval'

@@ -14,6 +14,9 @@ const config: NextConfig = {
     // A native addon, loaded from its platform package at runtime.
     'ai-sdk-sandbox-microsandbox',
     'microsandbox',
+    // Copies its supervisor from next to its own module, and lets the sandbox read srt's helpers.
+    'ai-sdk-sandbox-runtime',
+    '@anthropic-ai/sandbox-runtime',
     'ai-sdk-harness-sessions',
     // Starts stdio MCP servers with cross-spawn, which a bundle would break.
     '@ai-sdk/mcp',

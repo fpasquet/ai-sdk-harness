@@ -1,0 +1,31 @@
+---
+title: ai-sdk-sandbox-runtime
+description: The options of createSrtNetworkSandboxSession and resumeSrtNetworkSandboxSession, generated from the source.
+---
+
+## `createSrtNetworkSandboxSession(options)`
+
+Creates a sandbox on this host, behind srt, and returns an `SrtNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable
+  path="packages/sandbox-runtime/src/client/srt-settings.ts"
+  name="SrtCreationSettings"
+/>
+
+## `resumeSrtNetworkSandboxSession(options)`
+
+Reattaches to an existing sandbox. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `SrtSandboxNotFoundError` when no sandbox has that id.
+
+<AutoTypeTable
+  path="packages/sandbox-runtime/src/client/srt-settings.ts"
+  name="SrtConnectionSettings"
+/>
+
+## `runtime`
+
+The settings of srt itself, shared by every sandbox of the process.
+
+<AutoTypeTable
+  path="packages/sandbox-runtime/src/client/transport/srt-runtime.ts"
+  name="SrtRuntimeSettings"
+/>

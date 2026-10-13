@@ -53,7 +53,7 @@ const FEATURES: Feature[] = [
     icon: Box,
     title: 'Nothing runs in your app',
     description:
-      'Every command and file operation of the agent runs in its sandbox: a microVM, or a Cloud Run sandbox with no network of its own.',
+      'Every command and file operation of the agent runs in its sandbox: a microVM, a Cloud Run sandbox with no network of its own, or srt on your machine.',
   },
   {
     icon: KeyRound,
@@ -255,6 +255,20 @@ const PACKAGES: SandboxPackage[] = [
       'Suspended to Cloud Storage between turns',
       'No network but an egress proxy and its allowed hosts',
       'Calls authenticated by Cloud Run IAM',
+    ],
+  },
+  {
+    icon: ShieldCheck,
+    name: 'ai-sdk-sandbox-runtime',
+    title: 'Behind srt',
+    status: 'Preview',
+    href: '/docs/packages/sandbox-runtime',
+    description:
+      'Anthropic Sandbox Runtime on your machine: bubblewrap or sandbox-exec, no container to pull or boot.',
+    points: [
+      'Starts in milliseconds, works on your files where they are',
+      'Your home hidden, only the allowed hosts reachable',
+      "Credentials put in by srt's proxy",
     ],
   },
 ];
@@ -494,6 +508,22 @@ const session = await agent.createSession({ sandboxSession });
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });
 await sandboxSession.stop(); // suspended to Cloud Storage: nothing billed until it resumes`;
 
+const USAGE_SRT = `import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import { createSrtNetworkSandboxSession } from 'ai-sdk-sandbox-runtime';
+
+const agent = new HarnessAgent({ harness: createClaudeCode() });
+
+// Linux: sudo apt install bubblewrap socat ripgrep
+const sandboxSession = await createSrtNetworkSandboxSession({
+  ports: [4000],
+  workspace: process.cwd(), // read-write; the rest of the host read-only, your home hidden
+  template: await agent.getSandboxTemplate(),
+});
+const session = await agent.createSession({ sandboxSession });
+
+const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });`;
+
 export default function LandingPage() {
   return (
     <main className="relative flex flex-1 flex-col">
@@ -535,10 +565,16 @@ export default function LandingPage() {
           >
             Cloud Run sandbox
           </a>{' '}
-          on Google Cloud, scaled to zero between turns. The plugins that extend it: tools, skills,
-          rules, slash commands, hooks, subagents and MCP servers, for every runtime. And the
-          sessions that run your users&apos; conversations with it, suspended when idle and resumed
-          where they were.
+          on Google Cloud, scaled to zero between turns, or your own machine behind{' '}
+          <a
+            className="text-fd-foreground underline underline-offset-4"
+            href="https://github.com/anthropics/sandbox-runtime"
+          >
+            Anthropic Sandbox Runtime
+          </a>
+          . The plugins that extend it: tools, skills, rules, slash commands, hooks, subagents and
+          MCP servers, for every runtime. And the sessions that run your users&apos; conversations
+          with it, suspended when idle and resumed where they were.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
@@ -562,6 +598,7 @@ export default function LandingPage() {
               'Docker Sandboxes',
               'microsandbox',
               'Cloud Run',
+              'srt',
               'Plugins',
               'Sessions',
               'Approvals',
@@ -575,6 +612,9 @@ export default function LandingPage() {
             </Tab>
             <Tab value="Cloud Run">
               <DynamicCodeBlock code={USAGE_CLOUD_RUN} lang="ts" />
+            </Tab>
+            <Tab value="srt">
+              <DynamicCodeBlock code={USAGE_SRT} lang="ts" />
             </Tab>
             <Tab value="Plugins">
               <DynamicCodeBlock code={USAGE_PLUGINS} lang="ts" />
