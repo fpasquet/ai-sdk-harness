@@ -4,13 +4,15 @@ import type { ToolApprovalResponse, UIMessage, UIMessageChunk } from 'ai';
 
 import { createUIMessageStream } from 'ai';
 
-import type { EvalAgent, EvalStreamResult } from '../src/index.js';
+import type { EvalAgent, EvalSandboxes, EvalStreamResult } from '../src/index.js';
 
 /** What one stream of the fake agent does: the chunks it writes between `start` and `finish`. */
 export interface ScriptedStream {
   chunks?: UIMessageChunk[];
   /** Streams nothing until the turn is aborted: a turn that never ends. */
   hang?: boolean;
+  /** Streams nothing for this long: a turn that takes its time. */
+  delayMs?: number;
   /** The stream fails with it. */
   fail?: Error;
 }
@@ -131,6 +133,9 @@ export class FakeAgent implements EvalAgent {
                 abortSignal?.addEventListener('abort', () => reject(abortSignal.reason as Error));
               });
             }
+            if (scripted.delayMs !== undefined) {
+              await new Promise((resolve) => setTimeout(resolve, scripted.delayMs));
+            }
             if (scripted.fail !== undefined) throw scripted.fail;
             writer.write({ type: 'start' });
             for (const chunk of scripted.chunks ?? []) writer.write(chunk);
@@ -143,3 +148,31 @@ export class FakeAgent implements EvalAgent {
 
 /** The sandbox the fake agent is given: it never touches it. */
 export const sandbox = { id: 'sandbox' } as unknown as HarnessV1NetworkSandboxSession;
+
+/** Sandboxes that lend `sandbox`, `capacity` at a time, and keep what they were asked. */
+export function fakeSandboxes(capacity?: number): EvalSandboxes & {
+  events: string[];
+  /** The most leases held at once. */
+  peak: number;
+} {
+  let held = 0;
+  const sandboxes = {
+    ...(capacity !== undefined && { capacity }),
+    events: [] as string[],
+    peak: 0,
+    acquire: (sessionId: string) => {
+      held += 1;
+      sandboxes.peak = Math.max(sandboxes.peak, held);
+      sandboxes.events.push(`acquire ${sessionId}`);
+      return Promise.resolve({
+        sandboxSession: sandbox,
+        close: () => {
+          held -= 1;
+          sandboxes.events.push(`close ${sessionId}`);
+          return Promise.resolve();
+        },
+      });
+    },
+  };
+  return sandboxes;
+}

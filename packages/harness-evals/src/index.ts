@@ -1,3 +1,10 @@
+export type {
+  CatalogEntryEvalReport,
+  CatalogEvalReport,
+  EvaluateCatalogSettings,
+} from './catalog/evaluate-catalog.js';
+export { evaluateCatalog } from './catalog/evaluate-catalog.js';
+export { formatCatalogReport } from './catalog/format-catalog-report.js';
 export { DEFAULT_JUDGE_THRESHOLD } from './checks/judge.js';
 export type {
   CheckOutcome,
@@ -9,12 +16,15 @@ export type {
   EvalExpectations,
   EvalReport,
   EvalRun,
+  EvalSandboxes,
+  EvalSandboxLease,
   EvalStreamResult,
   EvalToolCall,
   EvalToolCallStatus,
   EvalTurn,
   EvaluateSettings,
   JudgeCriterion,
+  TextPattern,
 } from './definitions/eval.js';
 
 export { InvalidEvalError } from './errors/invalid-eval-error.js';

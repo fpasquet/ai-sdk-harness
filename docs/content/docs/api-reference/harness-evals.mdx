@@ -48,3 +48,28 @@ One trial of a case: what the agent did, and the checks of it.
   path="packages/harness-evals/src/evaluate/compare-reports.ts"
   name="EvalCaseComparison"
 />
+
+## `evaluateCatalog(settings)`
+
+Runs the eval cases of a catalog's plugins and items, with each and without it.
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="EvaluateCatalogSettings"
+/>
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="CatalogEvalReport"
+/>
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="CatalogEntryEvalReport"
+/>
+
+## Sandboxes
+
+What `sandbox` takes besides one sandbox: the `sharedSandbox()` and `sandboxPerSession()` of `ai-sdk-harness-sessions` are ones.
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalSandboxes" />

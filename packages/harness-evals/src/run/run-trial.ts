@@ -1,4 +1,3 @@
-import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
 import type { HarnessAgentSession } from '@ai-sdk/harness/agent';
 import type { ToolApprovalResponse, UIMessage } from 'ai';
 
@@ -8,6 +7,8 @@ import type {
   EvalAgent,
   EvalApprovals,
   EvalRun,
+  EvalSandboxes,
+  EvalSandboxLease,
   EvalStreamResult,
   EvalTurn,
 } from '../definitions/eval.js';
@@ -21,7 +22,7 @@ const MAX_STREAMS_PER_TURN = 50;
 
 export interface TrialOptions {
   agent: EvalAgent;
-  sandbox: HarnessV1NetworkSandboxSession;
+  sandboxes: EvalSandboxes;
   /** The prompts of the turns, `/commands` expanded already. */
   prompts: readonly string[];
   approvals: EvalApprovals;
@@ -44,12 +45,15 @@ class Trial {
    * from its end, if anything did.
    */
   async run(): Promise<string | undefined> {
-    const { agent, sandbox, abortSignal } = this.options;
+    const { agent, sandboxes, abortSignal } = this.options;
+    const sessionId = `eval-${generateId()}`;
+    let lease: EvalSandboxLease | undefined;
     let session: HarnessAgentSession | undefined;
     try {
+      lease = await sandboxes.acquire(sessionId, { resume: false, abortSignal });
       session = await agent.createSession({
-        sessionId: `eval-${generateId()}`,
-        sandboxSession: sandbox,
+        sessionId,
+        sandboxSession: lease.sandboxSession,
         abortSignal,
       });
       for (const prompt of this.options.prompts) await this.turn(session, prompt);
@@ -58,6 +62,7 @@ class Trial {
       return abortSignal.aborted ? `Timed out: ${messageOf(caught)}` : messageOf(caught);
     } finally {
       await session?.destroy().catch(() => undefined);
+      await lease?.close().catch(() => undefined);
     }
   }
 

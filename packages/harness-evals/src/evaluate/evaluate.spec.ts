@@ -2,7 +2,9 @@ import type { Plugin } from 'ai-sdk-harness-plugins';
 
 import { describe, expect, it } from 'vitest';
 
-import { ask, call, fail, FakeAgent, sandbox, say } from '../../test/fake-agent.js';
+import type { EvaluateSettings } from '../index.js';
+
+import { ask, call, fail, FakeAgent, fakeSandboxes, sandbox, say } from '../../test/fake-agent.js';
 import { judgeModel } from '../../test/judge-model.js';
 import { evaluate, InvalidEvalError } from '../index.js';
 
@@ -412,15 +414,108 @@ describe('evaluate', () => {
     ],
     [{ trials: 0, cases: [{ name: 'a', prompt: 'x' }] }, '`trials` must be'],
     [{ minPassRate: 2, cases: [{ name: 'a', prompt: 'x' }] }, '`minPassRate` must be'],
+    [{ cases: [{ name: 'a', prompt: 'x', expect: { include: 'y' } }] }, '`expect.include` is no'],
+    [{ cases: [{ name: 'a', prompt: 'x', expect: { includes: { regex: '(' } } }] }, 'includes'],
+    [{ cases: [{ name: 'a', prompt: 'x', expect: { calledTools: 'bash' } }] }, 'list of tool'],
+    [{ cases: [{ name: 'a', prompt: 'x', expect: { maxToolCalls: -1 } }] }, 'whole number'],
+    [{ cases: [{ name: 'a', prompt: 'x', harnesses: 'codex' }] }, '`harnesses` must be'],
+    [{ concurrency: 2, cases: [{ name: 'a', prompt: 'x' }] }, 'one sandbox runs one trial'],
   ])('refuses cases that cannot run before running any: %j', async (settings, message) => {
     const agent = new FakeAgent();
 
-    const error = await evaluate({ agent, sandbox, ...settings }).catch(
-      (caught: unknown) => caught,
-    );
+    // Cases as JSON may hold anything: some of these are wrong on purpose.
+    const cases = settings as unknown as Pick<EvaluateSettings, 'cases'>;
+    const error = await evaluate({ agent, sandbox, ...cases }).catch((caught: unknown) => caught);
 
     expect(InvalidEvalError.isInstance(error)).toBe(true);
     expect((error as Error).message).toContain(message);
     expect(agent.sessions).toEqual([]);
+  });
+
+  it('reads a pattern written as JSON', async () => {
+    const agent = new FakeAgent();
+    agent.script = [{ chunks: say('feat(api): add the route') }];
+
+    const report = await evaluate({
+      agent,
+      sandbox,
+      cases: [
+        {
+          name: 'commit',
+          prompt: 'Draft it',
+          expect: { includes: { regex: '^FEAT\\(', flags: 'i' }, excludes: [{ regex: '\\(\\)' }] },
+        },
+      ],
+    });
+
+    expect(report.cases[0]!.trials[0]!.checks.map(({ name, passed }) => [name, passed])).toEqual([
+      ['includes(/^FEAT\\(/i)', true],
+      ['excludes(/\\(\\)/)', true],
+    ]);
+  });
+
+  it('skips the cases made for other runtimes', async () => {
+    const agent = new FakeAgent();
+    const ended: string[] = [];
+
+    const report = await evaluate({
+      agent,
+      sandbox,
+      harness: 'codex',
+      cases: [
+        { name: 'hook', prompt: 'x', harnesses: ['claude-code'], expect: { includes: 'never' } },
+        { name: 'any', prompt: 'y' },
+      ],
+      onCaseEnd: ({ name }) => ended.push(name),
+    });
+
+    expect(report.passed).toBe(true);
+    expect(report.cases[0]).toMatchObject({
+      name: 'hook',
+      skipped: 'made for claude-code, not codex',
+      trials: [],
+    });
+    expect(agent.prompts).toEqual(['y']);
+    expect(ended).toEqual(['hook', 'any']);
+  });
+
+  it('runs trials at once on sandboxes that hold several, each with a lease of its own', async () => {
+    const agent = new FakeAgent();
+    agent.script = Array.from({ length: 4 }, () => ({ delayMs: 30, chunks: say('ok') }));
+    const sandboxes = fakeSandboxes(2);
+
+    const report = await evaluate({
+      agent,
+      sandbox: sandboxes,
+      trials: 2,
+      cases: [
+        { name: 'one', prompt: '1', expect: { includes: 'ok' } },
+        { name: 'two', prompt: '2', expect: { includes: 'ok' } },
+      ],
+    });
+
+    expect(report.passed).toBe(true);
+    expect(report.cases.map(({ name, trials }) => [name, trials.length])).toEqual([
+      ['one', 2],
+      ['two', 2],
+    ]);
+    expect(sandboxes.peak).toBe(2);
+    const acquired = sandboxes.events.filter((event) => event.startsWith('acquire'));
+    expect(acquired).toHaveLength(4);
+    expect(sandboxes.events.filter((event) => event.startsWith('close'))).toHaveLength(4);
+    // The session of each trial is the one its lease was acquired for.
+    expect(agent.sessions.map(({ id }) => `acquire ${id}`).sort()).toEqual([...acquired].sort());
+  });
+
+  it('refuses more trials at once than the sandboxes hold', async () => {
+    const error = await evaluate({
+      agent: new FakeAgent(),
+      sandbox: fakeSandboxes(2),
+      concurrency: 3,
+      cases: [{ name: 'a', prompt: 'x' }],
+    }).catch((caught: unknown) => caught);
+
+    expect(InvalidEvalError.isInstance(error)).toBe(true);
+    expect((error as Error).message).toContain('hold 2 session(s) at once');
   });
 });

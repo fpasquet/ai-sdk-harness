@@ -1,3 +1,4 @@
+import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
 import type { Plugin } from 'ai-sdk-harness-plugins';
 
 import type {
@@ -7,67 +8,24 @@ import type {
   EvalCheck,
   EvalReport,
   EvalRun,
+  EvalSandboxes,
   EvaluateSettings,
 } from '../definitions/eval.js';
 import type { TrialObservation } from '../run/run-trial.js';
 
 import { expectationChecks } from '../checks/expectations.js';
-import { criteriaOf, judgeChecks } from '../checks/judge.js';
+import { judgeChecks } from '../checks/judge.js';
 import { InvalidEvalError } from '../errors/invalid-eval-error.js';
 import { runTrial } from '../run/run-trial.js';
+import { Limiter } from '../utils/limiter.js';
 import { listOf, messageOf } from '../utils/text.js';
+import { validate } from './validate.js';
 
 /** How long a trial may take when neither the case nor `evaluate()` says. */
 export const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
 const mean = (values: readonly number[], empty: number): number =>
   values.length === 0 ? empty : values.reduce((sum, value) => sum + value, 0) / values.length;
-
-const isCount = (value: number | undefined): boolean =>
-  value === undefined || (Number.isInteger(value) && value >= 1);
-
-const isRate = (value: number | undefined): boolean =>
-  value === undefined || (value >= 0 && value <= 1);
-
-/** Refuses a case that cannot run. */
-function validateCase(evalCase: EvalCase, settings: EvaluateSettings): void {
-  const { name } = evalCase;
-  if (name.trim() === '') throw new InvalidEvalError('Every case needs a name.');
-  const prompts = listOf(evalCase.prompt);
-  if (prompts.length === 0 || prompts.some((prompt) => prompt.trim() === '')) {
-    throw new InvalidEvalError('Every prompt must say something.', name);
-  }
-  if (!isCount(evalCase.trials)) {
-    throw new InvalidEvalError('`trials` must be a whole number ≥ 1.', name);
-  }
-  const criteria = criteriaOf(evalCase.expect ?? {});
-  if (criteria.length > 0 && settings.judge === undefined) {
-    throw new InvalidEvalError(
-      'It has `judge` expectations: give `evaluate()` a `judge` model.',
-      name,
-    );
-  }
-  if (!criteria.every(({ threshold }) => isRate(threshold))) {
-    throw new InvalidEvalError('A judge threshold must be between 0 and 1.', name);
-  }
-}
-
-/** Refuses what cannot run, before any case does: nothing is spent on a suite that would fail. */
-function validate(settings: EvaluateSettings): void {
-  if (settings.cases.length === 0) throw new InvalidEvalError('There is no case to run.');
-  if (!isCount(settings.trials)) throw new InvalidEvalError('`trials` must be a whole number ≥ 1.');
-  if (!isRate(settings.minPassRate)) {
-    throw new InvalidEvalError('`minPassRate` must be between 0 and 1.');
-  }
-  const names = new Set<string>();
-  for (const evalCase of settings.cases) {
-    validateCase(evalCase, settings);
-    if (names.has(evalCase.name)) {
-      throw new InvalidEvalError('Another case has the same name.', evalCase.name);
-    }
-    names.add(evalCase.name);
-  }
-}
 
 /** The prompts of a case, its `/commands` expanded as the application would. */
 async function promptsOf(
@@ -129,11 +87,54 @@ async function judged(
   };
 }
 
+/** The sandboxes of the trials: those given, or one sandbox, lent to one trial at a time. */
+export function sandboxesOf(
+  sandbox: EvalSandboxes | HarnessV1NetworkSandboxSession,
+): EvalSandboxes {
+  if ('acquire' in sandbox && typeof sandbox.acquire === 'function') return sandbox;
+  const sandboxSession = sandbox as HarnessV1NetworkSandboxSession;
+  return {
+    capacity: 1,
+    acquire: () => Promise.resolve({ sandboxSession, close: () => Promise.resolve() }),
+  };
+}
+
+/** How many trials run at once: `concurrency`, within what the sandboxes hold. */
+export function concurrencyOf(
+  settings: Pick<EvaluateSettings, 'concurrency'>,
+  sandboxes: EvalSandboxes,
+): number {
+  const capacity = sandboxes.capacity ?? Number.POSITIVE_INFINITY;
+  const concurrency = settings.concurrency ?? Math.min(capacity, Number.MAX_SAFE_INTEGER);
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new InvalidEvalError(
+      sandboxes.capacity === undefined
+        ? '`concurrency` must be a whole number ≥ 1: the sandboxes set no limit of their own.'
+        : '`concurrency` must be a whole number ≥ 1.',
+    );
+  }
+  if (concurrency > capacity) {
+    throw new InvalidEvalError(
+      `\`concurrency\` is ${concurrency}, but the sandboxes hold ${capacity} session(s) at once` +
+        (capacity === 1
+          ? ': one sandbox runs one trial at a time. Give `sharedSandbox()` or `sandboxPerSession()` of ai-sdk-harness-sessions.'
+          : '.'),
+    );
+  }
+  return concurrency;
+}
+
+/** What one trial of a case needs. */
+interface Trial {
+  evalCase: EvalCase;
+  prompts: readonly string[];
+  sandboxes: EvalSandboxes;
+}
+
 /** Runs one trial of a case, and checks it. */
 async function runOnce(
   settings: EvaluateSettings,
-  evalCase: EvalCase,
-  prompts: readonly string[],
+  { evalCase, prompts, sandboxes }: Trial,
 ): Promise<EvalRun> {
   const timeout = AbortSignal.timeout(
     evalCase.timeoutMs ?? settings.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -142,7 +143,7 @@ async function runOnce(
     settings.abortSignal === undefined ? timeout : AbortSignal.any([timeout, settings.abortSignal]);
   const observed = await runTrial({
     agent: settings.agent,
-    sandbox: settings.sandbox,
+    sandboxes,
     prompts,
     approvals: evalCase.approvals ?? settings.approvals ?? 'approve',
     abortSignal,
@@ -150,14 +151,18 @@ async function runOnce(
   return judged(settings, evalCase, { observed, abortSignal });
 }
 
-/** Runs every trial of a case, one after the other. */
-async function runCase(settings: EvaluateSettings, evalCase: EvalCase): Promise<EvalCaseReport> {
-  const prompts = await promptsOf(evalCase, settings.plugins);
-  const runs: EvalRun[] = [];
-  for (let trial = 0; trial < (evalCase.trials ?? settings.trials ?? 1); trial += 1) {
-    runs.push(await runOnce(settings, evalCase, prompts));
-    settings.abortSignal?.throwIfAborted();
-  }
+/** Why a case does not run on the agent's runtime, if it does not. */
+const skipReasonOf = (evalCase: EvalCase, harness: string | undefined): string | undefined =>
+  harness === undefined || evalCase.harnesses === undefined || evalCase.harnesses.includes(harness)
+    ? undefined
+    : `made for ${evalCase.harnesses.join(', ')}, not ${harness}`;
+
+/** The report of a case, from its trials. */
+function caseReport(
+  settings: EvaluateSettings,
+  evalCase: EvalCase,
+  runs: EvalRun[],
+): EvalCaseReport {
   const passRate = runs.filter(({ passed }) => passed).length / runs.length;
   return {
     name: evalCase.name,
@@ -172,28 +177,74 @@ async function runCase(settings: EvaluateSettings, evalCase: EvalCase): Promise<
   };
 }
 
+/** A case made for other runtimes: reported, never run. */
+const skippedReport = (evalCase: EvalCase, skipped: string): EvalCaseReport => ({
+  name: evalCase.name,
+  tags: evalCase.tags ?? [],
+  skipped,
+  passed: true,
+  passRate: 1,
+  score: 1,
+  trials: [],
+});
+
 /**
- * Runs each case on the agent — every trial a new session in the sandbox, one after the other —
- * and checks what it answered and did: the report says which cases passed, with a score.
+ * `evaluate()` on `limiter`, which a catalog's runs share: its trials wait for a place there, and
+ * their time starts once they have one.
+ */
+export async function evaluateOn(
+  settings: EvaluateSettings,
+  { sandboxes, limiter }: { sandboxes: EvalSandboxes; limiter: Limiter },
+): Promise<EvalReport> {
+  const started = Date.now();
+  const cases: EvalCaseReport[] = [];
+  const tasks: Promise<void>[] = [];
+  for (const [index, evalCase] of settings.cases.entries()) {
+    const skipped = skipReasonOf(evalCase, settings.harness);
+    if (skipped !== undefined) {
+      cases[index] = skippedReport(evalCase, skipped);
+      settings.onCaseEnd?.(cases[index]);
+      continue;
+    }
+    const prompts = await promptsOf(evalCase, settings.plugins);
+    const trials = evalCase.trials ?? settings.trials ?? 1;
+    const runs: EvalRun[] = [];
+    let left = trials;
+    for (let trial = 0; trial < trials; trial += 1) {
+      const task = async (): Promise<void> => {
+        settings.abortSignal?.throwIfAborted();
+        runs[trial] = await runOnce(settings, { evalCase, prompts, sandboxes });
+        left -= 1;
+        if (left > 0) return;
+        cases[index] = caseReport(settings, evalCase, runs);
+        settings.onCaseEnd?.(cases[index]);
+      };
+      tasks.push(limiter.run(task));
+    }
+  }
+  await Promise.all(tasks);
+  const ran = cases.filter(({ skipped }) => skipped === undefined);
+  return {
+    passed: cases.every(({ passed }) => passed),
+    score: mean(
+      ran.map(({ score }) => score),
+      1,
+    ),
+    cases,
+    durationMs: Date.now() - started,
+  };
+}
+
+/**
+ * Runs each case on the agent — every trial a new session, several at once when the sandboxes
+ * allow it — and checks what it answered and did: the report says which cases passed, with a
+ * score.
  *
  * @throws {InvalidEvalError} before any case runs, when the cases cannot run as they are.
  */
 export async function evaluate(settings: EvaluateSettings): Promise<EvalReport> {
   validate(settings);
-  const started = Date.now();
-  const cases: EvalCaseReport[] = [];
-  for (const evalCase of settings.cases) {
-    const report = await runCase(settings, evalCase);
-    cases.push(report);
-    settings.onCaseEnd?.(report);
-  }
-  return {
-    passed: cases.every(({ passed }) => passed),
-    score: mean(
-      cases.map(({ score }) => score),
-      0,
-    ),
-    cases,
-    durationMs: Date.now() - started,
-  };
+  const sandboxes = sandboxesOf(settings.sandbox);
+  const limiter = new Limiter(concurrencyOf(settings, sandboxes));
+  return evaluateOn(settings, { sandboxes, limiter });
 }

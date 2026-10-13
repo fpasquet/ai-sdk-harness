@@ -39,6 +39,26 @@ export interface EvalAgent {
   }): PromiseLike<EvalStreamResult>;
 }
 
+/** The sandbox an eval session holds while its trial runs. */
+export interface EvalSandboxLease {
+  readonly sandboxSession: HarnessV1NetworkSandboxSession;
+  /** The trial is over: free what it held. */
+  close(): Promise<void>;
+}
+
+/**
+ * Where the trials get a sandbox: the `SessionSandboxes` of `ai-sdk-harness-sessions` —
+ * `sharedSandbox()`, a view of one sandbox with a port of its own for each trial, or
+ * `sandboxPerSession()`, a sandbox each — are ones. Their `capacity` is how many trials run at once.
+ */
+export interface EvalSandboxes {
+  readonly capacity?: number;
+  acquire(
+    sessionId: string,
+    options: { resume: boolean; abortSignal?: AbortSignal },
+  ): Promise<EvalSandboxLease>;
+}
+
 /** A criterion the judge grades the answer on, with the score it must reach. */
 export interface JudgeCriterion {
   /** What a good answer does, in plain words: `The answer cites the documentation`. */
@@ -48,14 +68,20 @@ export interface JudgeCriterion {
 }
 
 /**
+ * Text to look for: a string as it is, a RegExp, or — as JSON writes it — a RegExp's source and
+ * flags, `{ "regex": "^feat", "flags": "im" }`.
+ */
+export type TextPattern = RegExp | string | { regex: string; flags?: string };
+
+/**
  * What the agent must have done by the end of the case. Every expectation is plain data, so cases
  * can be written as JSON; each one becomes a check of the report.
  */
 export interface EvalExpectations {
   /** Text the last answer contains, each of them: a string matches as is, a RegExp as a pattern. */
-  includes?: readonly (RegExp | string)[] | RegExp | string;
+  includes?: readonly TextPattern[] | TextPattern;
   /** Text the last answer does not contain, any of them. */
-  excludes?: readonly (RegExp | string)[] | RegExp | string;
+  excludes?: readonly TextPattern[] | TextPattern;
   /**
    * Tools the agent called, each at least once and without an error. A runtime's own tools match
    * whatever the runtime names them: `bash` is Claude Code's `Bash` and Codex's `shell`.
@@ -106,6 +132,11 @@ export interface EvalCase {
   timeoutMs?: number;
   /** Free-form labels, kept in the report: to filter cases, or group them. */
   tags?: readonly string[];
+  /**
+   * The runtimes the case is made for, by harness id (`claude-code`, `codex`): with the `harness`
+   * of `evaluate()`, the case is skipped on the others — a hook on Codex, for instance.
+   */
+  harnesses?: readonly string[];
 }
 
 /** What a turn that pauses on a tool approval gets: every request approved, or denied. */
@@ -174,6 +205,8 @@ export interface EvalRun {
 export interface EvalCaseReport {
   name: string;
   tags: readonly string[];
+  /** Why the case did not run: it is made for other runtimes. It then counts as passed. */
+  skipped?: string;
   /** The share of trials that passed reached `minPassRate`. */
   passed: boolean;
   /** The share of trials that passed, from 0 to 1. */
@@ -187,7 +220,7 @@ export interface EvalCaseReport {
 export interface EvalReport {
   /** Every case passed. */
   passed: boolean;
-  /** The mean score of the cases. */
+  /** The mean score of the cases that ran; 1 when none did. */
   score: number;
   cases: EvalCaseReport[];
   durationMs: number;
@@ -197,8 +230,17 @@ export interface EvalReport {
 export interface EvaluateSettings {
   /** The agent under evaluation, a `HarnessAgent`. */
   agent: EvalAgent;
-  /** The sandbox its sessions run in: each trial is a new session, destroyed at its end. */
-  sandbox: HarnessV1NetworkSandboxSession;
+  /**
+   * Where its sessions run, each trial a new session destroyed at its end: one sandbox, the trials
+   * one after the other; or sandboxes (`sharedSandbox()` or `sandboxPerSession()` of
+   * `ai-sdk-harness-sessions`), several trials at once.
+   */
+  sandbox: EvalSandboxes | HarnessV1NetworkSandboxSession;
+  /**
+   * How many trials run at once: at most the `capacity` of the sandboxes, which it defaults to; 1
+   * with one sandbox, whose bridge port one session holds at a time.
+   */
+  concurrency?: number;
   cases: readonly EvalCase[];
   /**
    * The agent's plugins, when its prompts use their `/commands` (or `/skills`): they are expanded
@@ -209,6 +251,11 @@ export interface EvaluateSettings {
   judge?: LanguageModel;
   /** How many times each case runs: the agents are not deterministic. Default: 1. */
   trials?: number;
+  /**
+   * The agent's runtime, by harness id (`claude-code`, `codex`): the cases made for other
+   * runtimes (`harnesses`) are skipped. Every case runs when absent.
+   */
+  harness?: string;
   /** The share of a case's trials that must pass, from 0 to 1. Default: 1, every trial. */
   minPassRate?: number;
   /** What a turn that pauses on a tool approval gets. Default: `'approve'`. */

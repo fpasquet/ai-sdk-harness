@@ -1,6 +1,6 @@
 import type { EvalCheck, EvalExpectations, EvalRun } from '../definitions/eval.js';
 
-import { contains, excerpt, listOf } from '../utils/text.js';
+import { contains, excerpt, listOf, patternName } from '../utils/text.js';
 import { isTool } from '../utils/tool-names.js';
 
 type Observed = Pick<EvalRun, 'skills' | 'text' | 'toolCalls'>;
@@ -24,12 +24,16 @@ const toolsOf = (run: Observed): string =>
 
 const includes: Checks = (expect, run) =>
   listOf(expect.includes).map((pattern) =>
-    check(`includes(${String(pattern)})`, contains(run.text, pattern), `got ${answerOf(run)}`),
+    check(`includes(${patternName(pattern)})`, contains(run.text, pattern), `got ${answerOf(run)}`),
   );
 
 const excludes: Checks = (expect, run) =>
   listOf(expect.excludes).map((pattern) =>
-    check(`excludes(${String(pattern)})`, !contains(run.text, pattern), `got ${answerOf(run)}`),
+    check(
+      `excludes(${patternName(pattern)})`,
+      !contains(run.text, pattern),
+      `got ${answerOf(run)}`,
+    ),
   );
 
 const calledTools: Checks = (expect, run) =>
