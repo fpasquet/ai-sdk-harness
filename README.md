@@ -20,6 +20,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 | [`ai-sdk-sandbox-runtime`](packages/sandbox-runtime)           | Runs a harness agent on this machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) (srt), with no container    | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-runtime)](https://www.npmjs.com/package/ai-sdk-sandbox-runtime)           |
 | [`ai-sdk-harness-plugins`](packages/harness-plugins)           | Plugins for a harness agent: tools, skills, rules, slash commands, hooks, subagents and MCP servers, Claude Code plugins included                  | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-plugins)](https://www.npmjs.com/package/ai-sdk-harness-plugins)           |
 | [`ai-sdk-harness-sessions`](packages/harness-sessions)         | The lifecycle of a harness agent's sessions: suspended when idle, resumed on the next message and after a restart, several in one sandbox          | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-sessions)](https://www.npmjs.com/package/ai-sdk-harness-sessions)         |
+| [`ai-sdk-harness-workspace`](packages/harness-workspace)       | A Git checkout of its own for each session, side by side in one sandbox, and what the agent changed back as a patch, credentials kept out          | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-workspace)](https://www.npmjs.com/package/ai-sdk-harness-workspace)       |
 | [`ai-sdk-harness-approval`](packages/harness-approval)         | A person in the loop: an approval policy for the agent's commands and edits, "always allow" for a session, and the agent's questions answered      | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-approval)](https://www.npmjs.com/package/ai-sdk-harness-approval)         |
 
 ```ts
@@ -49,6 +50,7 @@ packages/
   sandbox-runtime/    ai-sdk-sandbox-runtime, published to npm (srt on this host)
   harness-plugins/    ai-sdk-harness-plugins, published to npm
   harness-sessions/   ai-sdk-harness-sessions, published to npm
+  harness-workspace/  ai-sdk-harness-workspace, published to npm
   harness-approval/   ai-sdk-harness-approval, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
