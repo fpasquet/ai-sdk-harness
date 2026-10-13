@@ -204,6 +204,9 @@ importers:
       ai-sdk-harness-approval:
         specifier: workspace:*
         version: link:../../packages/harness-approval
+      ai-sdk-harness-evals:
+        specifier: workspace:*
+        version: link:../../packages/harness-evals
       ai-sdk-harness-plugins:
         specifier: workspace:*
         version: link:../../packages/harness-plugins
@@ -313,6 +316,9 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.15
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0

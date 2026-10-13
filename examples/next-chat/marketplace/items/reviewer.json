@@ -4,5 +4,18 @@
   "description": "Reviews the changes of the working directory. Delegate reviews to it.",
   "instructions": "You review the uncommitted changes of the working directory (git diff), following the code-review skill, and report what you found. You change nothing.",
   "tools": ["Read", "Grep", "Glob", "Bash", "Skill"],
-  "requires": ["skill:code-review"]
+  "requires": ["skill:code-review"],
+  "evals": [
+    {
+      "name": "delegates a review to the reviewer",
+      "prompt": [
+        "Run `git init -q` and create add.js holding `export const add = (a, b) => a - b;`. Answer in a word.",
+        "Have the reviewer subagent review the uncommitted changes, and give me its verdict."
+      ],
+      "expect": {
+        "calledTools": ["Agent"]
+      },
+      "harnesses": ["claude-code"]
+    }
+  ]
 }

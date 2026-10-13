@@ -14,5 +14,15 @@
     "required": ["name"],
     "additionalProperties": false
   },
-  "url": "https://registry.npmjs.org/{name}/latest"
+  "url": "https://registry.npmjs.org/{name}/latest",
+  "evals": [
+    {
+      "name": "reads the latest version from the registry",
+      "prompt": "What is the latest version of the zod package on npm? Use a tool.",
+      "expect": {
+        "calledTools": ["npm-latest"],
+        "noToolErrors": true
+      }
+    }
+  ]
 }

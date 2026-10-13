@@ -217,6 +217,37 @@ Each plugin and item of the marketplace, a prompt that puts it to work, and what
 | `subagent:reviewer`        | `Write sum.js with a bug, then have the reviewer subagent review it.` | Claude Code delegates the review                                               | [JSON and screenshot](../../packages/harness-plugins/README.md#a-subagent)       |
 | `mcp-server:deepwiki`      | `Use the deepwiki tools: what is the vercel/ai repository?`           | The agent asks DeepWiki, with the tools the server connects to                 | [JSON and screenshot](../../packages/harness-plugins/README.md#an-mcp-server)    |
 
+### Evaluating the marketplace
+
+Each plugin and item carries what it promises as eval cases, `evals`, beside the rest of its configuration: a prompt, and what the agent must have done. `pnpm evals` runs them with [`ai-sdk-harness-evals`](../../packages/harness-evals/README.md) on the agent with each entry and on the agent without it, in sandboxes of their own (`EXAMPLE_SANDBOX` picks the kind), and tells what each entry changes:
+
+```bash
+pnpm evals                              # every entry with cases, on Claude Code
+pnpm evals plugin:library-docs command:npm
+pnpm evals --harness codex --trials 3   # the cases made for Claude Code only are skipped
+pnpm evals --concurrency 4 --no-baseline
+```
+
+```text
+── command:npm
+✓ /npm sizes a package up from the registry  1/1  score 1.00
+
+1/1 cases passed · score 1.00 · 3m29s
+
+without it → with it
+/npm sizes a package up from the registry  ✗ 0.00 → ✓ 1.00  (+1.00)
+
+score +1.00 · 1 improved · 0 regressed
+
+…
+
+9/12 entries passed · 9/12 better than without them
+```
+
+On Claude Code Haiku, two entries fail for reasons of their own: `sandbox-inspector`'s tool loses to the shell for describing the machine, and the `code-review` skill is loaded one time in three (`--trials 3`). The runs also found `commit-helper`'s command writing an empty scope, `feat(): …`, and a case of `safety-guard` too strict on the agent's wording: both fixed since.
+
+The whole report, every conversation and tool call included, is written to `.data/evals/`. The run spends the tokens of two turns or more per entry, twice.
+
 ## How it works
 
 | File                                                                                 | What it does                                                                                                                                                                                                                                                                                   |

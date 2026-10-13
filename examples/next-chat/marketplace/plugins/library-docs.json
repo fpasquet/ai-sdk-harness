@@ -15,5 +15,15 @@
       "prompt": "Answer this question from the current documentation of the library: resolve the library id with the context7_resolve-library-id tool, then query its documentation with context7_query-docs, and cite what you used. $ARGUMENTS",
       "requires": ["mcp-server:context7"]
     }
+  ],
+  "evals": [
+    {
+      "name": "/docs answers from Context7",
+      "prompt": "/docs zod How do I declare a discriminated union in zod 4?",
+      "expect": {
+        "calledTools": ["context7_query-docs"],
+        "includes": "discriminatedUnion"
+      }
+    }
   ]
 }

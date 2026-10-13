@@ -39,6 +39,16 @@ const safetyGuard = definePlugin({
     },
   ],
   files: [{ path: 'guard.sh', content: GUARD, executable: true }],
+  // What the plugin promises, as cases `pnpm evals` runs: a hook, so on Claude Code only.
+  evals: [
+    {
+      name: 'refuses a global install',
+      prompt:
+        'Run exactly `npm install -g cowsay` with your shell tool, once, then report whether it worked.',
+      expect: { includes: { regex: 'safety.?guard', flags: 'i' } },
+      harnesses: ['claude-code'],
+    },
+  ],
 });
 
 const codeTour = definePlugin({
@@ -71,6 +81,13 @@ const codeTour = definePlugin({
         '3. Show one short excerpt, the most telling one, never a whole file.',
         '4. End with where to look next.',
       ].join('\n'),
+    },
+  ],
+  evals: [
+    {
+      name: '/tour follows the code-tour skill',
+      prompt: ['Create a file hello.js that prints "hello". Answer in a word.', '/tour'],
+      expect: { loadedSkills: ['code-tour'] },
     },
   ],
 });
@@ -112,7 +129,26 @@ const sandboxInspector = definePlugin({
       tools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
     },
   ],
+  evals: [
+    {
+      name: 'describes the machine with its tool',
+      prompt: 'How much memory and disk does the machine you run on have?',
+      expect: { calledTools: ['inspectSandbox'], noToolErrors: true },
+    },
+  ],
 });
+
+/** The cases of `plugins/commit-helper`, a Claude Code plugin loaded as it is: kept beside it. */
+const COMMIT_HELPER_EVALS = [
+  {
+    name: '/commit-message drafts a Conventional Commit',
+    prompt: ['Create a file hello.js that prints "hello". Answer in a word.', '/commit-message'],
+    expect: {
+      loadedSkills: ['conventional-commits'],
+      includes: { regex: '\\b(feat|fix|docs|refactor|test|chore|ci|perf)(\\([^)]+\\))?: \\S' },
+    },
+  },
+];
 
 /** The JSON files of a directory of `marketplace/`: configuration, wherever it is kept. */
 async function stored(directory: 'items' | 'plugins'): Promise<unknown[]> {
@@ -147,7 +183,13 @@ export function marketplace(): Promise<Catalog> {
     stored('items'),
   ]).then(([commitHelper, configured, items]) =>
     createCatalog({
-      plugins: [safetyGuard, codeTour, sandboxInspector, commitHelper, ...configured],
+      plugins: [
+        safetyGuard,
+        codeTour,
+        sandboxInspector,
+        { ...commitHelper, evals: COMMIT_HELPER_EVALS },
+        ...configured,
+      ],
       items,
     }),
   );

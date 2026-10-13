@@ -3,5 +3,17 @@
   "name": "dependency-versions",
   "description": "Checks that dependencies are pinned, whenever the agent reads a package.json.",
   "paths": ["**/package.json"],
-  "content": "When you read or edit a package.json, check the versions of its dependencies and devDependencies. End your answer with a **Dependency check** section: list each dependency whose version is not exact (a range with ^ or ~, *, or a tag such as latest) with the version to pin, or say that all are pinned."
+  "content": "When you read or edit a package.json, check the versions of its dependencies and devDependencies. End your answer with a **Dependency check** section: list each dependency whose version is not exact (a range with ^ or ~, *, or a tag such as latest) with the version to pin, or say that all are pinned.",
+  "evals": [
+    {
+      "name": "checks the versions of a package.json it reads",
+      "prompt": [
+        "Write a package.json whose only dependency is zod at ^4.0.0. Answer in a word.",
+        "Read package.json with your file reading tool and tell me its dependencies."
+      ],
+      "expect": {
+        "includes": "Dependency check"
+      }
+    }
+  ]
 }
