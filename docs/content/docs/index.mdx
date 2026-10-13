@@ -92,6 +92,10 @@ A hook at work in the [Next.js example](/docs/examples/next-chat): written in JS
 
 ![A command allowed by the policy, one refused, one waiting with "Always allow"](/screenshots/next-chat/policy.png)
 
+## Evals
+
+[`ai-sdk-harness-evals`](/docs/packages/harness-evals) (Preview, 0.x) tells whether the agent does what you expect of it, and keeps telling as you change it: `evaluate()` runs a few cases on the agent in its sandbox, checks what it answered, which tools it called and which skills it loaded, has a judge model grade what words cannot, and `compareReports()` sets the agent with a plugin against the agent without it.
+
 ## Versioning
 
 Every package is released on its own with [Changesets](https://github.com/changesets/changesets), and is in its **0.x** series: its API settles with the feedback of the people trying it, before a 1.0.0. The public API is what a package exports from its entry point. Until 1.0.0, a minor release (0.1 → 0.2) may break it, and its changelog says how with a `BREAKING:` note; a patch release (0.1.0 → 0.1.1) never does. The caret range npm installs by default, `^0.1.0`, therefore stays on 0.1.x. The AI SDK harnesses are themselves experimental: when their `HarnessV1` interfaces break, the packages follow in their next minor.

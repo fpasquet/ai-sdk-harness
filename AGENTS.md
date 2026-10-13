@@ -14,6 +14,7 @@ Open-source monorepo of community packages for the Vercel AI SDK harnesses (`@ai
 | `ai-sdk-harness-sessions`     | `packages/harness-sessions`     | The lifecycle of `HarnessAgent` sessions: suspended when idle, resumed, several in one sandbox  |
 | `ai-sdk-harness-workspace`    | `packages/harness-workspace`    | A Git checkout for each `HarnessAgent` session, a worktree in its sandbox, its changes a patch  |
 | `ai-sdk-harness-approval`     | `packages/harness-approval`     | An approval policy for `HarnessAgent` tool calls, grants for a session, the agent's questions   |
+| `ai-sdk-harness-evals`        | `packages/harness-evals`        | Evals for `HarnessAgent`: cases run in a sandbox, checks, a judge, reports compared             |
 
 Constraints:
 
@@ -120,6 +121,15 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - The folders are layered: `definitions/` is a leaf, then `utils/` ← `policy/` ← `describe/`, with `questions/` beside them (`eslint.config.mjs`).
 - The components of the docs' shadcn registry (`/r/<name>.json`, `docs/lib/registry.ts`) are the files of `examples/next-chat/components/harness/`: they run there against real sessions. `test/*.e2e-spec.ts` run a policy against real Claude Code sessions and are not part of CI; the `examples/next-chat` screenshots `policy` and `questions` show the package at work.
 
+### `ai-sdk-harness-evals`
+
+- One function, `evaluate()` (`src/evaluate/`), on any `HarnessAgent`: it never wraps the agent, and reads of it only `createSession`, `stream` and `continueStream` (`EvalAgent`, `src/definitions/eval.ts`). No CLI, no configuration file, no discovery of eval files: a deliberate choice, the package must stay simple to pick up (eve's evals, `~/www/harness-project-open-source/eve`, were the model, and the rejected weight).
+- A case is plain data (`EvalCase`): its `expect` holds only what JSON can say, RegExps aside, so cases can be stored next to plugins; `check` is the one way out in code. Every expectation is a check of the report, in the order of `expectationChecks()` (`src/checks/expectations.ts`); the judge (`src/checks/judge.ts`) is any AI SDK language model, through `generateText` and `Output.object`, never the agent's, and one that fails fails its check.
+- What a trial observed is read from the AI SDK's UI messages of its turns (`src/run/read-messages.ts`): the tool parts give the calls and how they ended. A runtime's own tools have different names on each runtime: `src/utils/tool-names.ts` holds their equivalences and how a skill load shows, the one place to touch when a runtime names them otherwise.
+- `ai-sdk-harness-plugins` is an optional peer, imported on demand only when `evaluate()` is given `plugins` (to expand the cases' `/commands`).
+- The folders are layered: `definitions/`, `errors/` and `utils/` are leaves, then `run/` ← `checks/` ← `evaluate/` (`eslint.config.mjs`).
+- Unit tests drive `evaluate()` with `test/fake-agent.ts`, an agent whose streams follow a script of UI message chunks, and `test/judge-model.ts`, a `MockLanguageModelV4` judge. `test/*.e2e-spec.ts` evaluate real Claude Code turns in a Docker Sandbox, with a plugin and without it, and are not part of CI.
+
 ---
 
 ## Code conventions
@@ -171,6 +181,7 @@ Add when the change touches the matching area:
 - `pnpm --filter ai-sdk-harness-sessions test:e2e` when changing how sessions start, suspend or resume (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code).
 - `pnpm --filter ai-sdk-harness-workspace test:e2e` when changing what the workspace runs in the sandbox or how a source fetches (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code; `GITHUB_TOKEN` or the `gh` login for the brokered fetch).
 - `pnpm --filter ai-sdk-harness-approval test:e2e` when changing how a policy reads a call or answers it within a turn (same needs).
+- `pnpm --filter ai-sdk-harness-evals test:e2e` when changing how `evaluate()` drives a turn or reads what the agent did (same needs).
 - `pnpm --filter ai-sdk-sandbox-sbx test:e2e` when changing how the package drives `sbx` (needs Docker Sandboxes on the machine; `SBX_E2E_CLOUD=1` adds the cloud mode).
 - `pnpm --filter ai-sdk-sandbox-microsandbox test:e2e` when changing how the package drives the `microsandbox` SDK (needs KVM or Apple Silicon, and a runtime of the SDK's version: an `msb` installed in `~/.microsandbox` wins over the bundled one; otherwise point `MSB_HOME` at another, short, directory).
 - `pnpm --filter ai-sdk-sandbox-runtime test:e2e` when changing how the package drives srt or the supervisor (needs `bwrap`, `socat`, `rg` and a Claude Code credential; `SRT_SOCAT`, `SRT_RIPGREP` and `SRT_ALLOW_ALL_UNIX_SOCKETS=1` adapt it to the host).
