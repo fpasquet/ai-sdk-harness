@@ -5,8 +5,11 @@ const LOCAL_NAME = /^[A-Za-z0-9][A-Za-z0-9.-]+$/;
 /** The same, without periods, which cloud sandbox names refuse. */
 const CLOUD_NAME = /^[A-Za-z0-9][A-Za-z0-9-]+$/;
 
-/** Settings that only mean something on one side: a cloud sandbox mounts nothing of this host. */
-const LOCAL_ONLY = ['workspace', 'clone', 'readOnlyWorkspaces'] as const;
+/**
+ * Settings that only mean something on one side: a cloud sandbox mounts nothing of this host, and
+ * its network is the account's policy.
+ */
+const LOCAL_ONLY = ['workspace', 'clone', 'readOnlyWorkspaces', 'networkPolicy'] as const;
 const CLOUD_ONLY = ['allowNetwork', 'ttl', 'onTimeout', 'platform'] as const;
 
 export function assertSandboxName(name: string, cloud: boolean): void {
@@ -30,7 +33,7 @@ export function assertSettingsFit(settings: SbxCreationSettings, cloud: boolean)
     const names = misplaced.map((key) => `\`${key}\``).join(', ');
     throw new Error(
       cloud
-        ? `${names}: a cloud sandbox mounts nothing of this host.`
+        ? `${names}: only apply to a local sandbox (a cloud sandbox mounts nothing of this host, and its network is the account's policy).`
         : `${names}: only apply to a cloud sandbox (\`cloud: true\`).`,
     );
   }

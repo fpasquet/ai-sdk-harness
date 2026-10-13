@@ -20,6 +20,15 @@ export interface FakeSbxState {
   ports: { binding: string; name: string }[];
   templates: { repository: string; tag: string }[];
   cloudTemplates: string[];
+  /** The network rules of the machine's policy, global and scoped to a sandbox. */
+  rules: {
+    id: string;
+    scope: string;
+    decision: 'allow' | 'deny';
+    resource_type: 'network';
+    protocol: string;
+    resources: string[];
+  }[];
   failOn: string[];
 }
 
@@ -39,6 +48,26 @@ export interface FakeSbx {
   dispose(): void;
 }
 
+/** What a machine's balanced policy allows, in short. */
+const MACHINE_RULES: FakeSbxState['rules'] = [
+  {
+    id: 'default-ai-services',
+    scope: 'global',
+    decision: 'allow',
+    resource_type: 'network',
+    protocol: 'tcp',
+    resources: ['api.anthropic.com:443', '**.openai.com:443'],
+  },
+  {
+    id: 'default-package-managers',
+    scope: 'global',
+    decision: 'allow',
+    resource_type: 'network',
+    protocol: 'tcp',
+    resources: ['registry.npmjs.org:443', 'github.com:443', '**.github.com:443'],
+  },
+];
+
 /** A fresh fake `sbx`, its state in a temporary directory `FAKE_SBX_HOME` points at. */
 export function createFakeSbx(): FakeSbx {
   chmodSync(FAKE_SBX, 0o755);
@@ -51,6 +80,7 @@ export function createFakeSbx(): FakeSbx {
     ports: [],
     templates: [],
     cloudTemplates: [],
+    rules: MACHINE_RULES,
     failOn: [],
   };
   writeFileSync(statePath, JSON.stringify(initial));

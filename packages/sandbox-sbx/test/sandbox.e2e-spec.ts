@@ -103,3 +103,64 @@ describe('a Docker Sandbox', () => {
     expect(stdout.trim()).toBe('baked');
   });
 });
+
+describe('the network of a Docker Sandbox', () => {
+  let fenced: SbxNetworkSandboxSession;
+  /** The HTTP status `url` answers the sandbox with: `403` when the proxy refuses it. */
+  const status = async (url: string): Promise<string> =>
+    (await fenced.run({ command: `curl -s -m 8 -o /dev/null -w '%{http_code}' ${url}` })).stdout;
+
+  it('reaches the listed hosts only with a custom policy', async () => {
+    fenced = await createSbxNetworkSandboxSession({
+      binary,
+      sandboxId: `ai-sdk-sbx-e2e-${run}-net`,
+      networkPolicy: { mode: 'custom', allowedHosts: ['example.com'] },
+    });
+    sessions.push(fenced);
+
+    expect(await status('https://example.com')).toBe('200');
+    // Allowed by the machine's policy, not by the sandbox's.
+    expect(await status('https://registry.npmjs.org')).toBe('403');
+    expect(await status('https://github.com')).toBe('403');
+  });
+
+  it('never reaches the metadata server, this host or a private network', async () => {
+    for (const url of [
+      'http://169.254.169.254/',
+      'http://host.docker.internal:22',
+      'http://192.168.1.1',
+    ]) {
+      expect(await status(url)).toBe('403');
+    }
+  });
+
+  it('changes its policy while it runs', async () => {
+    await fenced.setNetworkPolicy?.({ mode: 'deny-all' });
+    expect(await status('https://example.com')).toBe('403');
+
+    await fenced.setNetworkPolicy?.({ mode: 'allow-all' });
+    expect(await status('https://registry.npmjs.org')).toBe('200');
+    expect(await status('http://169.254.169.254/')).toBe('403');
+  });
+
+  it('runs docker compose', async () => {
+    await fenced.writeTextFile({
+      path: 'compose.yml',
+      content: [
+        'services:',
+        '  redis:',
+        '    image: redis:7-alpine',
+        '    healthcheck:',
+        '      test: ["CMD", "redis-cli", "ping"]',
+        '      interval: 1s',
+      ].join('\n'),
+    });
+
+    const { stdout } = await fenced.run({
+      command:
+        'docker compose up -d --wait >/dev/null 2>&1; docker compose exec -T redis redis-cli ping',
+    });
+
+    expect(stdout.trim()).toBe('PONG');
+  });
+});

@@ -1,4 +1,5 @@
 import type {
+  HarnessV1NetworkPolicy,
   HarnessV1NetworkSandboxSession,
   HarnessV1PortEndpoint,
   HarnessV1RequestTransformation,
@@ -12,6 +13,7 @@ import type { PortPublisher, PublishedPort } from '../network/port-publisher.js'
 import type { SbxSandboxHandle } from './sbx-sandbox-session.js';
 
 import { headerBroker, placeholderBroker } from '../network/credential-broker.js';
+import { applyNetworkPolicy } from '../network/network-policy.js';
 import { cloudPorts, endpointUrl, loopbackPorts } from '../network/port-publisher.js';
 import { SBX_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 import { KILL_ALL } from '../transport/sandbox-scripts.js';
@@ -60,6 +62,13 @@ export class SbxNetworkSandboxSession
   /** Whether the sandbox runs in Docker Sandboxes Cloud rather than on this host. */
   readonly cloud: boolean;
 
+  /**
+   * Replaces what the sandbox may reach, as rules of the Docker Sandboxes policy scoped to it, on
+   * top of the machine's own: see the README. Local sandboxes only: absent on a cloud one, whose
+   * network is the account's policy and `allowNetwork`.
+   */
+  readonly setNetworkPolicy?: (policy: HarnessV1NetworkPolicy) => Promise<void>;
+
   private exposed: readonly number[];
   private readonly broker: CredentialBroker;
   private readonly publisher: PortPublisher;
@@ -81,6 +90,9 @@ export class SbxNetworkSandboxSession
     this.publisher = this.cloud
       ? cloudPorts(handle.cli, handle.name)
       : loopbackPorts(handle.cli, handle.name);
+    if (!this.cloud) {
+      this.setNetworkPolicy = (policy) => applyNetworkPolicy(handle.cli, handle.name, policy);
+    }
     if (credentials.brokerCredentials) {
       this.addRequestTransformations = (transformations) => this.broker.add(transformations);
       this.setRequestTransformations = async (transformations) => {

@@ -6,6 +6,7 @@ import type {
 } from '../sbx-settings.js';
 import type { SbxNetworkSandboxSession } from '../session/sbx-network-sandbox-session.js';
 
+import { applyNetworkPolicy } from '../network/network-policy.js';
 import { SbxCli } from '../transport/sbx-cli.js';
 import { assertSandboxName, assertSettingsFit, createArgs } from './create-args.js';
 import { assertSandboxExists, listSandboxes, openSandbox, runSetup } from './open-sandbox.js';
@@ -19,6 +20,16 @@ async function assertNameFree(cli: SbxCli, name: string, abortSignal?: AbortSign
         'resumeSbxNetworkSandboxSession({ sandboxId }), or remove it with `sbx rm`.',
     );
   }
+}
+
+/** Fences a new sandbox with its network policy, then runs its setup in it. */
+async function ready(
+  cli: SbxCli,
+  name: string,
+  { networkPolicy, setup = [], abortSignal }: SbxNetworkSandboxSessionCreateOptions,
+): Promise<void> {
+  if (networkPolicy) await applyNetworkPolicy(cli, name, networkPolicy);
+  await runSetup(cli, name, { setup, abortSignal });
 }
 
 /**
@@ -58,8 +69,8 @@ export async function createSbxNetworkSandboxSession(
     },
   );
   try {
-    // A template already ran them, before it was saved.
-    if (!template) await runSetup(cli, name, { setup, abortSignal });
+    // A template already ran the setup, before it was saved.
+    await ready(cli, name, { ...options, setup: template ? [] : setup });
     return await openSandbox(cli, name, options);
   } catch (error) {
     // Half-made, the sandbox would block a retry under the same id.

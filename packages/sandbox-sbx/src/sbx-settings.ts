@@ -1,4 +1,5 @@
 import type {
+  HarnessV1NetworkPolicy,
   HarnessV1SandboxSessionCreateOptions,
   HarnessV1SandboxSessionResumeOptions,
 } from '@ai-sdk/harness';
@@ -89,6 +90,16 @@ export interface SbxCreationSettings extends SbxConnectionSettings {
    * A deny can only narrow egress: it holds even if the policy allows the host.
    */
   denyNetwork?: readonly string[];
+  /**
+   * What the sandbox may reach, as rules of the Docker Sandboxes policy scoped to it, on top of the
+   * machine's own, which keeps private networks and this host out of reach. `allow-all` is the
+   * machine's policy as it is; `deny-all` denies every host; `custom` allows the listed hosts and
+   * blocks only, a `*.example.com` entry standing for the domain's subdomains, and `deniedCIDRs`
+   * win over everything. Applied before `setup`. Local sandboxes only.
+   *
+   * @defaultValue the machine's policy (`sbx policy ls`)
+   */
+  networkPolicy?: HarnessV1NetworkPolicy;
   /** Hosts a cloud sandbox may reach, on top of the account's policy. Cloud sandboxes only. */
   allowNetwork?: readonly string[];
   /**

@@ -149,6 +149,8 @@ await createSbxNetworkSandboxSession({ readOnlyWorkspaces: ['/path/to/docs'], po
 
 The sandbox's working directory (`defaultWorkingDirectory`, under which the harness creates each session's own directory) is read from the live sandbox: the workspace when one is mounted, `/home/agent/workspace` otherwise.
 
+What the agent writes in a read-write `workspace`, your machine may run later: Git hooks, an `.envrc`, the scripts of a `package.json`. Review its changes before running anything from the directory, or prefer `clone: true`, which only hands its commits back through a Git remote.
+
 ## Docker and docker compose
 
 Every Docker Sandbox runs a Docker daemon of its own, inside its microVM: the agent can `docker run` and `docker compose up` like on a developer's machine, so it can test a project for real against the services it needs. Clone the project in, then let the agent, or your setup, start its services and run its tests:
@@ -223,7 +225,7 @@ sequenceDiagram
 A local proxy swaps the placeholder for the value; a cloud proxy sets the whole header. Where the real value lives:
 
 - **On the host**, where your application reads it, and **in the Docker Sandboxes proxy**, which keeps the custom secrets of the sandbox.
-- **On the host's `sbx` command line**, for the time `sbx secret set-custom` runs: another user of the host could see it in the process list. Run the application on a host of its own.
+- **On the host's `sbx` command line**, for the time `sbx secret set-custom` runs: another user of the host could see it in the process list. Run the application on a host of its own. `sbx` reads it nowhere else yet ([docker/sbx-releases#706](https://github.com/docker/sbx-releases/issues/706)).
 - **Never in the sandbox**, its files or its template.
 
 The placeholders are withdrawn by `release()` and `stop()`, and removed with the sandbox by `destroy()`; a cloud secret belongs to the account until `destroy()` removes it.
@@ -236,16 +238,24 @@ Variables a command does set are forwarded as bare `sbx exec -e NAME`: `sbx` rea
 
 ## Network
 
-Outbound traffic goes through the Docker Sandboxes proxy and its policy (`sbx policy`). `denyNetwork` adds deny rules for the new sandbox only. A local deny can only narrow egress, so it holds whatever the global policy allows:
+Outbound traffic goes through the Docker Sandboxes proxy and its policy (`sbx policy ls`): the machine's own, which every sandbox gets, and which keeps private networks, this host and the cloud metadata server out of reach. A `networkPolicy` narrows it for one local sandbox, with the harness's own policy type; `setNetworkPolicy()` replaces it while the sandbox runs:
 
 ```ts
-await createSbxNetworkSandboxSession({
-  denyNetwork: ['github.com', '*.github.com'],
+const sandboxSession = await createSbxNetworkSandboxSession({
+  networkPolicy: { mode: 'custom', allowedHosts: ['api.anthropic.com', 'registry.npmjs.org'] },
   ports: [4000],
 });
+
+await sandboxSession.setNetworkPolicy?.({ mode: 'deny-all' });
 ```
 
-`setNetworkPolicy` is not implemented: the harness treats it as optional, and `sbx policy` remains the place to manage what the sandbox may reach.
+The policy becomes rules of the Docker Sandboxes policy scoped to the sandbox, which `sbx` removes with it:
+
+- **`custom`** allows the listed hosts and blocks only, a `*.example.com` entry standing for the domain and its subdomains, and `deniedCIDRs` win over everything. Since a deny wins over an allow, even a narrower one, the sandbox gets a deny of whatever the machine allows besides: what it allows under a listed domain stays allowed.
+- **`deny-all`** denies every host.
+- **`allow-all`**, or a `custom` policy listing `*`, is the machine's policy as it is. Allowing every host would lift the proxy's fence around private networks: `sbx` does not check what an allowed name resolves to.
+
+It applies before `setup`, so list what `setup` downloads from. `denyNetwork` adds deny rules at creation (`sbx create --deny-network`), on top of any policy. In the cloud, the account's policy and `allowNetwork` decide, and `setNetworkPolicy` is absent.
 
 ## Ports
 
@@ -293,6 +303,7 @@ A view starts its own processes, publishes its own ports and registers its own c
 | `workspace`           | none           | Host directory to mount read-write as the working directory (local only)                        |
 | `clone`               | `false`        | With `workspace`: a private clone of the Git repository instead (local only)                    |
 | `readOnlyWorkspaces`  | `[]`           | More host directories, mounted read-only (local only)                                           |
+| `networkPolicy`       | the machine's  | What the sandbox may reach: `allow-all`, `deny-all` or `custom` (local only)                    |
 | `denyNetwork`         | `[]`           | Hosts the sandbox may never reach (`sbx create --deny-network`)                                 |
 | `allowNetwork`        | `[]`           | Hosts a cloud sandbox may reach, on top of the account's policy (cloud only)                    |
 | `cpus`                | decided by sbx | CPUs of the microVM                                                                             |
@@ -313,8 +324,30 @@ A view starts its own processes, publishes its own ports and registers its own c
 - `SbxError`: an `sbx` command exited with a non-zero status. Carries `args`, `exitCode` and `stderr`.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a credential the proxy cannot broker.
 
+## Security checklist
+
+What the sandbox does, or does not, against the essential risks of running an agent's code: ✅ covered, ⚠️ partly or with care, ❌ not covered. The same table describes every sandbox package of this repository. The rest is your application's and the harness's: approving sensitive actions, budgets, audit, and reviewing what leaves the sandbox before it runs anywhere else.
+
+| Control                        | Status | How                                                                                                                                                                                                  |
+| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Isolation boundary             | ✅     | A microVM of Docker Sandboxes                                                                                                                                                                        |
+| Nothing of the host by default | ✅     | Nothing mounted but `workspace` and `readOnlyWorkspaces`; the sandbox runs its own Docker, never the host's                                                                                          |
+| Writes to the host             | ⚠️     | `workspace` is read-write: review what the agent writes there, or use `clone: true`. `readOnlyWorkspaces` are read-only                                                                              |
+| Privileges                     | ⚠️     | The sandbox user has `sudo` without a password: root, inside the microVM only                                                                                                                        |
+| Docker and Compose             | ✅     | Every sandbox runs a Docker daemon of its own                                                                                                                                                        |
+| Outbound allow list            | ✅     | `networkPolicy` and `setNetworkPolicy()`, rules of the Docker Sandboxes proxy scoped to the sandbox; in the cloud, the account's policy                                                              |
+| Private networks and metadata  | ✅     | Refused by the proxy, under any `networkPolicy`                                                                                                                                                      |
+| Inbound ports                  | ⚠️     | Declared `ports` only, on the host's loopback, where any local process can connect; at a public URL in the cloud                                                                                     |
+| Credentials out of the sandbox | ⚠️     | The sandbox holds a placeholder; the real value is in the proxy, and on the `sbx` command line while it is registered ([docker/sbx-releases#706](https://github.com/docker/sbx-releases/issues/706)) |
+| Credential scope               | ⚠️     | Only to its API's host, but in any header that carries the placeholder ([docker/sbx-releases#707](https://github.com/docker/sbx-releases/issues/707))                                                |
+| Environment                    | ✅     | Only the variables a command names; the `proxy-managed` ones are dropped                                                                                                                             |
+| Resource limits                | ⚠️     | `cpus` and `memory`; no cap on connections                                                                                                                                                           |
+| Lifetime limits                | ⚠️     | `ttl` in the cloud only                                                                                                                                                                              |
+| Teardown                       | ✅     | `destroy()` removes the sandbox, with the secrets and rules scoped to it                                                                                                                             |
+
 ## Limitations
 
+- **A secret is put in any header that carries its placeholder.** The proxy cannot restrict it to the credential's own header ([docker/sbx-releases#707](https://github.com/docker/sbx-releases/issues/707)): an allowed API that echoes the request's headers back could hand the real value to the sandbox.
 - **One bridge per port.** A bridge-backed harness listens on the first port: run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
 
 ## Development
