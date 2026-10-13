@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, Cloud Run sandboxes, plugins, sessions and approvals.
+description: Community packages for the Vercel AI SDK harnesses, for Docker Sandboxes, microsandbox, Cloud Run sandboxes, plugins, sessions and approvals.
 seo:
   title: Community packages for AI SDK harnesses
 ---
@@ -49,10 +49,11 @@ The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) d
 
 A sandbox package gives `HarnessAgent.createSession({ sandboxSession })` what it expects, a `HarnessV1NetworkSandboxSession`: switching from one to the other is a matter of which function creates it.
 
-| Package                                                        | Where the agent runs                                                                                                       | Status                                 |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)             | A [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM (`sbx`), on your machine or in Docker Sandboxes Cloud    | Preview, 0.x (cloud mode experimental) |
-| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run) | A [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
+| Package                                                              | Where the agent runs                                                                                                       | Status                                 |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| [`ai-sdk-sandbox-sbx`](/docs/packages/sandbox-sbx)                   | A [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM (`sbx`), on your machine or in Docker Sandboxes Cloud    | Preview, 0.x (cloud mode experimental) |
+| [`ai-sdk-sandbox-microsandbox`](/docs/packages/sandbox-microsandbox) | A [microsandbox](https://github.com/superradcompany/microsandbox) microVM, booted from any OCI image on your machine       | Preview, 0.x                           |
+| [`ai-sdk-sandbox-cloud-run`](/docs/packages/sandbox-cloud-run)       | A [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns | Preview, 0.x                           |
 
 ## Plugins
 

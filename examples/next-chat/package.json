@@ -37,6 +37,7 @@
     "ai-sdk-harness-plugins": "workspace:*",
     "ai-sdk-harness-sessions": "workspace:*",
     "ai-sdk-sandbox-cloud-run": "workspace:*",
+    "ai-sdk-sandbox-microsandbox": "workspace:*",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

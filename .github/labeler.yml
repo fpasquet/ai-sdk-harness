@@ -35,6 +35,11 @@
       - any-glob-to-any-file:
           - 'packages/sandbox-sbx/**'
 
+'package: sandbox-microsandbox':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/sandbox-microsandbox/**'
+
 'package: harness-plugins':
   - changed-files:
       - any-glob-to-any-file:
