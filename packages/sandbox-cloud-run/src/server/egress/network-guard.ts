@@ -33,13 +33,57 @@ for (const [network, prefix] of [
   PRIVATE.addSubnet(network, prefix, 'ipv6');
 }
 
+/** The two 16-bit groups of the IPv4 address of `bytes`. */
+const ipv4Groups = ([a = 0, b = 0, c = 0, d = 0]: number[]): number[] => [
+  (a << 8) | b,
+  (c << 8) | d,
+];
+
+/** The eight 16-bit groups of the IPv6 address `address`, a trailing dotted IPv4 included. */
+function groupsOf(address: string): number[] {
+  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address);
+  const hex =
+    dotted === null
+      ? address
+      : address.slice(0, dotted.index) +
+        ipv4Groups(dotted.slice(1).map(Number))
+          .map((group) => group.toString(16))
+          .join(':');
+  const [head = '', tail] = hex.split('::');
+  const parse = (part: string): number[] =>
+    part === '' ? [] : part.split(':').map((group) => Number.parseInt(group, 16));
+  const left = parse(head);
+  const right = tail === undefined ? [] : parse(tail);
+  return [...left, ...Array<number>(8 - left.length - right.length).fill(0), ...right];
+}
+
+/** The IPv4 address made of two 16-bit groups. */
+const ipv4Of = (high = 0, low = 0): string =>
+  [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
+
+/**
+ * The IPv4 address an IPv6 one carries, which the network may route it to: NAT64
+ * (`64:ff9b::/96`) and 6to4 (`2002::/16`).
+ */
+function embeddedIpv4(address: string): string | undefined {
+  const groups = groupsOf(address);
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((g) => g === 0)) {
+    return ipv4Of(groups[6], groups[7]);
+  }
+  if (groups[0] === 0x2002) return ipv4Of(groups[1], groups[2]);
+  return undefined;
+}
+
 /** Whether `address`, an IP address, is outside the public internet. */
 export function isPrivateAddress(address: string): boolean {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
   if (mapped !== undefined) return PRIVATE.check(mapped, 'ipv4');
   const family = isIP(address);
   if (family === 0) return false;
-  return PRIVATE.check(address, family === 4 ? 'ipv4' : 'ipv6');
+  if (family === 4) return PRIVATE.check(address, 'ipv4');
+  const embedded = embeddedIpv4(address);
+  if (embedded !== undefined && PRIVATE.check(embedded, 'ipv4')) return true;
+  return PRIVATE.check(address, 'ipv6');
 }
 
 type LookupCallback = (

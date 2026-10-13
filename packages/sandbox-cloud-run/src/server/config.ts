@@ -63,6 +63,14 @@ export function listenConfig(env: Environment): ListenConfig {
  * `{sandbox}` in a sandbox's paths is its name.
  */
 export function sandboxesConfig(env: Environment, logger: Logger): ServiceOptions {
+  if (env['SANDBOX_ALLOW_EGRESS'] === 'true') {
+    logger.warn(
+      'SANDBOX_ALLOW_EGRESS=true: the sandboxes get a network of their own, beside the egress ' +
+        'proxy, which neither its allowed hosts nor its refusal of private addresses applies to. ' +
+        'Google does not document what it reaches: check that the metadata server is out of ' +
+        'reach before keeping it on.',
+    );
+  }
   return {
     cli: new SandboxCli(
       env['SANDBOX_CLI'] ?? '/usr/local/gcp/bin/sandbox',

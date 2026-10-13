@@ -1,6 +1,7 @@
 /** What the service reports, and to whom. */
 export interface Logger {
   info(message: string): void;
+  warn(message: string): void;
   error(message: string): void;
 }
 
@@ -9,8 +10,8 @@ export interface Logger {
  * JSON object per line, as Cloud Logging reads them, with its `severity` field.
  */
 export function createLogger({ json }: { json: boolean }): Logger {
-  const write = (severity: 'ERROR' | 'INFO', message: string): void => {
-    const stream = severity === 'ERROR' ? process.stderr : process.stdout;
+  const write = (severity: 'ERROR' | 'INFO' | 'WARNING', message: string): void => {
+    const stream = severity === 'INFO' ? process.stdout : process.stderr;
     stream.write(
       json
         ? `${JSON.stringify({ severity, message, time: new Date().toISOString() })}\n`
@@ -19,9 +20,14 @@ export function createLogger({ json }: { json: boolean }): Logger {
   };
   return {
     info: (message) => write('INFO', message),
+    warn: (message) => write('WARNING', message),
     error: (message) => write('ERROR', message),
   };
 }
 
 /** A logger that drops everything: for tests. */
-export const silentLogger: Logger = { info: () => undefined, error: () => undefined };
+export const silentLogger: Logger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
