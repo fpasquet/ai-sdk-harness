@@ -675,6 +675,8 @@ describe('createSessionManager', () => {
         error: 'sandbox gone',
       });
       expect(await store.getResumeState('s1')).toEqual(resumeState('s1'));
+      // Its sandbox is handed back as a suspended session's: its files stay for the next try.
+      expect(fake.events.slice(-2)).toEqual(['acquire s1 (resume)', 'suspend s1']);
       agent.failStart = undefined;
       await expect(turn('s1', 'hello')).resolves.toMatchObject({
         session: { status: 'idle' },

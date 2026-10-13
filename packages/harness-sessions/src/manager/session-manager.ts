@@ -516,8 +516,9 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     const { id } = session.record;
     this.report(resumeFrom === undefined ? 'start' : 'resume', id)(error);
     if (this.live.get(id) === session) this.live.delete(id);
-    await this.teardown(session);
-    // A resume that failed keeps what it resumes from: the next message tries again.
+    // A resume that failed keeps what it resumes from — its state, its sandbox and its files —:
+    // the next message tries again.
+    await (resumeFrom === undefined ? this.teardown(session) : this.release(session));
     await (resumeFrom === undefined
       ? this.transition(session, 'failed', { error: messageOf(error) })
       : this.transition(session, 'suspended', {
@@ -534,6 +535,14 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     clearTimeout(session.idleTimer);
     await handle?.destroy().catch(this.report('destroy', record.id));
     await lease?.close().catch(this.report('close', record.id));
+  }
+
+  /** Hands the sandbox of a session that never started back, keeping its files for a resume. */
+  private async release(session: LiveSession<METADATA>): Promise<void> {
+    const { lease, record } = session;
+    session.lease = undefined;
+    clearTimeout(session.idleTimer);
+    await lease?.suspend().catch(this.report('suspend', record.id));
   }
 
   /**
