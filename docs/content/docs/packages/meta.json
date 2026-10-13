@@ -2,6 +2,7 @@
   "title": "Packages",
   "pages": [
     "sandbox-sbx",
+    "sandbox-microsandbox",
     "sandbox-cloud-run",
     "harness-plugins",
     "harness-sessions",

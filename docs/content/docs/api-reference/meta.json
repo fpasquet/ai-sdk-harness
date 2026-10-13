@@ -2,6 +2,7 @@
   "title": "API reference",
   "pages": [
     "sandbox-sbx",
+    "sandbox-microsandbox",
     "sandbox-cloud-run",
     "harness-plugins",
     "harness-sessions",

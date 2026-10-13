@@ -7,6 +7,10 @@ import {
   resumeCloudRunNetworkSandboxSession,
 } from 'ai-sdk-sandbox-cloud-run';
 import {
+  createMicrosandboxNetworkSandboxSession,
+  resumeMicrosandboxNetworkSandboxSession,
+} from 'ai-sdk-sandbox-microsandbox';
+import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
   SbxSandboxNotFoundError,
@@ -29,7 +33,10 @@ export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
   killAllProcesses(): Promise<void>;
 };
 
-/** The sandbox the agents run in: `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise. */
+/**
+ * The sandbox the agents run in: `EXAMPLE_SANDBOX=microsandbox` for a microsandbox,
+ * `EXAMPLE_SANDBOX=cloud-run` for Cloud Run, a Docker Sandbox otherwise.
+ */
 export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 
 /** The sandbox the example creates once, then finds again on every start. */
@@ -53,6 +60,16 @@ const BRIDGE_PORT = 4000;
 /** The bridges install their dependencies with pnpm, which the `shell` kit does not ship. */
 const SBX_SETUP = ['npm install --global --silent pnpm@10'];
 
+/** The `node` image ships Node.js and git, but not pnpm. */
+const MICROSANDBOX_SETUP = ['npm install --global --silent pnpm@10'];
+
+/**
+ * Whether the microsandbox runs a Docker daemon, as a Docker Sandbox does: on unless
+ * `EXAMPLE_MICROSANDBOX_DOCKER=false`. Read when the sandbox is created; a sandbox found again
+ * keeps what it was created with.
+ */
+const MICROSANDBOX_DOCKER = process.env.EXAMPLE_MICROSANDBOX_DOCKER !== 'false';
+
 /** The image of the Cloud Run service should ship pnpm; installed here when it does not. */
 const CLOUD_RUN_SETUP = ['command -v pnpm >/dev/null || npm install --global --silent pnpm@10'];
 
@@ -63,6 +80,17 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
   sbx:
     'You are a coding agent working in a Docker Sandbox: a Linux microVM with Node.js and git, ' +
     'isolated from the host. Feel free to create files and run commands to answer.',
+  microsandbox:
+    'You are a coding agent working in a microsandbox: a Linux microVM with Node.js, git and ' +
+    `Python${MICROSANDBOX_DOCKER ? ', and Docker with docker compose' : ''}, isolated from the ` +
+    'host. Feel free to create files and run commands to answer.' +
+    (MICROSANDBOX_DOCKER
+      ? ' HTTPS leaves the microVM through a proxy with a certificate authority of its own, which ' +
+        'containers do not trust: for HTTPS from a container, mount ' +
+        '/etc/ssl/certs/ca-certificates.crt read-only at the same path in it, and set ' +
+        'NODE_EXTRA_CA_CERTS, SSL_CERT_FILE and CURL_CA_BUNDLE to that path. Never turn TLS ' +
+        'verification off.'
+      : ''),
   'cloud-run':
     'You are a coding agent working in a Cloud Run sandbox: a Linux sandbox with Node.js and git, ' +
     'whose network only reaches the model API and the npm registry. Feel free to create files and ' +
@@ -78,7 +106,13 @@ type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
  * is stopped.
  */
 export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox> {
-  const sandbox = await (SANDBOX === 'cloud-run' ? openCloudRun(template) : openSbx(template));
+  if (SANDBOX === 'microsandbox') {
+    throw new Error(
+      'A microsandbox is opened per conversation: see createConversationMicrosandbox.',
+    );
+  }
+  const open = { sbx: openSbx, 'cloud-run': openCloudRun }[SANDBOX];
+  const sandbox = await open(template);
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -98,6 +132,47 @@ async function openSbx(template: TemplateOf): Promise<Opened> {
     template: await template(),
   });
   return { resumed: false, session };
+}
+
+/**
+ * How many conversations may be live at once with `EXAMPLE_SANDBOX=microsandbox`, each in a microVM
+ * of its own; a suspended one holds none.
+ */
+export const MICROSANDBOX_CONVERSATIONS = 4;
+
+/** The microVM of one conversation: `ai-sdk-harness-example-<conversation id>`. */
+const conversationSandboxId = (conversationId: string): string => `${SANDBOX_ID}-${conversationId}`;
+
+/**
+ * With `EXAMPLE_SANDBOX=microsandbox`, each conversation gets a microVM of its own rather than a
+ * view of a shared one: a new credential restarts a microsandbox, which would end the turns of the
+ * other conversations. The first one installs both harnesses and saves the template; every later
+ * microVM is restored from it in about a second.
+ */
+export async function createConversationMicrosandbox(
+  conversationId: string,
+  template: TemplateOf,
+  abortSignal?: AbortSignal,
+): Promise<HarnessV1NetworkSandboxSession> {
+  return createMicrosandboxNetworkSandboxSession({
+    sandboxId: conversationSandboxId(conversationId),
+    ports: [BRIDGE_PORT],
+    setup: MICROSANDBOX_SETUP,
+    docker: MICROSANDBOX_DOCKER,
+    template: await template(),
+    abortSignal,
+  });
+}
+
+/** The microVM of a conversation, started again when its conversation was suspended. */
+export function resumeConversationMicrosandbox(
+  conversationId: string,
+  abortSignal?: AbortSignal,
+): Promise<HarnessV1NetworkSandboxSession> {
+  return resumeMicrosandboxNetworkSandboxSession({
+    sandboxId: conversationSandboxId(conversationId),
+    abortSignal,
+  });
 }
 
 /**

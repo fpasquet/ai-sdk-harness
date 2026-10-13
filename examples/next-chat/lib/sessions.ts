@@ -5,7 +5,7 @@ import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
 import { createHarnessSandboxTemplate, HarnessAgent } from '@ai-sdk/harness/agent';
 import { withPlugins } from 'ai-sdk-harness-plugins';
-import { createSessionManager, sharedSandbox } from 'ai-sdk-harness-sessions';
+import { createSessionManager, sandboxPerSession, sharedSandbox } from 'ai-sdk-harness-sessions';
 import { join } from 'node:path';
 
 import type { Conversation } from '@/lib/conversations';
@@ -13,7 +13,15 @@ import type { HarnessId } from '@/lib/harnesses';
 
 import { APPROVAL_POLICY } from '@/lib/approval';
 import { resolveSelection } from '@/lib/plugins';
-import { openSandbox, SANDBOX, SANDBOX_INSTRUCTIONS, SUSPEND_AFTER_MS } from '@/lib/sandbox';
+import {
+  createConversationMicrosandbox,
+  MICROSANDBOX_CONVERSATIONS,
+  openSandbox,
+  resumeConversationMicrosandbox,
+  SANDBOX,
+  SANDBOX_INSTRUCTIONS,
+  SUSPEND_AFTER_MS,
+} from '@/lib/sandbox';
 import { createFileSessionStore } from '@/lib/session-store';
 
 /**
@@ -104,7 +112,8 @@ function agentFor(
  * The conversations of the example, each a session of `ai-sdk-harness-sessions`:
  *
  * - They share one sandbox, a Docker Sandbox or a Cloud Run sandbox (`EXAMPLE_SANDBOX`), each in a
- *   view of it with a port of its own: several conversations run at once.
+ *   view of it with a port of its own: several conversations run at once. A microsandbox is one
+ *   per conversation instead, since a new credential restarts it.
  * - A conversation idle for `EXAMPLE_SUSPEND_AFTER_MS` is suspended: its harness session stops and
  *   its port is freed. The next message resumes it. On Cloud Run, the sandbox itself is suspended
  *   once no conversation holds it: nothing runs, nothing is billed.
@@ -116,19 +125,28 @@ export function sessions(): SessionManager<Conversation> {
   return state.sessions;
 }
 
+/** Claude Code and Codex, installed once in the template every sandbox starts from. */
+const harnessTemplate = () =>
+  createHarnessSandboxTemplate({ harnesses: Object.values(HARNESS_ADAPTERS) });
+
 function createExampleSessions(): SessionManager<Conversation> {
   const manager = createSessionManager<Conversation>({
     agent: async ({ metadata }) => agentFor(metadata, await resolveSelection(metadata.selection)),
-    sandboxes: sharedSandbox({
-      // The first creation installs both Claude Code and Codex in the sandbox, then saves it as a
-      // template (a few minutes); every later one starts from that template in seconds.
-      open: () =>
-        openSandbox(() =>
-          createHarnessSandboxTemplate({ harnesses: Object.values(HARNESS_ADAPTERS) }),
-        ),
-      ports: SESSION_PORTS,
-      stopWhenUnused: SANDBOX === 'cloud-run',
-    }),
+    sandboxes:
+      SANDBOX === 'microsandbox'
+        ? sandboxPerSession({
+            create: (id, { abortSignal }) =>
+              createConversationMicrosandbox(id, harnessTemplate, abortSignal),
+            resume: (id, { abortSignal }) => resumeConversationMicrosandbox(id, abortSignal),
+            maxSessions: MICROSANDBOX_CONVERSATIONS,
+          })
+        : sharedSandbox({
+            // The first creation installs both Claude Code and Codex in the sandbox, then saves it
+            // as a template (a few minutes); every later one starts from that template in seconds.
+            open: () => openSandbox(harnessTemplate),
+            ports: SESSION_PORTS,
+            stopWhenUnused: SANDBOX === 'cloud-run',
+          }),
     store: createFileSessionStore<Conversation>(
       process.env.EXAMPLE_SESSIONS_DIR ?? join(process.cwd(), '.data/sessions'),
     ),

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-mono' });
 export const metadata: Metadata = {
   title: 'Coding agents in a sandbox',
   description:
-    'An AI SDK HarnessAgent running Claude Code or Codex in a local Docker Sandbox, or in a Cloud Run sandbox on Google Cloud.',
+    'An AI SDK HarnessAgent running Claude Code or Codex in a local Docker Sandbox or microsandbox, or in a Cloud Run sandbox on Google Cloud.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
