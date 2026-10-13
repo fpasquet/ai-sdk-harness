@@ -7,7 +7,13 @@ import { connect, isIP } from 'node:net';
 
 import type { EgressPolicy } from './egress-policy.js';
 
-import { isListedHost, isRoutable, transformHeaders } from './egress-policy.js';
+import {
+  injectedCredentials,
+  isListedHost,
+  isRoutable,
+  transformHeaders,
+  withoutCredentials,
+} from './egress-policy.js';
 import { isPrivateAddress, publicOnlyLookup } from './network-guard.js';
 import { routeTarget } from './relay-routes.js';
 
@@ -129,12 +135,14 @@ export class EgressProxy {
       return;
     }
     const path = `${target.pathname}${target.search}`;
-    const headers = transformHeaders(policy.transformations, {
+    const outgoing = {
       host: target.hostname,
       method: req.method ?? 'GET',
       path,
       headers: forwardable(req.headers),
-    });
+    };
+    const headers = transformHeaders(policy.transformations, outgoing);
+    const credentials = injectedCredentials(policy.transformations, outgoing);
     const send = target.protocol === 'http:' ? httpRequest : httpsRequest;
     const upstream = send(
       {
@@ -146,7 +154,8 @@ export class EgressProxy {
         lookup: reach.lookup,
       },
       (response) => {
-        res.writeHead(response.statusCode ?? 502, forwardable(response.headers));
+        const answered = withoutCredentials(forwardable(response.headers), credentials);
+        res.writeHead(response.statusCode ?? 502, answered);
         response.pipe(res);
       },
     );

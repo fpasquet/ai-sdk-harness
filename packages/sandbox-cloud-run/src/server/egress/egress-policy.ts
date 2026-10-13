@@ -85,6 +85,43 @@ export function transformHeaders(
   return headers;
 }
 
+/** The scheme a credential header carries before the credential itself. */
+const SCHEME = /^(Bearer|Basic|Token)\s+/i;
+
+/** Shorter than this, a value could turn up in a response by chance: not worth withholding. */
+const MIN_CREDENTIAL_LENGTH = 8;
+
+/**
+ * The credentials the transformations that apply to `request` put in it: each header value, and
+ * the credential it carries after its scheme.
+ */
+export function injectedCredentials(
+  transformations: readonly HarnessV1RequestTransformation[],
+  request: OutgoingRequest,
+): string[] {
+  const values = transformations
+    .filter((transformation) => appliesTo(transformation, request))
+    .flatMap(({ transform }) => Object.values(transform.headers))
+    .flatMap((value) => [value, value.replace(SCHEME, '')]);
+  return [...new Set(values)].filter((value) => value.length >= MIN_CREDENTIAL_LENGTH);
+}
+
+/**
+ * The headers of a response, without those holding one of `credentials`: an API that echoes the
+ * request's headers back must not hand the sandbox the credential it never saw.
+ */
+export function withoutCredentials(
+  headers: IncomingHttpHeaders,
+  credentials: readonly string[],
+): IncomingHttpHeaders {
+  if (credentials.length === 0) return headers;
+  const holds = (value: string | string[] | undefined): boolean =>
+    (Array.isArray(value) ? value : [value ?? '']).some((item) =>
+      credentials.some((credential) => item.includes(credential)),
+    );
+  return Object.fromEntries(Object.entries(headers).filter(([, value]) => !holds(value)));
+}
+
 /**
  * Whether `host` is on the list `hosts`: listed as is, under a `*.domain` entry, or let through by
  * `*`. Names compare whatever their case; `*.domain` does not cover `domain` itself.

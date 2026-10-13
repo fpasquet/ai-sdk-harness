@@ -4,7 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { OutgoingRequest } from './egress-policy.js';
 
-import { appliesTo, isListedHost, isRoutable, transformHeaders } from './egress-policy.js';
+import {
+  appliesTo,
+  injectedCredentials,
+  isListedHost,
+  isRoutable,
+  transformHeaders,
+  withoutCredentials,
+} from './egress-policy.js';
 import { hostsOf, relayRoute, routeTarget } from './relay-routes.js';
 
 const bearer = (placeholder: string, secret: string): HarnessV1RequestTransformation => ({
@@ -120,6 +127,37 @@ describe('relay routes', () => {
   it('name the hosts of the base URLs, skipping what is no URL', () => {
     expect(hostsOf({ A: 'https://api.anthropic.com', B: 'nonsense' })).toEqual([
       'api.anthropic.com',
+    ]);
+  });
+});
+
+describe('injected credentials', () => {
+  it('are the values a transformation put in the request, with and without their scheme', () => {
+    expect(injectedCredentials([bearer('ph', 'sk-real-value')], request('Bearer ph'))).toEqual([
+      'Bearer sk-real-value',
+      'sk-real-value',
+    ]);
+    expect(injectedCredentials([bearer('ph', 'sk-real-value')], request('Bearer other'))).toEqual(
+      [],
+    );
+  });
+
+  it('never come back in the headers of a response', () => {
+    const answered = withoutCredentials(
+      {
+        'content-type': 'application/json',
+        'x-echo-authorization': 'Bearer sk-real-value',
+        'x-debug': ['ok', 'token=sk-real-value'],
+      },
+      ['Bearer sk-real-value', 'sk-real-value'],
+    );
+
+    expect(answered).toEqual({ 'content-type': 'application/json' });
+  });
+
+  it('leave short values alone, which a response could hold by chance', () => {
+    expect(injectedCredentials([bearer('ph', 'abc')], request('Bearer ph'))).toEqual([
+      'Bearer abc',
     ]);
   });
 });

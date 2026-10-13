@@ -151,6 +151,37 @@ describe('the network of a sandbox on Cloud Run', () => {
     ]);
   });
 
+  it('never hands back a credential an API echoes in its response headers', async () => {
+    upstream = createServer((request, response) => {
+      response.setHeader('x-echo', String(request.headers['x-api-key']));
+      response.end('echoed');
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    port = (upstream.address() as AddressInfo).port;
+    // Plain HTTP to the loopback, as a local run allows: the credential is put in all the same.
+    fake = await startFakeService({
+      allowPrivateNetwork: true,
+      network: { allowedHosts: [], baseUrls: {} },
+    });
+    const session = await createCloudRunNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+    });
+    await session.addRequestTransformations?.([
+      { ...credential, match: { ...credential.match, host: '127.0.0.1' } },
+    ]);
+
+    const { stdout } = await session.run({
+      command: node(
+        `fetch(process.env.HTTP_PROXY + "/http/127.0.0.1:${port}/", { headers: { "x-api-key": "aisdkhc_placeholder" } })` +
+          '.then(async (r) => console.log(r.status, r.headers.get("x-echo"), await r.text()))',
+      ),
+    });
+
+    expect(stdout).toBe('200 null echoed\n');
+  });
+
   it('only sends credentials over HTTPS', async () => {
     fake = await closedService();
     const session = await createCloudRunNetworkSandboxSession({
