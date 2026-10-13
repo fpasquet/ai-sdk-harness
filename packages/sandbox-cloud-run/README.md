@@ -475,6 +475,27 @@ To keep the bill down, suspend idle sandboxes early, destroy finished ones, and 
 - `HarnessSandboxAuthenticationError` (from `@ai-sdk/harness`): Cloud Run refused the call (401 or 403), or the service token is missing or wrong.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a network policy with CIDR rules.
 
+## Security checklist
+
+What the sandbox does, or does not, against the essential risks of running an agent's code: ✅ covered, ⚠️ partly or with care, ❌ not covered. The same table describes every sandbox package of this repository. The rest is your application's and the harness's: approving sensitive actions, budgets, audit, and reviewing what leaves the sandbox before it runs anywhere else.
+
+| Control                        | Status | How                                                                                                                              |
+| ------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Isolation boundary             | ⚠️     | A gVisor sandbox: a kernel in user space, not a virtual machine                                                                  |
+| Nothing of the host by default | ✅     | The sandbox sees the image, never the instance's files, environment or metadata server                                           |
+| Writes to the host             | ✅     | No host directory: files go through the service's API                                                                            |
+| Privileges                     | ⚠️     | Commands run as root in the sandbox, which cannot switch users                                                                   |
+| Docker and Compose             | ❌     | Docker cannot run in a Cloud Run sandbox                                                                                         |
+| Outbound allow list            | ✅     | `allowedHosts` and `setNetworkPolicy()`, applied by the service's egress proxy                                                   |
+| Private networks and metadata  | ✅     | Refused after DNS resolution, NAT64 and 6to4 included; not with `SANDBOX_ALLOW_EGRESS`, which bypasses the proxy                 |
+| Inbound ports                  | ✅     | Through the service only, behind Cloud Run's IAM and `SANDBOX_SERVICE_TOKEN`                                                     |
+| Credentials out of the sandbox | ✅     | The real value only lives in the service's memory                                                                                |
+| Credential scope               | ⚠️     | Only to its API's host, in the headers its transformation names; echoed back in response headers, it is taken out, not in a body |
+| Environment                    | ✅     | The sandbox never sees the service's environment                                                                                 |
+| Resource limits                | ⚠️     | The sandboxes share their instance's CPU and memory                                                                              |
+| Lifetime limits                | ⚠️     | None: suspend idle sandboxes yourself with `stop()`                                                                              |
+| Teardown                       | ✅     | `destroy()` deletes the sandbox and its snapshot; the service forgets its credentials                                            |
+
 ## Limitations
 
 - **One instance.** The running sandboxes share the memory of one instance, writable layers included, which bounds how many run at once: see [Capacity](#capacity). Suspended ones do not count.
