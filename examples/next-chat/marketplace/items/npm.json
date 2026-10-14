@@ -4,5 +4,18 @@
   "description": "Size an npm package up before adding it",
   "argumentHint": "<package>",
   "prompt": "Look the npm package $1 up with the npm-latest tool, then tell me in a few lines what it is, its latest version and license, and how many dependencies it would add.",
-  "requires": ["tool:npm-latest"]
+  "requires": ["tool:npm-latest"],
+  "evals": [
+    {
+      "name": "/npm sizes a package up from the registry",
+      "prompt": "/npm left-pad",
+      "expect": {
+        "calledTools": ["npm-latest"],
+        "includes": {
+          "regex": "WTFPL",
+          "flags": "i"
+        }
+      }
+    }
+  ]
 }

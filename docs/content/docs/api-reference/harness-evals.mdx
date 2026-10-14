@@ -1,0 +1,75 @@
+---
+title: ai-sdk-harness-evals
+description: The settings of evaluate(), the cases and their expectations, and the report, generated from the source.
+---
+
+## `evaluate(settings)`
+
+Runs the cases on the agent and gives an `EvalReport`.
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvaluateSettings" />
+
+### `EvalCase`
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalCase" />
+
+### `EvalExpectations`
+
+What the agent must have done by the end of the case: each expectation becomes a check of the report.
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalExpectations" />
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="JudgeCriterion" />
+
+## The report
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalReport" />
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalCaseReport" />
+
+### `EvalRun`
+
+One trial of a case: what the agent did, and the checks of it.
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalRun" />
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalToolCall" />
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalCheck" />
+
+## `compareReports(baseline, candidate)`
+
+<AutoTypeTable
+  path="packages/harness-evals/src/evaluate/compare-reports.ts"
+  name="EvalComparison"
+/>
+
+<AutoTypeTable
+  path="packages/harness-evals/src/evaluate/compare-reports.ts"
+  name="EvalCaseComparison"
+/>
+
+## `evaluateCatalog(settings)`
+
+Runs the eval cases of a catalog's plugins and items, with each and without it.
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="EvaluateCatalogSettings"
+/>
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="CatalogEvalReport"
+/>
+
+<AutoTypeTable
+  path="packages/harness-evals/src/catalog/evaluate-catalog.ts"
+  name="CatalogEntryEvalReport"
+/>
+
+## Sandboxes
+
+What `sandbox` takes besides one sandbox: the `sharedSandbox()` and `sandboxPerSession()` of `ai-sdk-harness-sessions` are ones.
+
+<AutoTypeTable path="packages/harness-evals/src/definitions/eval.ts" name="EvalSandboxes" />

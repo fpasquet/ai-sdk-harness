@@ -4,5 +4,18 @@
   "description": "The documentation of public GitHub repositories, from DeepWiki.",
   "type": "http",
   "url": "https://mcp.deepwiki.com/mcp",
-  "allowedTools": ["read_wiki_structure", "ask_wiki_question"]
+  "allowedTools": ["read_wiki_structure", "ask_wiki_question"],
+  "evals": [
+    {
+      "name": "asks DeepWiki about a repository",
+      "prompt": "Ask DeepWiki what the vercel/ai repository is, and answer in one sentence.",
+      "expect": {
+        "calledTools": ["deepwiki_ask_wiki_question"],
+        "includes": {
+          "regex": "SDK|toolkit|library",
+          "flags": "i"
+        }
+      }
+    }
+  ]
 }

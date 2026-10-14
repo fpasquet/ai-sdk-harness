@@ -48,7 +48,9 @@ export interface SharedSandboxOptions {
  * resume.
  *
  * The sessions share the sandbox's files, network and credentials: give them one sandbox when
- * they trust each other, a sandbox each (`sandboxPerSession()`) otherwise.
+ * they trust each other, a sandbox each (`sandboxPerSession()`) otherwise. They share its HOME
+ * too, where Claude Code and Codex write the skills of their agent at each turn: give them agents
+ * with the same skills.
  */
 export function sharedSandbox(options: SharedSandboxOptions): SessionSandboxes {
   const { ports } = options;
@@ -60,6 +62,7 @@ export function sharedSandbox(options: SharedSandboxOptions): SessionSandboxes {
 
 class SharedSandbox implements SessionSandboxes {
   readonly capacity: number;
+  readonly shared = true;
   /** Session id → the port its view holds. */
   private readonly taken = new Map<string, number>();
   private opened: Promise<ForkableSandbox> | undefined;

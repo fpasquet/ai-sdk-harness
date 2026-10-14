@@ -21,6 +21,12 @@ export interface SessionSandboxes {
    */
   readonly capacity?: number;
   /**
+   * The sessions share one sandbox, its HOME included: Claude Code (`~/.claude/skills`) and Codex
+   * (`~/.agents/skills`) write the skills of their agent there at each turn. Sessions of agents
+   * with different skills then overwrite each other's. `sharedSandbox()` sets it.
+   */
+  readonly shared?: boolean;
+  /**
    * A sandbox for session `sessionId`: a new one, or with `resume`, the one it held before it was
    * suspended. Its files must still be there for its harness to pick the conversation up.
    */

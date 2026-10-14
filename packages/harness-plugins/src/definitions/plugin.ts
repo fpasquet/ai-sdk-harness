@@ -256,6 +256,28 @@ export interface PluginFile {
  * configuration: written in code, or read from JSON — a file, a database —, checked alike by
  * `definePlugin`. Only a tool whose logic is code needs an implementation.
  */
+/**
+ * A case of `ai-sdk-harness-evals`, kept with what it tests: what to ask the agent, and what it
+ * must have done. This package only keeps it; `evaluateCatalog()` of `ai-sdk-harness-evals` runs
+ * it, on the agent with the plugin or item and without it.
+ */
+export interface PluginEval {
+  /** Names the case, unique among the cases of its plugin or item. */
+  name: string;
+  /** One message, or the messages of several turns of the same session. */
+  prompt: string | string[];
+  /**
+   * What the agent must have done: the expectations of `ai-sdk-harness-evals` (`includes`,
+   * `calledTools`, `loadedSkills`, `judge`…), which checks them.
+   */
+  expect?: Record<string, unknown>;
+  /** The runtimes the case is made for (`claude-code`, `codex`): skipped on the others. */
+  harnesses?: string[];
+  /** How many times the case runs. */
+  trials?: number;
+  tags?: string[];
+}
+
 export interface Plugin {
   /** A kebab-case slug, unique in a catalog. */
   name: string;
@@ -277,6 +299,8 @@ export interface Plugin {
   /** By server name. */
   mcpServers?: Record<string, PluginMcpServer>;
   files?: PluginFile[];
+  /** What the plugin promises, as eval cases: never part of the agent, nor of its description. */
+  evals?: PluginEval[];
 }
 
 /** `${PLUGIN_ROOT}`, and `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it. */

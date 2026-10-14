@@ -2,7 +2,7 @@ import type { Tool } from '@ai-sdk/provider-utils';
 
 import type { ItemKind } from '../config/item-schema.js';
 import type { ResolvedPlugins, ResolveOptions } from '../config/resolve-plugins.js';
-import type { Plugin, ToolDefinition } from '../definitions/plugin.js';
+import type { Plugin, PluginEval, ToolDefinition } from '../definitions/plugin.js';
 import type { CatalogDescription } from './describe-catalog.js';
 
 import { defineItem, definePlugin } from '../config/define.js';
@@ -41,6 +41,11 @@ export interface CatalogEntry {
   plugin?: string;
   /** The ids of what it needs, selected with it. */
   requires: string[];
+  /**
+   * What it promises, as eval cases: a plugin's, or an item's on its own; an item of a plugin has
+   * none of its own. `evaluateCatalog()` of `ai-sdk-harness-evals` runs them.
+   */
+  evals?: PluginEval[];
 }
 
 export interface SelectOptions {
@@ -110,7 +115,12 @@ export function createCatalog(sources: CatalogSources): Catalog {
   const selected = (selection: readonly string[], options?: SelectOptions) =>
     selectedPlugins(all, new Set(expand(selection, options)));
   return {
-    entries: () => entries.map((entry) => ({ ...entry, requires: [...entry.requires] })),
+    entries: () =>
+      entries.map((entry) => ({
+        ...entry,
+        requires: [...entry.requires],
+        ...(entry.evals && { evals: structuredClone(entry.evals) }),
+      })),
     describe: () => describeCatalog(all, entries, sources.tools ?? {}),
     expand,
     resolve: (selection, options = {}) =>
@@ -136,7 +146,13 @@ function entriesOf(sources: readonly Source[]): CatalogEntry[] {
     seen.add(source.name);
     if (!source.single) {
       const requires = itemsOf(source.plugin).map((item) => idOf(source, item));
-      entries.push({ id: `plugin:${source.name}`, kind: 'plugin', name: source.name, requires });
+      entries.push({
+        id: `plugin:${source.name}`,
+        kind: 'plugin',
+        name: source.name,
+        requires,
+        ...(source.plugin.evals && { evals: source.plugin.evals }),
+      });
     }
     for (const item of itemsOf(source.plugin)) {
       entries.push({
@@ -145,6 +161,7 @@ function entriesOf(sources: readonly Source[]): CatalogEntry[] {
         name: item.name,
         ...(!source.single && { plugin: source.name }),
         requires: item.requires.map((ref) => refOf(source, ref)),
+        ...(source.single && source.plugin.evals && { evals: source.plugin.evals }),
       });
     }
   }
@@ -210,9 +227,10 @@ function selectedPlugins(sources: readonly Source[], ids: ReadonlySet<string>): 
 
 /**
  * A plugin as its fingerprint reads it: a tool of code stands for itself by its version — its
- * code is the application's, which a deployment changes —, a tool definition by its data.
+ * code is the application's, which a deployment changes —, a tool definition by its data. Its eval
+ * cases are left out: editing them changes nothing of the agent.
  */
-function fingerprintable({ tools, ...plugin }: Plugin): unknown {
+function fingerprintable({ tools, evals: _evals, ...plugin }: Plugin): unknown {
   const written = Object.entries(tools ?? {}).map(([name, tool]): [string, unknown] => [
     name,
     isToolDefinition(tool) ? withPlainSchema(tool) : 'code',

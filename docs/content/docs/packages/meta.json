@@ -8,6 +8,7 @@
     "harness-plugins",
     "harness-sessions",
     "harness-workspace",
-    "harness-approval"
+    "harness-approval",
+    "harness-evals"
   ]
 }

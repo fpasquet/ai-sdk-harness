@@ -27,7 +27,9 @@ describe('the README', () => {
     'shows $file as the example keeps it',
     ({ json }) => {
       const shown = blocks.find(({ kind, name }) => kind === json.kind && name === json.name);
-      expect(shown).toEqual(json);
+      // Its eval cases show in no screenshot: the README shows them once, in a section of their own.
+      const { evals: _evals, ...shownInScreenshots } = json as typeof json & { evals?: unknown };
+      expect(shown).toEqual(shownInScreenshots);
     },
   );
 });
