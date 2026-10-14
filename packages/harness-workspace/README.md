@@ -31,7 +31,8 @@ const agent = new HarnessAgent(withWorkspace({ harness, model }, workspace));
 
 const sessions = createSessionManager({
   agent: () => agent,
-  // The sessions' sandboxes, each session given a checkout in it.
+  // The sessions' sandboxes, each session given a checkout in it. `openSandbox` is yours: it opens
+  // a sandbox of ai-sdk-sandbox-sbx, ai-sdk-sandbox-cloud-run… as ai-sdk-harness-sessions shows.
   sandboxes: workspace.sandboxes(sharedSandbox({ open: openSandbox, ports })),
 });
 
@@ -87,6 +88,8 @@ export const sessions = createSessionManager({
   ),
 });
 ```
+
+`openSandbox` opens the sandbox the sessions share, from the sandbox package of your choice: the workspace imports none, and works with any. See [Opening the sandbox](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#opening-the-sandbox) for it with a Docker Sandbox, Cloud Run, srt or microsandbox.
 
 The sessions of one sandbox share one copy of the repository, kept bare outside their working directories: a new session fetches only the commits the sandbox does not have yet, and its checkout costs a `git worktree add`. Sessions in sandboxes of their own (`sandboxPerSession()`) get a copy each.
 

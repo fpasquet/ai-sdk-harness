@@ -25,6 +25,29 @@ One manager for your server. Its sessions share one sandbox: each works in a vie
 
 ```ts title="lib/sessions.ts"
 import { createSessionManager, sharedSandbox } from 'ai-sdk-harness-sessions';
+import {
+  createSbxNetworkSandboxSession,
+  resumeSbxNetworkSandboxSession,
+  SbxSandboxNotFoundError,
+} from 'ai-sdk-sandbox-sbx';
+
+/** The sandbox the sessions share: found again when it exists, created otherwise. */
+async function openSandbox() {
+  const settings = { sandboxId: 'my-app', ports: [4000] };
+  try {
+    const sandbox = await resumeSbxNetworkSandboxSession(settings);
+    // The bridges a previous run of the server left behind still hold their ports.
+    await sandbox.killAllProcesses();
+    return sandbox;
+  } catch (error) {
+    if (!(error instanceof SbxSandboxNotFoundError)) throw error;
+  }
+  return createSbxNetworkSandboxSession({
+    ...settings,
+    setup: ['npm install --global --silent pnpm@10'],
+    template: await agent.getSandboxTemplate(),
+  });
+}
 
 export const sessions = createSessionManager<{ title: string }>({
   agent: () => agent,
@@ -38,7 +61,7 @@ export const sessions = createSessionManager<{ title: string }>({
 process.once('SIGTERM', () => void sessions.shutdown().finally(() => process.exit(0)));
 ```
 
-`openSandbox` returns the sandbox of [Getting started](/docs/getting-started), created once and found again afterwards (`resumeSbxNetworkSandboxSession()`). Each port is the port of one session's bridge: four ports, four sessions live at once; a fifth suspends the one idle the longest. See [How many sessions run at once](/docs/packages/harness-sessions#how-many-sessions-run-at-once). `shutdown()` suspends every session when the server stops: the next start resumes them.
+`openSandbox` is yours: the Docker Sandbox of [Getting started](/docs/getting-started), created once and found again afterwards, rather than created at each run. `ai-sdk-harness-sessions` imports no sandbox package: open a Cloud Run sandbox there instead and nothing else changes, see [Opening the sandbox](/docs/packages/harness-sessions#opening-the-sandbox). Each port is the port of one session's bridge: four ports, four sessions live at once; a fifth suspends the one idle the longest. See [How many sessions run at once](/docs/packages/harness-sessions#how-many-sessions-run-at-once). `shutdown()` suspends every session when the server stops: the next start resumes them.
 
 </Step>
 <Step>

@@ -8,8 +8,8 @@ import { SessionCapacityError } from '../errors/session-capacity-error.js';
 export type SandboxView = HarnessV1NetworkSandboxSession & { release(): PromiseLike<void> };
 
 /**
- * A sandbox that gives views of itself with ports of their own: `ai-sdk-sandbox-sbx` and
- * `ai-sdk-sandbox-cloud-run` sessions are.
+ * A sandbox that gives views of itself with ports of their own: `ai-sdk-sandbox-sbx`,
+ * `ai-sdk-sandbox-cloud-run` and `ai-sdk-sandbox-runtime` sessions are.
  */
 export type ForkableSandbox = HarnessV1NetworkSandboxSession & {
   fork(options: { ports: readonly number[] }): SandboxView;
