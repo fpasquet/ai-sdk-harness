@@ -40,6 +40,7 @@ describe('sharedSandbox', () => {
     const second = await sandboxes.acquire('b', { resume: true });
 
     expect(sandboxes.capacity).toBe(2);
+    expect(sandboxes.shared).toBe(true);
     expect(open).toHaveBeenCalledOnce();
     expect(first.sandboxSession.ports).toEqual([4001]);
     expect(second.sandboxSession.ports).toEqual([4002]);

@@ -40,6 +40,7 @@ describe('sandboxPerSession', () => {
     const resumed = await sandboxes.acquire('a', { resume: true });
 
     expect(sandboxes.capacity).toBe(3);
+    expect(sandboxes.shared).toBeUndefined();
     expect(created.sandboxSession.id).toBe('a');
     expect(resumed.sandboxSession.id).toBe('a');
     expect(events).toEqual(['create a', 'resume a']);
