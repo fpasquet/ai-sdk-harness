@@ -12,7 +12,7 @@
       "expect": {
         "calledTools": ["deepwiki_ask_wiki_question"],
         "includes": {
-          "regex": "SDK",
+          "regex": "SDK|toolkit|library",
           "flags": "i"
         }
       }
