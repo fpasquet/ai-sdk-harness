@@ -53,6 +53,12 @@ export interface EvalSandboxLease {
  */
 export interface EvalSandboxes {
   readonly capacity?: number;
+  /**
+   * The trials share one sandbox, its HOME included, where Claude Code and Codex write the skills of
+   * their agent at each turn: as `sharedSandbox()` sets it. Trials of different agents then take
+   * turns, and the first trial of each agent runs alone.
+   */
+  readonly shared?: boolean;
   acquire(
     sessionId: string,
     options: { resume: boolean; abortSignal?: AbortSignal },

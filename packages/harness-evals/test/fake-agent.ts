@@ -149,8 +149,14 @@ export class FakeAgent implements EvalAgent {
 /** The sandbox the fake agent is given: it never touches it. */
 export const sandbox = { id: 'sandbox' } as unknown as HarnessV1NetworkSandboxSession;
 
-/** Sandboxes that lend `sandbox`, `capacity` at a time, and keep what they were asked. */
-export function fakeSandboxes(capacity?: number): EvalSandboxes & {
+/**
+ * Sandboxes that lend `sandbox`, `capacity` at a time, and keep what they were asked; `shared`, as
+ * `sharedSandbox()` does.
+ */
+export function fakeSandboxes(
+  capacity?: number,
+  shared = false,
+): EvalSandboxes & {
   events: string[];
   /** The most leases held at once. */
   peak: number;
@@ -158,6 +164,7 @@ export function fakeSandboxes(capacity?: number): EvalSandboxes & {
   let held = 0;
   const sandboxes = {
     ...(capacity !== undefined && { capacity }),
+    ...(shared && { shared }),
     events: [] as string[],
     peak: 0,
     acquire: (sessionId: string) => {

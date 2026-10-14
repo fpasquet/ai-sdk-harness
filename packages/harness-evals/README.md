@@ -225,6 +225,8 @@ await evaluate({ agent, sandbox: sandboxes, cases, trials: 5 });
 
 `concurrency` runs fewer at once than the sandboxes hold. The sandboxes are yours: shut them down (`sandboxes.shutdown()`) when you are done.
 
+The trials of a shared sandbox share its HOME, where Claude Code and Codex write the skills of their agent at each turn. There, the agents take turns — an entry's, then the one without it — and the first trial of each runs alone, the others of the same agent joining it once its skills are written. A sandbox each (`sandboxPerSession()`) runs every trial at once.
+
 ### Trials
 
 Agents are not deterministic: one run of a case says little. `trials` runs each case several times, each in a session of its own; a case passes when the share of its trials that pass reaches `minPassRate`, all of them by default:

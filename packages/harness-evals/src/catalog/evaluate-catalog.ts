@@ -124,7 +124,8 @@ async function evaluateEntry(
 /**
  * Evaluates a marketplace: the eval cases of each plugin and item (`evals`) on the agent with it —
  * and on the agent without it, to tell what it changes. Every trial of every entry waits for a
- * place among the `concurrency` the sandboxes allow: with one sandbox, one after the other.
+ * place among the `concurrency` the sandboxes allow: with one sandbox, one after the other. In a
+ * shared sandbox, the agents take turns: each entry's, and the one without any.
  *
  * @throws {InvalidEvalError} before any case runs, when an entry or its cases cannot run.
  */
@@ -144,7 +145,7 @@ export async function evaluateCatalog(
   const sandboxes = sandboxesOf(settings.sandbox);
   const shared: Shared = {
     sandboxes,
-    limiter: new Limiter(concurrencyOf(settings, sandboxes)),
+    limiter: new Limiter(concurrencyOf(settings, sandboxes), sandboxes.shared === true),
     baselineAgent: settings.baseline === false ? undefined : settings.agent([]),
   };
   const reports: CatalogEntryEvalReport[] = [];

@@ -145,4 +145,38 @@ describe('evaluateCatalog', () => {
     expect(sandboxes.events.filter((event) => event.startsWith('acquire'))).toHaveLength(4);
     expect(sandboxes.peak).toBe(2);
   });
+
+  it('takes the agents in turns in a shared sandbox, the first trial of each alone', async () => {
+    const catalog = createCatalog({ plugins: [tour], items: [npm] });
+    const sandboxes = fakeSandboxes(4, true);
+    const live = new Map<string, number>();
+    const mixed: string[] = [];
+    const agent = (plugins: Plugin[]): FakeAgent => {
+      const key = plugins.map(({ name }) => name).join(',') || 'baseline';
+      const fake = new FakeAgent();
+      fake.script = Array.from({ length: 6 }, () => ({ delayMs: 10, chunks: say('Tour of src') }));
+      const create = fake.createSession;
+      fake.createSession = async (options) => {
+        const session = await create(options);
+        live.set(key, (live.get(key) ?? 0) + 1);
+        if (live.size > 1) mixed.push([...live.keys()].join(' + '));
+        return Object.assign(session, {
+          destroy: () => {
+            const left = (live.get(key) ?? 1) - 1;
+            if (left === 0) live.delete(key);
+            else live.set(key, left);
+            return Promise.resolve();
+          },
+        });
+      };
+      return fake;
+    };
+
+    await evaluateCatalog({ catalog, agent, sandbox: sandboxes, trials: 3 });
+
+    // Never two agents at once. After its first trial, an agent's others run side by side: the
+    // baseline's six, both entries' cases, four at a time.
+    expect(mixed).toEqual([]);
+    expect(sandboxes.peak).toBe(4);
+  });
 });

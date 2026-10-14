@@ -219,7 +219,8 @@ export async function evaluateOn(
         cases[index] = caseReport(settings, evalCase, runs);
         settings.onCaseEnd?.(cases[index]);
       };
-      tasks.push(limiter.run(task));
+      // Grouped by agent: in a shared sandbox, two agents would overwrite each other's skills.
+      tasks.push(limiter.run(task, settings.agent));
     }
   }
   await Promise.all(tasks);
@@ -245,6 +246,6 @@ export async function evaluateOn(
 export async function evaluate(settings: EvaluateSettings): Promise<EvalReport> {
   validate(settings);
   const sandboxes = sandboxesOf(settings.sandbox);
-  const limiter = new Limiter(concurrencyOf(settings, sandboxes));
+  const limiter = new Limiter(concurrencyOf(settings, sandboxes), sandboxes.shared === true);
   return evaluateOn(settings, { sandboxes, limiter });
 }
