@@ -61,9 +61,9 @@
     "@ai-sdk/provider-utils": "^5.0.0"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "^1.0.138",
-    "@ai-sdk/harness-claude-code": "^1.0.142",
-    "@ai-sdk/provider-utils": "^5.0.53",
+    "@ai-sdk/harness": "^1.0.147",
+    "@ai-sdk/harness-claude-code": "^1.0.151",
+    "@ai-sdk/provider-utils": "^5.0.58",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
     "@repo/prettier-config": "workspace:*",
@@ -71,7 +71,7 @@
     "@repo/vitest-config": "workspace:*",
     "@types/node": "^24.13.5",
     "@vitest/coverage-v8": "^5.0.3",
-    "ai": "^7.0.127",
+    "ai": "^7.0.136",
     "typescript": "^6.0.3",
     "vitest": "^5.0.3",
     "zod": "^4.5.4"
