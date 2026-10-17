@@ -39,7 +39,11 @@ export interface RepositorySettings {
 
 /** What a workspace gives each of its slots. */
 export interface SlotSettings {
-  repositories: readonly RepositorySettings[];
+  /** The repositories of a session, before anything runs in its sandbox. */
+  repositories: (session: {
+    sessionId: string;
+    abortSignal?: AbortSignal;
+  }) => Promise<readonly RepositorySettings[]>;
   /** Run in the session's working directory, after the setup of every repository. */
   setup: readonly string[];
   setupEnv: Record<string, string> | undefined;
@@ -70,6 +74,8 @@ export class WorkspaceSlot {
   private readonly located = new Map<string, Promise<string>>();
   private checkedOut: undefined | WorkspaceSession;
   private released = false;
+  /** The session's repositories, asked for once. */
+  private resolved: Promise<readonly RepositorySettings[]> | undefined;
 
   constructor(
     {
@@ -96,10 +102,9 @@ export class WorkspaceSlot {
    * session resumes, makes sure their checkouts are still there.
    */
   async prepare(directory: string, abortSignal?: AbortSignal): Promise<void> {
+    const repositories = await this.repositories(abortSignal);
     const checkouts = await settled(
-      this.settings.repositories.map((repository) =>
-        this.prepareRepository(repository, directory, abortSignal),
-      ),
+      repositories.map((repository) => this.prepareRepository(repository, directory, abortSignal)),
     );
     this.checkedOut = this.sessionAt(directory, checkouts);
     if (this.resume) return;
@@ -123,8 +128,9 @@ export class WorkspaceSlot {
   /** The session is closed: its checkouts, their branch and their bases go. */
   async remove(): Promise<void> {
     this.released = true;
+    const repositories = await this.repositories();
     const removed = await settled(
-      this.settings.repositories.map(async (repository) => {
+      repositories.map(async (repository) => {
         const located =
           this.located.get(repository.name) ??
           locateRepository(this.sandbox, {
@@ -141,9 +147,17 @@ export class WorkspaceSlot {
       }),
     );
     // With several repositories, the working directory holding their checkouts goes as well.
-    if (this.settings.repositories.every(({ path }) => path === '')) return;
+    if (repositories.every(({ path }) => path === '')) return;
     const root = this.checkedOut?.directory ?? rootOf(removed);
     if (root !== undefined) await removeDirectory(this.sandbox, { path: root });
+  }
+
+  private repositories(abortSignal?: AbortSignal): Promise<readonly RepositorySettings[]> {
+    this.resolved ??= this.settings.repositories({
+      sessionId: this.sessionId,
+      ...(abortSignal !== undefined && { abortSignal }),
+    });
+    return this.resolved;
   }
 
   private async prepareRepository(

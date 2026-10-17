@@ -10,6 +10,8 @@ export type {
   WorkspaceCheckout,
   WorkspaceCommandResult,
   WorkspaceOptions,
+  WorkspaceRepositories,
+  WorkspaceRepositoriesOf,
   WorkspaceRepositoryOptions,
   WorkspaceRunOptions,
   WorkspaceSession,

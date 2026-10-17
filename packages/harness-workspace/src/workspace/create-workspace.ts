@@ -9,6 +9,7 @@ import type {
   SingleRepositoryWorkspaceSession,
   Workspace,
   WorkspaceOptions,
+  WorkspaceRepositories,
   WorkspaceSession,
   WorkspaceSessionInput,
 } from '../definitions/workspace.js';
@@ -65,39 +66,57 @@ export function createWorkspace(options: MultiRepositoryWorkspaceOptions): Works
 export function createWorkspace(options: WorkspaceOptions): Workspace;
 export function createWorkspace(options: WorkspaceOptions): Workspace {
   const setup = commands(options.setup);
-  const repositories: RepositorySettings[] =
-    options.repositories === undefined
-      ? [
-          {
-            name: options.source.name,
-            path: '',
-            source: options.source,
-            // One repository: the workspace's setup is its own, run in its checkout.
-            setup,
-            setupEnv: options.setupEnv,
-            repositoryPath: options.repositoryPath,
-          },
-        ]
-      : Object.entries(options.repositories).map(([path, entry]) => {
-          const settings = 'fetch' in entry ? { source: entry } : entry;
-          return {
-            name: path,
-            path,
-            source: settings.source,
-            setup: commands(settings.setup),
-            setupEnv: settings.setupEnv,
-            repositoryPath: settings.repositoryPath,
-          };
-        });
-  checkRepositories(repositories, options.repositories !== undefined);
   return new GitWorkspace({
-    repositories,
+    repositories: repositoriesOf(options, setup),
     setup: options.repositories === undefined ? [] : setup,
     setupEnv: options.setupEnv,
     setupTimeoutMs: options.setupTimeoutMs ?? 600_000,
     branch: checkedBranch(options.branch ?? ((sessionId) => `session/${sessionKey(sessionId)}`)),
     committer: options.committer ?? DEFAULT_COMMITTER,
   });
+}
+
+/**
+ * What a slot reads of the workspace's repositories: checked once at creation when they are fixed,
+ * at each call when a function gives them per session.
+ */
+function repositoriesOf(options: WorkspaceOptions, setup: string[]): SlotSettings['repositories'] {
+  if (options.repositories === undefined) {
+    const repository: RepositorySettings = {
+      name: options.source.name,
+      path: '',
+      source: options.source,
+      // One repository: the workspace's setup is its own, run in its checkout.
+      setup,
+      setupEnv: options.setupEnv,
+      repositoryPath: options.repositoryPath,
+    };
+    checkRepositories([repository], false);
+    return () => Promise.resolve([repository]);
+  }
+  const { repositories } = options;
+  if (typeof repositories !== 'function') {
+    const fixed = severalRepositories(repositories);
+    return () => Promise.resolve(fixed);
+  }
+  return async (session) => severalRepositories(await repositories(session));
+}
+
+/** `repositories`, each with its settings, checked: a `TypeError` unless they fit side by side. */
+function severalRepositories(repositories: WorkspaceRepositories): RepositorySettings[] {
+  const settings = Object.entries(repositories).map(([path, entry]) => {
+    const repository = 'fetch' in entry ? { source: entry } : entry;
+    return {
+      name: path,
+      path,
+      source: repository.source,
+      setup: commands(repository.setup),
+      setupEnv: repository.setupEnv,
+      repositoryPath: repository.repositoryPath,
+    };
+  });
+  checkRepositories(settings, true);
+  return settings;
 }
 
 function commands(setup: readonly string[] | string | undefined): string[] {
