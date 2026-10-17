@@ -22,7 +22,8 @@ import { createSessionManager, sharedSandbox } from 'ai-sdk-harness-sessions';
 const sessions = createSessionManager({
   // The agent of a session, from what you keep with it.
   agent: ({ metadata }) => agents[metadata.agent],
-  // One sandbox for every session, each with a port of its own for its bridge.
+  // One sandbox for every session, each with a port of its own for its bridge. `openSandbox` is
+  // yours: it opens a sandbox of ai-sdk-sandbox-sbx, ai-sdk-sandbox-cloud-run… (see "Sandboxes").
   sandboxes: sharedSandbox({
     open: openSandbox,
     ports: Array.from({ length: 4 }, (_, i) => 4001 + i),
@@ -261,7 +262,7 @@ Where each session runs is up to `sandboxes`:
 | `sandboxPerSession({ create, resume, maxSessions })` | A sandbox of its own, stopped when the session is suspended, destroyed when it is closed                    | Sessions that must not see each other: one per user or per repository |
 | Your own `SessionSandboxes`                          | What `acquire(sessionId, { resume })` returns                                                               | A pool, a sandbox per user shared by their sessions…                  |
 
-`sharedSandbox()` takes sandboxes that give views of themselves, `fork({ ports })`: those of `ai-sdk-sandbox-sbx` and `ai-sdk-sandbox-cloud-run`. A suspended session hands its port back and keeps its files in the sandbox. With `stopWhenUnused`, the sandbox itself is stopped once no session holds it, and opened again with the next one: on Cloud Run, a stopped sandbox costs its snapshot's storage alone.
+`sharedSandbox()` takes sandboxes that give views of themselves, `fork({ ports })`: those of `ai-sdk-sandbox-sbx`, `ai-sdk-sandbox-cloud-run` and `ai-sdk-sandbox-runtime`. A suspended session hands its port back and keeps its files in the sandbox. With `stopWhenUnused`, the sandbox itself is stopped once no session holds it, and opened again with the next one: on Cloud Run, a stopped sandbox costs its snapshot's storage alone.
 
 ```ts
 import { createSbxNetworkSandboxSession, resumeSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
@@ -275,6 +276,48 @@ const sandboxes = sandboxPerSession({
   maxSessions: 8,
 });
 ```
+
+### Opening the sandbox
+
+The package imports no sandbox package: the `open()` of `sharedSandbox()`, and the `create()` and `resume()` of `sandboxPerSession()`, are functions you write with the sandbox package of your choice. Throughout this documentation, `openSandbox` is the function of [The manager](#the-manager): it finds the sandbox again when it exists, and creates it otherwise. To run the sessions somewhere else, change that function and nothing else:
+
+| Sandbox package                                                                                      | Its functions                                                                            | `sharedSandbox()`      | `sandboxPerSession()` |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------- | --------------------- |
+| [`ai-sdk-sandbox-sbx`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx)                   | `createSbxNetworkSandboxSession()`, `resumeSbxNetworkSandboxSession()`                   | Yes                    | Yes                   |
+| [`ai-sdk-sandbox-cloud-run`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-cloud-run)       | `createCloudRunNetworkSandboxSession()`, `resumeCloudRunNetworkSandboxSession()`         | Yes                    | Yes                   |
+| [`ai-sdk-sandbox-runtime`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-runtime)           | `createSrtNetworkSandboxSession()`, `resumeSrtNetworkSandboxSession()`                   | Yes                    | Yes                   |
+| [`ai-sdk-sandbox-microsandbox`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-microsandbox) | `createMicrosandboxNetworkSandboxSession()`, `resumeMicrosandboxNetworkSandboxSession()` | No: it has no `fork()` | Yes                   |
+
+The same `openSandbox` on Cloud Run, through the sandbox service you deployed:
+
+```ts
+import {
+  CloudRunSandboxNotFoundError,
+  createCloudRunNetworkSandboxSession,
+  resumeCloudRunNetworkSandboxSession,
+} from 'ai-sdk-sandbox-cloud-run';
+
+async function openSandbox() {
+  const settings = {
+    url: process.env.CLOUD_RUN_SANDBOX_URL!,
+    sandboxId: 'my-app',
+    ports: [4000],
+    // The bridges install their dependencies from npm.
+    allowedHosts: ['registry.npmjs.org'],
+  };
+  try {
+    const sandbox = await resumeCloudRunNetworkSandboxSession(settings);
+    await sandbox.killAllProcesses();
+    return sandbox;
+  } catch (error) {
+    if (!(error instanceof CloudRunSandboxNotFoundError)) throw error;
+  }
+  const template = await createHarnessSandboxTemplate({ harnesses: [harness] });
+  return createCloudRunNetworkSandboxSession({ ...settings, template });
+}
+```
+
+The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) picks one of the four with an environment variable, `EXAMPLE_SANDBOX`: see its `lib/sandbox.ts`.
 
 ### How many sessions run at once
 

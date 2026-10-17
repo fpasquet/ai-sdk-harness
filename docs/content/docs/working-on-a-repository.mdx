@@ -64,6 +64,8 @@ export const sessions = createSessionManager<{ title: string }>({
 });
 ```
 
+`openSandbox` is the function of [Managing sessions](/docs/managing-sessions#create-the-manager): the workspace takes whatever sandbox it opens, a Docker Sandbox, a Cloud Run sandbox or another.
+
 A new session now starts with the repository checked out in its working directory, on the branch `session/<id>`. A suspended one keeps its checkout, and finds it again when it resumes; a closed one has it removed.
 
 </Step>
