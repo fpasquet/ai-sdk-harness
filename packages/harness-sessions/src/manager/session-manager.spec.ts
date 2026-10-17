@@ -944,5 +944,17 @@ describe('createSessionManager', () => {
       });
       await restarted.shutdown();
     });
+
+    it('discards the sandbox a crash left to an interrupted session when it is closed', async () => {
+      await ready();
+      const restarted = manager();
+      await until(async () => (await restarted.get('s1'))?.status === 'interrupted');
+
+      await restarted.delete('s1');
+
+      expect(fake.events.at(-1)).toBe('discard s1');
+      expect(await restarted.get('s1')).toBeUndefined();
+      await restarted.shutdown();
+    });
   });
 });

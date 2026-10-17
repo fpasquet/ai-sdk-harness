@@ -767,7 +767,9 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
 
   private async closeKept(kept: SessionRecord<METADATA>): Promise<SessionSummary<METADATA>> {
     if (kept.status === 'closed') return summaryOf(kept);
-    if (kept.status === 'suspended') {
+    // A suspended session keeps its sandbox for its resume, an interrupted one because nothing freed it: the
+    // process stopped while the session held it, or its harness session could not be stopped.
+    if (kept.status === 'suspended' || kept.status === 'interrupted') {
       await this.options.sandboxes.discard?.(kept.id).catch(this.report('discard', kept.id));
     }
     const session = liveSession(kept);
