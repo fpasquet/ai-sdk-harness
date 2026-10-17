@@ -776,6 +776,64 @@ describe('createSessionManager', () => {
       });
     });
 
+    it('starts the harness session again, in the same sandbox, for the next turn', async () => {
+      await ready();
+      agent.script.push({ hold: new Promise(() => undefined) });
+      const started = await sessions.send('s1', { message: 'hello' });
+
+      await sessions.interrupt('s1');
+      await started.done;
+      const { session } = await turn('s1', 'again');
+
+      const [first, second] = agent.handles;
+      expect(first?.stopped).toBe(true);
+      expect(second?.resumeFrom).toEqual(resumeState('s1'));
+      expect(second?.sandboxSession).toBe(first?.sandboxSession);
+      expect(fake.events).toEqual(['acquire s1']);
+      expect(session).toMatchObject({ status: 'idle', turns: 2 });
+      expect(session.error).toBeUndefined();
+    });
+
+    it('starts the harness session again after a turn that took too long', async () => {
+      sessions = manager({ turnTimeoutMs: 20 });
+      await ready();
+      agent.script.push({ hold: new Promise(() => undefined) });
+
+      const { session } = await turn('s1', 'hello');
+
+      expect(session).toMatchObject({ status: 'idle', error: 'The turn took too long.' });
+      expect(agent.handles).toHaveLength(2);
+      expect(agent.handles[0]?.stopped).toBe(true);
+    });
+
+    it('leaves a session whose harness session cannot start again suspended, resumed by the next message', async () => {
+      await ready();
+      agent.script.push({ hold: new Promise(() => undefined) });
+      const started = await sessions.send('s1', { message: 'hello' });
+      agent.failStart = new Error('no bridge');
+
+      await sessions.interrupt('s1');
+
+      expect(await started.done).toMatchObject({ status: 'suspended', error: 'no bridge' });
+      expect(fake.events).toEqual(['acquire s1', 'suspend s1']);
+      agent.failStart = undefined;
+      const { session } = await turn('s1', 'again');
+      expect(session.status).toBe('idle');
+      expect(agent.handles.at(-1)?.resumeFrom).toEqual(resumeState('s1'));
+    });
+
+    it('interrupts a session whose harness session cannot be stopped after its turn', async () => {
+      await ready();
+      agent.script.push({ hold: new Promise(() => undefined) });
+      const started = await sessions.send('s1', { message: 'hello' });
+      agent.handles[0]!.failStop = true;
+
+      await sessions.interrupt('s1');
+
+      expect(await started.done).toMatchObject({ status: 'interrupted' });
+      expect(errors.map(({ action }) => action)).toContain('stop');
+    });
+
     it('does nothing when no turn is under way, and refuses an unknown session', async () => {
       await ready();
       await expect(sessions.interrupt('s1')).resolves.toBeUndefined();

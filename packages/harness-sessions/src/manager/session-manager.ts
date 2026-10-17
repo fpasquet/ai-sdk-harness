@@ -637,6 +637,9 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     await this.transition(session, 'busy');
     const settle = async (failure?: string): Promise<void> => {
       clearTimeout(timer);
+      // Cut short by an interrupt, a timeout or the caller: before the turn is over, so that a
+      // close waits for it, and finds the harness session to destroy.
+      if (abort.signal.aborted || callerSignal?.aborted === true) await this.renew(session, handle);
       await this.settleTurn(session, handle, failure);
       finish();
     };
@@ -755,7 +758,7 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     const { record } = session;
     // Closed, suspended or shut down meanwhile: whoever did it writes the session.
     if (this.live.get(record.id) !== session || record.status !== 'busy') return;
-    const unfinished = handle.hasUnfinishedTurn();
+    const unfinished = session.lostTurn === true || handle.hasUnfinishedTurn();
     if (unfinished) record.pendingInput = session.paused ?? pendingInputOf(record.messages);
     else delete record.pendingInput;
     session.paused = undefined;
@@ -763,6 +766,49 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       ...(failure !== undefined && { error: failure }),
     });
     this.scheduleIdle(session);
+  }
+
+  /**
+   * Starts the harness session of a turn cut short again, in the same sandbox, from where it
+   * stopped. The runtime goes on with the turn for a while after it is told to stop, and a harness
+   * session sends what it still says to the next turn: a stray `finish` ends that turn before it
+   * starts, and its answer is lost. A session that cannot start again is `suspended`, resumed by
+   * the next message, or `interrupted` when its harness session could not be stopped.
+   */
+  private async renew(session: LiveSession<METADATA>, handle: HarnessAgentSession): Promise<void> {
+    const { id, status } = session.record;
+    // Closed, suspended or shut down meanwhile: whoever did it stops the harness session.
+    if (this.live.get(id) !== session || status !== 'busy') return;
+    const { agent, lease } = session;
+    // Started again without the turn it paused in: `continue()` tells the agent the answers.
+    session.lostTurn = handle.hasUnfinishedTurn();
+    session.handle = undefined;
+    const stopped = await handle.stop().catch((error: unknown) => {
+      this.report('stop', id)(error);
+      return undefined;
+    });
+    if (stopped === undefined || agent === undefined || lease === undefined) {
+      if (this.live.get(id) === session) this.live.delete(id);
+      await this.release(session);
+      await this.transition(session, 'interrupted', { error: NOT_STOPPED });
+      return;
+    }
+    const resumeFrom = withoutUnfinishedTurn(stopped);
+    try {
+      session.handle = await agent.createSession({
+        sessionId: id,
+        sandboxSession: lease.sandboxSession,
+        resumeFrom,
+      });
+    } catch (error) {
+      this.report('resume', id)(error);
+      if (this.live.get(id) === session) this.live.delete(id);
+      await this.release(session);
+      await this.transition(session, 'suspended', {
+        error: messageOf(error),
+        resumeState: resumeFrom,
+      });
+    }
   }
 
   private async closeKept(kept: SessionRecord<METADATA>): Promise<SessionSummary<METADATA>> {
