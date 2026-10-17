@@ -12,6 +12,7 @@ import type {
   SessionSandboxes,
   SingleRepositoryWorkspaceSession,
   Workspace,
+  WorkspaceRepositories,
   WorkspaceSession,
 } from '../definitions/workspace.js';
 
@@ -536,6 +537,72 @@ describe('createWorkspace', () => {
       expect(refused({ api: from, again: sandboxRepository({ path: source }) })).toThrow(
         /same repository of the sandbox/,
       );
+    });
+  });
+
+  describe('with repositories chosen per session', () => {
+    let web: string;
+    let asked: string[];
+    let perSession: Workspace;
+
+    beforeEach(async () => {
+      web = await createSourceRepository();
+      asked = [];
+      // Two projects: session `a` works on the API, every other one on the API and the web app.
+      perSession = createWorkspace({
+        repositories: ({ sessionId }) => {
+          asked.push(sessionId);
+          const repositories: WorkspaceRepositories = { api: sandboxRepository({ path: source }) };
+          if (sessionId !== 'a') repositories['web'] = sandboxRepository({ path: web });
+          return Promise.resolve(repositories);
+        },
+      });
+    });
+
+    it('checks out the repositories of each session, one workspace serving them all', async () => {
+      const first = await start('a', { workspace: perSession });
+      const second = await start('b', { workspace: perSession });
+
+      expect(asked).toEqual(['a', 'b']);
+      expect(perSession.session('a')!.repositories.map(({ name }) => name)).toEqual(['api']);
+      expect(perSession.session('b')!.repositories.map(({ name }) => name)).toEqual(['api', 'web']);
+      expect(await exists(join(first.directory, 'web'))).toBe(false);
+      expect(await git(join(second.directory, 'web'), 'branch', '--show-current')).toBe(
+        'session/b',
+      );
+    });
+
+    it('asks again when a session resumes, and when a suspended one is closed', async () => {
+      const used = perSession.sandboxes(hostSandboxes(host.sandbox, events));
+      const { lease, directory } = await start('b', { workspace: perSession });
+      await lease.suspend();
+      const resumed = await start('b', { workspace: perSession, resume: true });
+      expect(perSession.session('b')!.repository('web')!.directory).toBe(join(directory, 'web'));
+      await resumed.lease.suspend();
+
+      await used.discard!('b');
+
+      expect(asked).toEqual(['b', 'b', 'b']);
+      expect(await exists(directory)).toBe(false);
+    });
+
+    it('fails the start of a session whose repositories cannot be checked out side by side', async () => {
+      const refused = createWorkspace({
+        repositories: () => ({
+          apps: sandboxRepository({ path: source }),
+          'apps/web': sandboxRepository({ path: web }),
+        }),
+      });
+
+      await expect(start('a', { workspace: refused })).rejects.toThrow(/within "apps"/);
+    });
+
+    it('fails the start of a session whose repositories cannot be had', async () => {
+      const failing = createWorkspace({
+        repositories: () => Promise.reject(new Error('Unknown project')),
+      });
+
+      await expect(start('a', { workspace: failing })).rejects.toThrow('Unknown project');
     });
   });
 
