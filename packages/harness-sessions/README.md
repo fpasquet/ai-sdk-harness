@@ -184,16 +184,16 @@ stateDiagram-v2
   busy --> interrupted: the server crashed
 ```
 
-| Status           | What it means                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `preparing`      | Its sandbox and harness session are being opened, or brought back from `suspended`. A message sent meanwhile waits |
-| `idle`           | Ready for a message                                                                                                |
-| `busy`           | A turn is under way. Another message is refused until it ends                                                      |
-| `awaiting-input` | The turn paused on a tool call that waits for you: an approval, or the result of a tool your application runs      |
-| `suspended`      | Stopped, its state kept in the store and its sandbox freed. The next message, or `continue()`, brings it back      |
-| `closed`         | Ended for good. Its conversation can still be read                                                                 |
-| `failed`         | A new session that could not start: a sandbox that did not open, say. The next message tries again                 |
-| `interrupted`    | Cannot be brought back: the server stopped without suspending it. Its conversation can still be read               |
+| Status           | What it means                                                                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preparing`      | Its sandbox and harness session are being opened, or brought back from `suspended`. A message sent meanwhile waits                              |
+| `idle`           | Ready for a message                                                                                                                             |
+| `busy`           | A turn is under way. Another message is refused until it ends                                                                                   |
+| `awaiting-input` | The turn paused on a tool call that waits for you: an approval, or the result of a tool your application runs                                   |
+| `suspended`      | Stopped, its state kept in the store and its sandbox freed. The next message, or `continue()`, brings it back                                   |
+| `closed`         | Ended for good. Its conversation can still be read                                                                                              |
+| `failed`         | A new session that could not start: a sandbox that did not open, say. The next message tries again                                              |
+| `interrupted`    | Cannot be brought back: the server stopped without suspending it. Its conversation can still be read; `close()` or `delete()` frees its sandbox |
 
 A session that fails to resume stays `suspended`, with the reason in its `error`: the next message tries again from the same state.
 
