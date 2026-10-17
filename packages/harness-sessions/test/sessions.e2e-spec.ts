@@ -110,6 +110,29 @@ describe('sessions on a real runtime', () => {
     expect(answer.toLowerCase()).toContain('obsidian');
   });
 
+  it('answers the message sent after a turn it interrupted', async () => {
+    await sessions.create({ id: 'epsilon', metadata: { permissionMode: 'allow-all' } });
+    await say('epsilon', 'Remember the word lantern, and answer OK only.');
+    const turn = await sessions.send('epsilon', {
+      message: 'Write the numbers from 1 to 400 in words, one per line, and nothing else.',
+    });
+    let written = 0;
+    for await (const chunk of turn.stream) {
+      if (chunk.type === 'text-delta') written += chunk.delta.length;
+      if (written > 200) break;
+    }
+    await sessions.interrupt('epsilon');
+    expect((await turn.done).status).toBe('idle');
+
+    const answer = await say(
+      'epsilon',
+      'What word did I ask you to remember? Answer with it only.',
+    );
+
+    // Answered, by the same conversation.
+    expect(answer.toLowerCase()).toContain('lantern');
+  });
+
   /** Starts a turn that asks approval for a command, and gives the session waiting for it. */
   async function askApproval(id: string) {
     await sessions.create({ id, metadata: { permissionMode: 'allow-reads' } });
