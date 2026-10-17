@@ -517,10 +517,10 @@ importers:
     devDependencies:
       '@ai-sdk/harness':
         specifier: ^1.0.138
-        version: 1.0.138(ws@8.22.0)(zod@4.6.5)
+        version: 1.0.147(ws@8.22.0)(zod@4.6.5)
       '@ai-sdk/harness-claude-code':
         specifier: ^1.0.142
-        version: 1.0.142(zod@4.6.5)
+        version: 1.0.151(zod@4.6.5)
       '@repo/build':
         specifier: workspace:*
         version: link:../configs/build
@@ -544,7 +544,7 @@ importers:
         version: 5.0.3(vitest@5.0.3)
       ai:
         specifier: ^7.0.127
-        version: 7.0.127(zod@4.6.5)
+        version: 7.0.136(zod@4.6.5)
       ai-sdk-harness-sessions:
         specifier: workspace:*
         version: link:../harness-sessions
