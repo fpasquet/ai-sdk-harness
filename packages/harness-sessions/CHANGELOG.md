@@ -1,5 +1,11 @@
 # ai-sdk-harness-sessions
 
+## 0.2.1
+
+### Patch Changes
+
+- 116b98c: A resume that fails no longer closes the session's sandbox lease: it hands it back with `suspend()`, as a suspension does, so the sandbox and the files the next try resumes from are kept. With `sandboxPerSession()`, a failed resume destroyed the session's sandbox while the session stayed `suspended`, waiting to resume from it.
+
 ## 0.2.0
 
 ### Minor Changes
