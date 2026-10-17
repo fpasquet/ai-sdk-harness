@@ -4,8 +4,15 @@ import type { ToolApprovalResponse, ToolResultPart, UIMessage, UIMessageChunk } 
 
 import { createUIMessageStream } from 'ai';
 
-import type { SessionAgent, SessionSandboxes, SessionStreamResult } from '../src/index.js';
+import type {
+  SessionAgent,
+  SessionClaim,
+  SessionSandboxes,
+  SessionStore,
+  SessionStreamResult,
+} from '../src/index.js';
 
+import { createMemorySessionStore } from '../src/index.js';
 import { FakeHandle } from './fake-handle.js';
 
 export { FakeHandle, resumeState } from './fake-handle.js';
@@ -177,4 +184,48 @@ export async function until(
     if (Date.now() > deadline) throw new Error('Timed out waiting for a condition.');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+/** A store in memory that shares its sessions between managers, as one on a database would. */
+export interface LeasingStore<METADATA> extends Required<SessionStore<METADATA>> {
+  /** Who holds each session. */
+  owners: Map<string, string>;
+  /** Makes the manager `owner` stop renewing its lease, as if its process crashed. */
+  crash: (owner: string) => void;
+}
+
+export function leasingStore<METADATA>(): LeasingStore<METADATA> {
+  const store = createMemorySessionStore<METADATA>();
+  const owners = new Map<string, string>();
+  const leases = new Map<string, number>();
+  const crashed = new Set<string>();
+  const alive = (owner: string) => (leases.get(owner) ?? 0) > Date.now();
+  return {
+    ...store,
+    owners,
+    crash: (owner) => crashed.add(owner),
+    delete: async (id) => {
+      owners.delete(id);
+      await store.delete(id);
+    },
+    claimSession: (id, owner) => {
+      const current = owners.get(id);
+      if (current !== undefined && current !== owner && alive(current)) {
+        return Promise.resolve({ claimed: false, owner: current } satisfies SessionClaim);
+      }
+      owners.set(id, owner);
+      return Promise.resolve({
+        claimed: true,
+        previousOwner: current ?? null,
+      } satisfies SessionClaim);
+    },
+    renewLease: (owner, ttlMs) => {
+      if (!crashed.has(owner)) leases.set(owner, Date.now() + ttlMs);
+      return Promise.resolve();
+    },
+    releaseSession: (id, owner) => {
+      if (owners.get(id) === owner) owners.delete(id);
+      return Promise.resolve();
+    },
+  };
 }
