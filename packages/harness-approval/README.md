@@ -115,6 +115,35 @@ if (remaining.length === 0) {
 }
 ```
 
+### Held by the sandbox, with Claude Code
+
+A policy that never asks a person — every command and edit allowed or denied by its rules — can be applied by the sandbox itself, before Claude Code runs a call: the turn never pauses for an approval, and an agent that reads code and answers runs as fast as one without a policy. `installClaudeCodePolicies()` installs the policies in the sandbox under their names; `policy.claudeCodeSandbox(name)` sets up the agent held to one of them.
+
+```ts
+import { defineApprovalPolicy } from 'ai-sdk-harness-approval';
+import { installClaudeCodePolicies } from 'ai-sdk-harness-approval/sandbox';
+
+const READ_ONLY = defineApprovalPolicy({
+  commands: { allow: ['ls', 'cat', 'grep', 'git log', 'git show'] },
+  edits: { deny: [{ match: '**', reason: 'This agent only reads.' }] },
+  default: 'deny',
+});
+
+// Once the sandbox is open, before its sessions start: in the `open` of `sharedSandbox()`…
+await installClaudeCodePolicies(sandbox, { 'read-only': READ_ONLY });
+
+// The agent held to it: a variable of its environment names the policy.
+const inSandbox = READ_ONLY.claudeCodeSandbox('read-only');
+const harness = createClaudeCode({ ...inSandbox.harness });
+const agent = new HarnessAgent({ harness, model, ...inSandbox.agent });
+```
+
+- A `PreToolUse` hook, in Claude Code's managed settings (`/etc/claude-code/managed-settings.d/`), decides each command, each edit and each built-in tool the policy's `tools` name. A denied call fails with the rule's reason, which the agent reads; nothing reaches your server.
+- The agent runs with `allow-all`: Claude Code asks about nothing, the hook decides. Reads, the agent's bookkeeping and your own tools are left alone; your tools listed in `tools` are still asked about, or denied, on your side (`toolApproval`).
+- The hook and the policies are root's files, under `/etc/claude-code/ai-sdk-harness/`: the agent can neither change nor remove them. Installing them needs root in the sandbox, or `sudo` without a password — Docker Sandboxes have it.
+- It fails closed: an agent whose policy is not installed runs nothing the hook decides, and a call the policy would ask a person about is denied. An agent without a policy is not concerned: the same sandbox can run both.
+- `claudeCodeSandbox()` refuses a policy that may ask about a command or an edit: set `default`, and the rule sets' own, to `allow` or `deny`.
+
 ### The agent's questions
 
 Claude Code's `AskUserQuestion` reaches you as a call of the tool `askUserQuestions` (`QUESTIONS_TOOL_NAME`): its input, `AgentQuestions`, holds the questions and their options, and the turn waits for its output, `AgentAnswers`. `answersOf(questions, selection)` builds the output from what a form picked — `answered`, `partially-answered` when the questions allow it, `declined` when nothing was —, `isComplete()` says whether it can be sent, and `describeAnswers()` says it in words.
@@ -154,23 +183,26 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 
 ## Reference
 
-| Export                                             | What it does                                                   |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| `defineApprovalPolicy(settings)`                   | Reads a policy once: an `ApprovalPolicy`                       |
-| `policy.evaluate(request, { grants })`             | `{ decision, reason?, rule? }` for one call                    |
-| `policy.agentSettings(harness?)`                   | `{ permissionMode, toolApproval }` for `HarnessAgent`          |
-| `policy.warnings(harness)`                         | The rules `harness` does not follow                            |
-| `policy.answer(requests, { grants })`              | `{ responses, remaining }`: what a route continues a turn with |
-| `policy.approver({ grants })`                      | The `approve` option of `createSessionManager()`               |
-| `suggestGrant(request)`                            | `{ grants, label }`: what "Always allow" grants                |
-| `withGrants(grants, added)`                        | The grants with `added`, each once                             |
-| `describeGrant(grant)`                             | "\`npm test\` commands", "file edits"                          |
-| `describeToolCall(request)`                        | `{ kind, title, detail }`: "Run a command", the command        |
-| `commandSegments(script)`, `toolKindOf()`          | How the policy reads a script, and a tool                      |
-| `answersOf()`, `isComplete()`, `describeAnswers()` | The answers to the agent's questions                           |
+| Export                                             | What it does                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `defineApprovalPolicy(settings)`                   | Reads a policy once: an `ApprovalPolicy`                           |
+| `policy.evaluate(request, { grants })`             | `{ decision, reason?, rule? }` for one call                        |
+| `policy.agentSettings(harness?)`                   | `{ permissionMode, toolApproval }` for `HarnessAgent`              |
+| `policy.warnings(harness)`                         | The rules `harness` does not follow                                |
+| `policy.claudeCodeSandbox(name)`                   | `{ harness, agent }` for a Claude Code agent the sandbox holds     |
+| `installClaudeCodePolicies(sandbox, policies)`     | Installs policies in a sandbox (`ai-sdk-harness-approval/sandbox`) |
+| `policy.answer(requests, { grants })`              | `{ responses, remaining }`: what a route continues a turn with     |
+| `policy.approver({ grants })`                      | The `approve` option of `createSessionManager()`                   |
+| `suggestGrant(request)`                            | `{ grants, label }`: what "Always allow" grants                    |
+| `withGrants(grants, added)`                        | The grants with `added`, each once                                 |
+| `describeGrant(grant)`                             | "\`npm test\` commands", "file edits"                              |
+| `describeToolCall(request)`                        | `{ kind, title, detail }`: "Run a command", the command            |
+| `commandSegments(script)`, `toolKindOf()`          | How the policy reads a script, and a tool                          |
+| `answersOf()`, `isComplete()`, `describeAnswers()` | The answers to the agent's questions                               |
 
 ## Limitations
 
+- **Held by the sandbox: Claude Code, and no person asked.** The hook runs in Claude Code's own settings, which Codex does not read; and a sandbox cannot ask anyone, so only a policy that allows or denies everything it decides can be held there. A command that writes to a file through a redirection, which the policy would ask about, is denied.
 - **A guard rail, not a sandbox.** Rules read commands the way a shell mostly does, not the way it always does: `bash -c '…'`, `xargs`, `find -exec` or a script the agent wrote run what they run. Allow what you trust — an allow list holds better than a deny list — and keep the agent in a sandbox: it is the boundary.
 - **Only what the runtime asks about.** Claude Code asks about commands and edits, never about reads: a rule on `read` or `grep` does not apply. Codex asks about none of its own tools ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)).
 - **Approvals after a resume, with Claude Code.** A resumed Claude Code session does not take the answers to its approvals, and asks again ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)). The session manager leaves such a repeated approval to a person rather than answer it forever; a session that never resumed is not concerned.

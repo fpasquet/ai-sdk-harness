@@ -7,10 +7,15 @@ import type {
   ApprovalVerdict,
   ToolRequest,
 } from '../definitions/policy.js';
-import type { ApprovalHarness, PolicyAgentSettings } from './agent-settings.js';
+import type {
+  ApprovalHarness,
+  ClaudeCodeSandboxSettings,
+  PolicyAgentSettings,
+} from './agent-settings.js';
 import type { CompiledPolicy } from './evaluate.js';
 
-import { agentSettingsOf, warningsOf } from './agent-settings.js';
+import { POLICY_ENV, POLICY_NAME } from '../definitions/sandbox.js';
+import { agentSettingsOf, claudeCodeSandboxOf, mayAsk, warningsOf } from './agent-settings.js';
 import { evaluateRequest } from './evaluate.js';
 import { compileRuleSet } from './rules.js';
 
@@ -69,6 +74,35 @@ export class ApprovalPolicy {
    */
   agentSettings(harness?: ApprovalHarness): PolicyAgentSettings {
     return agentSettingsOf(this.compiled, harness);
+  }
+
+  /**
+   * The settings of a Claude Code agent that the sandbox holds to the policy, once
+   * `installClaudeCodePolicies()` (`ai-sdk-harness-approval/sandbox`) installed it there under
+   * `name`: a hook decides each command and edit before Claude Code runs it, and nothing pauses
+   * the turn for an approval.
+   *
+   * ```ts
+   * const inSandbox = policy.claudeCodeSandbox('read-only');
+   * const harness = createClaudeCode({ ...inSandbox.harness });
+   * const agent = new HarnessAgent({ harness, model, ...inSandbox.agent });
+   * ```
+   *
+   * Only for a policy that never leaves a command or an edit to a person: nobody can be asked
+   * from the sandbox. Set `default`, and the rule sets' own, to `allow` or `deny`.
+   */
+  claudeCodeSandbox(name: string): ClaudeCodeSandboxSettings {
+    if (!POLICY_NAME.test(name)) {
+      throw new TypeError(
+        `A policy is named with letters, digits, "-" and "_", 64 at most: ${JSON.stringify(name)}.`,
+      );
+    }
+    if (mayAsk(this.compiled)) {
+      throw new TypeError(
+        'The sandbox cannot ask a person: the policy may ask about a command or an edit. Give it no ask rule, and a default of allow or deny.',
+      );
+    }
+    return claudeCodeSandboxOf(this.compiled, name, POLICY_ENV);
   }
 
   /** What the policy cannot hold `harness` to: rules it does not ask about. */

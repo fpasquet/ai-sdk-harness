@@ -10,10 +10,15 @@ export type {
   ToolRequest,
 } from './definitions/policy.js';
 export { APPROVAL_DECISIONS } from './definitions/policy.js';
+export { POLICY_ENV } from './definitions/sandbox.js';
 export type { ToolKind } from './definitions/tools.js';
 export type { ToolCallSummary } from './describe/describe-tool-call.js';
 export { describeToolCall } from './describe/describe-tool-call.js';
-export type { ApprovalHarness, PolicyAgentSettings } from './policy/agent-settings.js';
+export type {
+  ApprovalHarness,
+  ClaudeCodeSandboxSettings,
+  PolicyAgentSettings,
+} from './policy/agent-settings.js';
 export type { ApproverOptions, PendingApprovalRequest } from './policy/approval-policy.js';
 export { ApprovalPolicy, defineApprovalPolicy } from './policy/approval-policy.js';
 export type { GrantSuggestion } from './policy/grants.js';

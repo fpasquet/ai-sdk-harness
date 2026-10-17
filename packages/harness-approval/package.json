@@ -26,6 +26,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "import": "./dist/sandbox.js",
+      "default": "./dist/sandbox.js"
     }
   },
   "files": [
