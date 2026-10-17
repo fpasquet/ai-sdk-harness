@@ -244,3 +244,38 @@ describe('ApprovalPolicy.answer and approver', () => {
     });
   });
 });
+
+describe('ApprovalPolicy.claudeCodeSandbox', () => {
+  const readOnly = defineApprovalPolicy({
+    commands: { allow: ['ls', 'git log'] },
+    edits: { deny: ['**'] },
+    tools: { proposeDraft: 'ask', dropDatabase: 'deny' },
+    default: 'deny',
+  });
+
+  it('names the policy for the hook, and runs the agent with allow-all and its own tools', () => {
+    expect(readOnly.claudeCodeSandbox('read-only')).toEqual({
+      harness: { env: { AI_SDK_HARNESS_APPROVAL_POLICY: 'read-only' } },
+      agent: {
+        permissionMode: 'allow-all',
+        toolApproval: { proposeDraft: 'user-approval', dropDatabase: { type: 'denied' } },
+      },
+    });
+  });
+
+  it('refuses a policy that may ask about a command or an edit', () => {
+    expect(() => defineApprovalPolicy().claudeCodeSandbox('default')).toThrow(
+      /cannot ask a person/,
+    );
+    expect(() =>
+      defineApprovalPolicy({
+        commands: { ask: ['git commit'] },
+        default: 'deny',
+      }).claudeCodeSandbox('commits'),
+    ).toThrow(/cannot ask a person/);
+  });
+
+  it('refuses a name that could not be a variable or a file', () => {
+    expect(() => readOnly.claudeCodeSandbox('../etc/passwd')).toThrow(/letters, digits/);
+  });
+});

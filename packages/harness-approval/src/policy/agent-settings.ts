@@ -63,6 +63,37 @@ export function agentSettingsOf(
   return { permissionMode, toolApproval };
 }
 
+/** The settings of a Claude Code agent whose policy the sandbox holds it to. */
+export interface ClaudeCodeSandboxSettings {
+  /** For `createClaudeCode()`: names the policy, for the hook installed in the sandbox. */
+  harness: { env: Record<string, string> };
+  /**
+   * For the `HarnessAgent`: `allow-all`, the hook deciding every command and edit before it
+   * runs; your tools listed in the policy's `tools` still asked about, or denied.
+   */
+  agent: PolicyAgentSettings;
+}
+
+/** Whether the policy may leave a command or an edit to a person. */
+export function mayAsk(policy: CompiledPolicy): boolean {
+  return [policy.commands, policy.edits].some(
+    (set) => set.ask.length > 0 || set.fallback === 'ask',
+  );
+}
+
+/** The settings of a Claude Code agent held to the policy in its sandbox. */
+export function claudeCodeSandboxOf(
+  policy: CompiledPolicy,
+  name: string,
+  env: string,
+): ClaudeCodeSandboxSettings {
+  const { toolApproval } = agentSettingsOf(policy, undefined);
+  return {
+    harness: { env: { [env]: name } },
+    agent: { permissionMode: 'allow-all', toolApproval },
+  };
+}
+
 /** What the policy cannot hold the harness to. */
 export function warningsOf(policy: CompiledPolicy, harness: ApprovalHarness | undefined): string[] {
   if (supportsApprovals(harness) || harness === undefined) return [];
