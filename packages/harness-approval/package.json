@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-harness-approval",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Human in the loop for AI SDK harness agents: an approval policy for Claude Code, Codex and friends — commands and edits allowed, asked or denied by rule, \"always allow\" for a session, and the agent's questions answered.",
   "keywords": [
     "ai",
