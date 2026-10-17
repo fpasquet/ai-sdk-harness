@@ -135,7 +135,7 @@ export async function POST(request: Request) {
 
 The turn is read to its end on your server as well: a user who closes the tab does not leave the session hanging, and the session is written either way. `abortSignal: request.signal` lets the stop button of `useChat` cut the turn short; leave it out for turns that go on without the client. `interrupt(id)` cuts a turn short from anywhere.
 
-A turn cut short — by `interrupt(id)`, `turnTimeoutMs` or the caller's `abortSignal` — starts its harness session again, in the same sandbox, before the session takes another message. A runtime goes on with a turn for a moment after it is told to stop, and its harness session would hand what it still says to the next turn: that turn would end at once, its answer lost. The conversation goes on where it stopped; starting again takes a few seconds. A harness session that cannot start again leaves the session `suspended`, resumed by the next message.
+A turn cut short — by `interrupt(id)`, `turnTimeoutMs` or the caller's `abortSignal` — starts its harness session again, in the same sandbox, before the session takes another message. A runtime goes on with a turn for a moment after it is told to stop, and its harness session would hand what it still says to the next turn: that turn would end at once, its answer lost ([vercel/ai#23507](https://github.com/vercel/ai/issues/23507)). The conversation goes on where it stopped; starting again takes a few seconds. A harness session that cannot start again leaves the session `suspended`, resumed by the next message.
 
 ### Showing the conversations again
 
