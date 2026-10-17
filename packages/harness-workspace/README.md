@@ -188,6 +188,28 @@ const api = session?.repository('api');
 await api?.changes();
 ```
 
+### Repositories chosen per session
+
+When sessions work on different repositories — each user on a project of their own, say — give `repositories` as a function of the session: one workspace, one session manager and one store then serve every project. It is called each time a session starts, resumes or is closed, before anything runs in its sandbox, and may look the repositories up in your database:
+
+```ts
+const workspace = createWorkspace({
+  repositories: async ({ sessionId }) => {
+    const project = await db.projectOfSession(sessionId);
+    return Object.fromEntries(
+      project.repositories.map(({ alias, url }) => [alias, gitRepository({ url, credentials })]),
+    );
+  },
+});
+
+const sessions = createSessionManager({
+  agent: ({ metadata }) => agentOf(metadata.projectId),
+  sandboxes: workspace.sandboxes(sandboxPerSession({ create, resume })),
+});
+```
+
+The repositories a function gives are checked as fixed ones are, when the session starts: a session whose repositories cannot be checked out side by side, or whose function throws, does not start. Give sessions on different repositories a sandbox each (`sandboxPerSession()`): in a shared sandbox, two sources of the same `name` would be kept in the same bare repository.
+
 ### Reading what the agent changed
 
 `workspace.session(id)` is the checkout of a live session — `undefined` once it is suspended or closed:
@@ -273,13 +295,13 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 
 ## Reference
 
-| Export                               | What it does                                                                                                                |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `createWorkspace(options)`           | A workspace: `source` and `repositoryPath`, or `repositories`; `setup`, `setupEnv`, `setupTimeoutMs`, `branch`, `committer` |
-| `withWorkspace(settings, workspace)` | The settings of a `HarnessAgent`, with the `onSession` that checks the workspace out                                        |
-| `gitRepository(options)`             | A source served by a Git server: `url`, `ref`, `depth`, `credentials`, `name`                                               |
-| `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                         |
-| `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                      |
+| Export                               | What it does                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createWorkspace(options)`           | A workspace: `source` and `repositoryPath`, or `repositories`, fixed or per session; `setup`, `setupEnv`, `setupTimeoutMs`, `branch`, `committer` |
+| `withWorkspace(settings, workspace)` | The settings of a `HarnessAgent`, with the `onSession` that checks the workspace out                                                              |
+| `gitRepository(options)`             | A source served by a Git server: `url`, `ref`, `depth`, `credentials`, `name`                                                                     |
+| `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
+| `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
 A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles()`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
 

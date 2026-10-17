@@ -57,11 +57,28 @@ export interface SingleRepositoryWorkspaceOptions extends WorkspaceCommonOptions
  * session's working directory named after its key: `{ api: …, 'services/billing': … }`.
  */
 export interface MultiRepositoryWorkspaceOptions extends WorkspaceCommonOptions {
-  /** Each repository by the directory it is checked out in: its source, or its settings. */
-  repositories: Record<string, WorkspaceRepositoryOptions | WorkspaceSource>;
+  /**
+   * Each repository by the directory it is checked out in: its source, or its settings. A function
+   * gives them per session, when sessions work on different repositories — a project each, say —
+   * so that one workspace, and one session manager, serves them all: it is called once each time a
+   * session starts, resumes or is closed, before anything runs in its sandbox.
+   */
+  repositories: WorkspaceRepositories | WorkspaceRepositoriesOf;
   source?: never;
   repositoryPath?: never;
 }
+
+/** Repositories of a workspace, by the directory each is checked out in. */
+export type WorkspaceRepositories = Record<string, WorkspaceRepositoryOptions | WorkspaceSource>;
+
+/**
+ * The repositories of session `sessionId`: from what your application keeps with it, a project
+ * looked up in your database for instance.
+ */
+export type WorkspaceRepositoriesOf = (session: {
+  sessionId: string;
+  abortSignal?: AbortSignal;
+}) => PromiseLike<WorkspaceRepositories> | WorkspaceRepositories;
 
 /** One of the {@link MultiRepositoryWorkspaceOptions.repositories}. */
 export interface WorkspaceRepositoryOptions {
