@@ -80,6 +80,12 @@ A hook at work in the [Next.js example](/docs/examples/next-chat): written in JS
 
 ![Two conversations of the Next.js example working at once in one Docker Sandbox](/screenshots/next-chat/sessions.png)
 
+## Workspaces
+
+[`ai-sdk-harness-workspace`](/docs/packages/harness-workspace) (Preview, 0.x) puts your repository in the sandbox: each session works in a checkout of its own, a Git worktree on a branch of its own, so several agents work side by side on one repository, and what each one changed comes back as a patch your server applies. The code comes from a Git server, its token brokered rather than handed to the sandbox, from your server as Git bundles, or from the sandbox itself.
+
+![A conversation of the Next.js example on a repository: the files its agent changed, and the patch](/screenshots/next-chat/workspace.png)
+
 ## Approvals
 
 [`ai-sdk-harness-approval`](/docs/packages/harness-approval) (Preview, 0.x) keeps a person in the loop, the same way for every harness: an approval policy allows the agent's commands and edits you trust, refuses those you forbid with a reason the agent reads, and leaves the rest to the user, who can allow them for the rest of the conversation. With [`ai-sdk-harness-sessions`](/docs/packages/harness-sessions), the policy answers within the turn. Its [components](/docs/ui-components), `ToolApproval` and `QuestionsForm`, install from this site's shadcn registry.

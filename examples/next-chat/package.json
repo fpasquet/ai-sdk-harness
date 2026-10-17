@@ -36,6 +36,7 @@
     "ai-sdk-harness-approval": "workspace:*",
     "ai-sdk-harness-plugins": "workspace:*",
     "ai-sdk-harness-sessions": "workspace:*",
+    "ai-sdk-harness-workspace": "workspace:*",
     "ai-sdk-sandbox-cloud-run": "workspace:*",
     "ai-sdk-sandbox-microsandbox": "workspace:*",
     "ai-sdk-sandbox-runtime": "workspace:*",

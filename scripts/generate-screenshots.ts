@@ -18,7 +18,9 @@
  *   SKIP_APP    an instance already serves $EXAMPLE_URL (no boot, no teardown)
  *
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
- * among them takes the screenshots of the sessions too, `approvals` those of the approvals.
+ * among them takes the screenshots of the sessions too, `approvals` those of the approvals, and
+ * `workspace` that of the workspace: the example then works on a repository of its own
+ * (`EXAMPLE_REPOSITORY`), which the other screenshots do without.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
  * CODEX_PROMPT. The conversations run in a throwaway sandbox, removed at the end; the template
@@ -27,9 +29,9 @@
 import type { Browser, Page } from 'playwright-core';
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 
 const REPO_ROOT = process.cwd();
@@ -104,6 +106,33 @@ const USE_CASES = [
   },
 ] as const;
 
+/** The use cases `USE_CASES` names, every one when it is unset. */
+const ONLY = process.env.USE_CASES?.split(',').map((name) => name.trim());
+
+/** A small repository of this machine, for the conversations to work on, with `workspace`. */
+function createWorkspaceRepository(): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'ai-sdk-harness-repository-')), 'widgets');
+  mkdirSync(path);
+  writeFileSync(join(path, 'README.md'), '# Widgets\n\nA tiny library of math helpers.\n');
+  writeFileSync(join(path, 'math.js'), 'export function add(a, b) {\n  return a + b;\n}\n');
+  const git = (...args: string[]) =>
+    run('git', [
+      '-C',
+      path,
+      '-c',
+      'user.name=Widgets',
+      '-c',
+      'user.email=widgets@example.com',
+      ...args,
+    ]);
+  git('init', '--quiet', '--initial-branch=main');
+  git('add', '.');
+  git('commit', '--quiet', '-m', 'First commit');
+  return path;
+}
+
+const REPOSITORY = ONLY?.includes('workspace') ? createWorkspaceRepository() : undefined;
+
 /** A first turn installs Claude Code in the sandbox when no template image exists yet. */
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -118,7 +147,12 @@ function run(command: string, args: string[]): void {
 function startExample(): ChildProcess {
   return spawn('pnpm', ['--filter', 'example-next-chat', 'start'], {
     detached: true,
-    env: { ...process.env, EXAMPLE_SANDBOX_ID: SANDBOX_ID, EXAMPLE_SESSIONS_DIR: SESSIONS_DIR },
+    env: {
+      ...process.env,
+      EXAMPLE_SANDBOX_ID: SANDBOX_ID,
+      EXAMPLE_SESSIONS_DIR: SESSIONS_DIR,
+      ...(REPOSITORY !== undefined && { EXAMPLE_REPOSITORY: REPOSITORY }),
+    },
     stdio: 'inherit',
   });
 }
@@ -191,9 +225,6 @@ async function openToolCall(page: Page, name: RegExp): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-/** The use cases `USE_CASES` names, every one when it is unset. */
-const ONLY = process.env.USE_CASES?.split(',').map((name) => name.trim());
-
 /** Each use case of the plugins, in a new conversation with Claude Code. */
 async function captureUseCases(page: Page): Promise<void> {
   for (const { name, prompt, tool } of USE_CASES) {
@@ -262,6 +293,17 @@ async function captureSessions(page: Page): Promise<void> {
   await page.waitForTimeout(1000);
   await converse(page, 'Which numbers did primes.js print? Answer from memory, in one line.');
   await capture(page, 'resumed');
+}
+
+/** The workspace: what the agent changed in its checkout of the repository, the patch open. */
+async function captureWorkspace(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await converse(
+    page,
+    'In math.js, add a subtract(a, b) function below add, write math.test.js that checks both with node:assert, and run it with node. Do not commit. Answer in one sentence.',
+  );
+  await page.getByText(/files? changed/).click();
+  await capture(page, 'workspace');
 }
 
 /** Starts a new conversation with Claude Code, under the approval policy of the example. */
@@ -357,6 +399,7 @@ async function shootPage(page: Page): Promise<void> {
       await captureSessions(page);
     }
     if (ONLY.includes('approvals')) await captureApprovals(page);
+    if (ONLY.includes('workspace')) await captureWorkspace(page);
     return;
   }
   await capture(page, 'empty');
@@ -389,6 +432,7 @@ async function main(): Promise<void> {
     if (app?.pid !== undefined) process.kill(-app.pid, 'SIGTERM');
     if (app) spawnSync('sbx', ['rm', '--force', SANDBOX_ID], { stdio: 'inherit' });
     rmSync(SESSIONS_DIR, { recursive: true, force: true });
+    if (REPOSITORY !== undefined) rmSync(dirname(REPOSITORY), { recursive: true, force: true });
   }
 }
 

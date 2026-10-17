@@ -1,0 +1,93 @@
+---
+title: ai-sdk-harness-workspace
+description: The options of a workspace and of its sources, the shape of a session's checkouts, generated from the source.
+---
+
+## `createWorkspace(options)`
+
+Returns a `Workspace`: the repository of `source` checked out for each session, in its working directory.
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="SingleRepositoryWorkspaceOptions"
+/>
+
+Or several repositories, each checked out in a directory of the session's working directory named after its key.
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="MultiRepositoryWorkspaceOptions"
+/>
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="WorkspaceRepositoryOptions"
+/>
+
+### `Workspace`
+
+<AutoTypeTable path="packages/harness-workspace/src/definitions/workspace.ts" name="Workspace" />
+
+### `WorkspaceSession`
+
+The checkouts of a live session: `workspace.session(id)`, or `workspace.fromSandbox(sandbox)` in a tool. With one repository, it has its `base` as well (`SingleRepositoryWorkspaceSession`).
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="WorkspaceSession"
+/>
+
+### `WorkspaceCheckout`
+
+The checkout of one repository: `session.repository(name)`, or one of `session.repositories`.
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="WorkspaceCheckout"
+/>
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/workspace.ts"
+  name="WorkspaceRunOptions"
+/>
+
+<AutoTypeTable path="packages/harness-workspace/src/definitions/workspace.ts" name="ChangedFile" />
+
+## Sources
+
+### `gitRepository(options)`
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/sources/git-repository.ts"
+  name="GitRepositoryOptions"
+/>
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/sources/git-repository.ts"
+  name="GitCredentials"
+/>
+
+### `hostRepository(options)`
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/sources/host-repository.ts"
+  name="HostRepositoryOptions"
+/>
+
+### `sandboxRepository(options)`
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/sources/sandbox-repository.ts"
+  name="SandboxRepositoryOptions"
+/>
+
+### `WorkspaceSource`
+
+Write one for another origin of the code.
+
+<AutoTypeTable path="packages/harness-workspace/src/definitions/source.ts" name="WorkspaceSource" />
+
+<AutoTypeTable
+  path="packages/harness-workspace/src/definitions/source.ts"
+  name="SourceFetchContext"
+/>

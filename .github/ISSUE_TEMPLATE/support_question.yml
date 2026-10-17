@@ -13,6 +13,7 @@ body:
         - 'ai-sdk-sandbox-runtime'
         - 'ai-sdk-harness-plugins'
         - 'ai-sdk-harness-sessions'
+        - 'ai-sdk-harness-workspace'
         - 'ai-sdk-harness-approval'
         - 'example-next-chat'
         - 'Documentation'

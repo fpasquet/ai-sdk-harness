@@ -55,6 +55,11 @@
       - any-glob-to-any-file:
           - 'packages/harness-sessions/**'
 
+'package: harness-workspace':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/harness-workspace/**'
+
 'package: harness-approval':
   - changed-files:
       - any-glob-to-any-file:

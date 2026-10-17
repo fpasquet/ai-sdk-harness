@@ -12,6 +12,7 @@ Open-source monorepo of community packages for the Vercel AI SDK harnesses (`@ai
 | `ai-sdk-sandbox-runtime`      | `packages/sandbox-runtime`      | An Anthropic Sandbox Runtime (srt) sandbox session for `HarnessAgent`, on this host             |
 | `ai-sdk-harness-plugins`      | `packages/harness-plugins`      | Plugins for `HarnessAgent`: tools, skills, commands, hooks, subagents, MCP servers              |
 | `ai-sdk-harness-sessions`     | `packages/harness-sessions`     | The lifecycle of `HarnessAgent` sessions: suspended when idle, resumed, several in one sandbox  |
+| `ai-sdk-harness-workspace`    | `packages/harness-workspace`    | A Git checkout for each `HarnessAgent` session, a worktree in its sandbox, its changes a patch  |
 | `ai-sdk-harness-approval`     | `packages/harness-approval`     | An approval policy for `HarnessAgent` tool calls, grants for a session, the agent's questions   |
 
 Constraints:
@@ -102,6 +103,15 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - The folders are layered: `utils/` and `definitions/` (types and constants) are leaves, then `errors/` ← `store/`, `sandboxes/` and `turns/`, beside each other ← `manager/` (`eslint.config.mjs`).
 - Unit tests drive the manager with `test/fakes.ts`: an agent whose turns follow a script, built on `createUIMessageStream`, and sandboxes that record what they are asked. `test/*.e2e-spec.ts` run real Claude Code sessions in a Docker Sandbox and are not part of CI. The `examples/next-chat` screenshots `sessions`, `approval` and `resumed` show the package at work in its README.
 
+### `ai-sdk-harness-workspace`
+
+- A workspace (`createWorkspace()`, `src/workspace/`) ties a repository to the sessions of any `HarnessAgent` in two places, and never wraps the agent: `workspace.sandboxes()` wraps a `SessionSandboxes` of `ai-sdk-harness-sessions` (or `open()` a sandbox of yours) to know each session's sandbox, and `withWorkspace()` sets `sandboxConfig.onSession`, which checks the repository out in the `sessionWorkDir` the harness just made. The view of the sandbox a lease hands out is a `Proxy` of it whose `restricted()` views are recorded (`bySandbox`): that is how `onSession`, which only gets a restricted view, and a tool's `experimental_sandbox` find their session. The types of `ai-sdk-harness-sessions` are restated structurally (`src/definitions/workspace.ts`): it is a dev dependency only.
+- In the sandbox: one bare repository per source name and sandbox (`$HOME/.ai-sdk-harness/repositories/<name>.git`, outside the sessions' working directories, where an agent climbing out of its checkout would find it), a worktree per session on `session/<id>`, and the commit it started from at `refs/ai-sdk-harness/base/<key>`. Everything derives from the session id, so a resume needs nothing stored. A source (`src/sources/`) only points `refs/ai-sdk-harness/fetched/<key>` at a commit; the checkout takes it from there.
+- Everything run in the sandbox goes through `src/git/`: one `sh -c` script per step, its inputs as positional arguments, after a prelude that turns off the repository's hooks and file-system monitor (an agent may have written them). `changes()` stages on a copy of the worktree's index, never the agent's, and spells the patch's prefixes out.
+- Credentials: `gitRepository()` never puts a token in the sandbox. It registers it with `addRequestTransformations` (a fresh placeholder per fetch, matched on host, path and the exact `Authorization` value, which every sandbox package swaps) and gives git the placeholder through `GIT_CONFIG_*` variables of the fetch alone; a sandbox without brokering is refused. `hostRepository()` sends Git bundles built on the host, leaving out the commits the sandbox already has.
+- The folders are layered: `errors/`, `utils/` and `definitions/` are leaves, then `git/` ← `sources/` ← `workspace/` (`eslint.config.mjs`).
+- Unit tests run real git against `test/host-sandbox.ts`, a stand-in sandbox on a temporary directory of the host whose `home/` is its user's home, isolated from this host's git configuration. `test/*.e2e-spec.ts` run real Claude Code sessions in a Docker Sandbox — two on one repository, a resume, a read-only mount, and a GitHub fetch with a brokered token (`GITHUB_TOKEN` or the `gh` login) — and are not part of CI. Behaviour of `sbx` 0.46 checked there: `readOnlyWorkspaces` needs a read-write `workspace` beside it.
+
 ### `ai-sdk-harness-approval`
 
 - Isomorphic: it runs in the browser too, where the components of the registry use its helpers. No `node:` import in `src/` (`eslint.config.mjs`), and nothing at runtime from `@ai-sdk/harness`: its types only.
@@ -159,6 +169,7 @@ Add when the change touches the matching area:
 
 - `pnpm --filter ai-sdk-harness-plugins test:e2e` when changing how plugins reach a runtime (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code and Codex).
 - `pnpm --filter ai-sdk-harness-sessions test:e2e` when changing how sessions start, suspend or resume (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code).
+- `pnpm --filter ai-sdk-harness-workspace test:e2e` when changing what the workspace runs in the sandbox or how a source fetches (needs Docker Sandboxes and a credential, or the CLI login, of Claude Code; `GITHUB_TOKEN` or the `gh` login for the brokered fetch).
 - `pnpm --filter ai-sdk-harness-approval test:e2e` when changing how a policy reads a call or answers it within a turn (same needs).
 - `pnpm --filter ai-sdk-sandbox-sbx test:e2e` when changing how the package drives `sbx` (needs Docker Sandboxes on the machine; `SBX_E2E_CLOUD=1` adds the cloud mode).
 - `pnpm --filter ai-sdk-sandbox-microsandbox test:e2e` when changing how the package drives the `microsandbox` SDK (needs KVM or Apple Silicon, and a runtime of the SDK's version: an `msb` installed in `~/.microsandbox` wins over the bundled one; otherwise point `MSB_HOME` at another, short, directory).

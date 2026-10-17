@@ -471,6 +471,23 @@ await sessions.create({ id, metadata: { title: 'Fix the tests' } });
 const turn = await sessions.send(id, { message, abortSignal: request.signal });
 return turn.toUIMessageStreamResponse();`;
 
+const USAGE_WORKSPACE = `import { createWorkspace, gitRepository, withWorkspace } from 'ai-sdk-harness-workspace';
+
+const workspace = createWorkspace({
+  source: gitRepository({ url: 'https://github.com/acme/widgets.git' }),
+  setup: ['pnpm install --frozen-lockfile'],
+});
+
+// Each session gets a checkout of its own, a worktree, before the agent starts.
+const agent = new HarnessAgent(withWorkspace({ harness, model }, workspace));
+const sessions = createSessionManager({
+  agent: () => agent,
+  sandboxes: workspace.sandboxes(sharedSandbox({ open: openSandbox, ports })),
+});
+
+// What the agent of a session changed, as a patch git applies.
+const patch = await workspace.session(id)?.changes();`;
+
 const USAGE_APPROVAL = `import { defineApprovalPolicy } from 'ai-sdk-harness-approval';
 
 const policy = defineApprovalPolicy({
@@ -601,6 +618,7 @@ export default function LandingPage() {
               'srt',
               'Plugins',
               'Sessions',
+              'Workspace',
               'Approvals',
             ]}
           >
@@ -621,6 +639,9 @@ export default function LandingPage() {
             </Tab>
             <Tab value="Sessions">
               <DynamicCodeBlock code={USAGE_SESSIONS} lang="ts" />
+            </Tab>
+            <Tab value="Workspace">
+              <DynamicCodeBlock code={USAGE_WORKSPACE} lang="ts" />
             </Tab>
             <Tab value="Approvals">
               <DynamicCodeBlock code={USAGE_APPROVAL} lang="ts" />
