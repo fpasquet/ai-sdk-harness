@@ -47,6 +47,7 @@ return turn.toUIMessageStreamResponse();
 | Every sandbox slot is taken            | Suspends the session idle the longest to make room                                                                   |
 | Your server stops (`shutdown()`)       | Cuts the turns under way short, and suspends every session: the next start resumes them on their next message        |
 | Your server crashes                    | Marks the sessions it held `interrupted` at the next start: their conversation can still be read                     |
+| Your server runs on several instances  | With a store that gives leases, each instance runs the sessions it holds, and takes over those of one that crashed   |
 | You want the conversation again        | `get(id)` gives it as `useChat` shows it, `list()` every session, `subscribe()` every change, for a list to follow   |
 
 ## Installation
@@ -368,7 +369,51 @@ const store: SessionStore<Metadata> = {
 
 A resume state holds secrets: the token of the harness bridge, the placeholders of the credentials. Keep it apart from what you show, as you would a session token. The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions in JSON files (`lib/session-store.ts`).
 
-Keep one manager per store: at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
+Keep one manager per store, unless the store gives leases (below): at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
+
+### Several instances
+
+An application that runs on several instances — behind a load balancer, scaled out, or a new version deployed beside the old one — shares one store between their managers. The store tells them apart with leases: three more methods, on the same database, and the managers share it.
+
+- Each manager holds the sessions it runs, and renews its own lease three times within `leaseTtlMs` (30 seconds by default).
+- A request for a session another manager runs fails with `SessionOwnedElsewhereError`, which names it (`owner`, its `managerId`): send the request there, or answer 409 and let the client try again. Reading a session, `get()` and `list()`, works from any instance.
+- A suspended session is held by nobody: the next message resumes it on whichever instance receives it.
+- A manager that crashed stops renewing its lease. Once it expired, the others mark its live sessions `interrupted`, within a lease or so, and so does any manager that starts.
+
+```ts
+const store: SessionStore<Metadata> = {
+  // …the five methods above, and:
+  claimSession: async (id, owner) => {
+    // One statement, so that two managers never both win: take the session unless a manager
+    // whose lease has not expired holds it.
+    const row = await db.query(
+      `INSERT INTO session_owners (session_id, owner) VALUES ($1, $2)
+       ON CONFLICT (session_id) DO UPDATE SET owner = $2
+         WHERE session_owners.owner = $2
+            OR NOT EXISTS (SELECT 1 FROM manager_leases l
+                           WHERE l.owner = session_owners.owner AND l.expires_at > now())
+       RETURNING (SELECT owner FROM session_owners WHERE session_id = $1) AS previous_owner`,
+      [id, owner],
+    );
+    if (row) return { claimed: true, previousOwner: row.previous_owner };
+    const { owner: holder } = await db.query(
+      'SELECT owner FROM session_owners WHERE session_id = $1',
+      [id],
+    );
+    return { claimed: false, owner: holder };
+  },
+  renewLease: (owner, ttlMs) =>
+    db.query(
+      `INSERT INTO manager_leases (owner, expires_at) VALUES ($1, now() + $2 * interval '1 ms')
+       ON CONFLICT (owner) DO UPDATE SET expires_at = excluded.expires_at`,
+      [owner, ttlMs],
+    ),
+  releaseSession: (id, owner) =>
+    db.query('DELETE FROM session_owners WHERE session_id = $1 AND owner = $2', [id, owner]),
+};
+```
+
+The lease's expiry is read on the database's clock, the one clock all instances share. `delete()` forgets who holds the session too. Give each manager a `managerId` you can route by — the instance's address, a pod name — to send a request to the instance that runs the session; never two running managers the same.
 
 ## Reference
 
@@ -378,7 +423,9 @@ Keep one manager per store: at its start, a manager takes the sessions the store
 | ----------------------- | ------------------------ | --------------------------------------------------------------------------------------------------- |
 | `agent`                 | required                 | The agent of a session, from `{ id, metadata }`: called at each start and resume                    |
 | `sandboxes`             | required                 | `sharedSandbox()`, `sandboxPerSession()` or your own `SessionSandboxes`                             |
-| `store`                 | in memory                | Where sessions are kept: a `SessionStore`                                                           |
+| `store`                 | in memory                | Where sessions are kept: a `SessionStore`, shared by several managers when it gives leases          |
+| `managerId`             | `crypto.randomUUID()`    | This manager among those sharing the store, named by `SessionOwnedElsewhereError`                   |
+| `leaseTtlMs`            | 30 seconds               | How long this manager holds its sessions without renewing its lease, with a store that gives leases |
 | `idleTimeoutMs`         | never                    | Suspend a session idle, or awaiting input, for this long                                            |
 | `closeSuspendedAfterMs` | never                    | Close a session suspended for this long                                                             |
 | `turnTimeoutMs`         | never                    | Cut a turn short after this long                                                                    |
@@ -410,11 +457,12 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 
 - `SessionNotFoundError` (404): no session has this id. Carries `sessionId`.
 - `SessionConflictError` (409): the session cannot do it in its status — a message while `busy` or `awaiting-input`, `continue()` with nothing to answer, anything once `closed` or `interrupted`. Carries `sessionId` and `status`.
+- `SessionOwnedElsewhereError` (409, or a redirect): another manager sharing the store runs the session. A `SessionConflictError` as well; carries `owner`, that manager's `managerId`.
 - `SessionCapacityError` (503): every sandbox slot is taken by a session that is not idle. Carries `capacity`.
 
 ## Limitations
 
-- **One process per store.** The live sessions are held in the memory of one process: run the manager on one instance, or give each instance its own sessions.
+- **One process per store, unless it gives leases.** Without `claimSession`, `renewLease` and `releaseSession`, the live sessions are held in the memory of one process: run the manager on one instance. With them, a turn under way is still read from the instance that runs it: a client whose request reaches another one gets `SessionOwnedElsewhereError`. And a manager stalled for longer than its lease — a process frozen, not crashed — may find its sessions taken over by another one when it wakes up.
 - **A turn does not survive a crash.** A session the process held when it crashed is `interrupted`; a clean `shutdown()` suspends it instead. Streams that reconnect after a page reload are not supported yet: a reload cuts the turn its request carried when it passed `abortSignal: request.signal`.
 - **Approvals after a resume, with Claude Code.** A resumed Claude Code session (`@ai-sdk/harness-claude-code` up to 1.0.152) sends "Continue." in place of the answers to the approvals it asks afterwards: the tool call is rejected, and asked again ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)). Approvals work in a session until it is suspended; a session that resumed asks again and again. A turn that was waiting for an approval when its session was suspended resumes without it: `continue()` tells the agent the answers in a message.
 - **No approvals of Codex's own tools.** `@ai-sdk/harness-codex` (up to 1.0.150) runs Codex with approvals turned off and refuses any `permissionMode` but `'allow-all'`, though Codex itself can ask before a command or a patch ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). Your own tools can still ask, through `toolApproval`.

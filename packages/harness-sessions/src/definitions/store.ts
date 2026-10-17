@@ -26,6 +26,40 @@ export interface SessionStore<METADATA = unknown> {
   list(): Promise<SessionSummary<METADATA>[]>;
   /** What a suspended session needs to resume. */
   getResumeState(id: string): Promise<HarnessAgentResumeSessionState | undefined>;
-  /** Forgets the session and its resume state. */
+  /** Forgets the session and its resume state, and who holds it. */
   delete(id: string): Promise<void>;
+  /**
+   * Optional, with `renewLease` and `releaseSession`: lets several managers share the store — the
+   * instances of an application behind a load balancer, or a new version deployed beside the old
+   * one. A manager holds each session it runs, and keeps its lease alive while it runs: another
+   * manager leaves its sessions alone, and takes them over once its lease expired.
+   *
+   * Makes `owner` hold the session `id`, in one atomic step (a compare-and-set on a database row),
+   * unless another manager whose lease has not expired holds it. The session need not be saved
+   * yet: `create()` takes it before writing it.
+   */
+  claimSession?(id: string, owner: string): Promise<SessionClaim>;
+  /**
+   * Keeps the lease of the manager `owner` alive for `ttlMs` milliseconds from now, by the store's
+   * clock: what decides whether the sessions it holds may be taken over.
+   */
+  renewLease?(owner: string, ttlMs: number): Promise<void>;
+  /** Lets go of the session `id`, when `owner` holds it. */
+  releaseSession?(id: string, owner: string): Promise<void>;
 }
+
+/** What `claimSession` made of a claim. */
+export type SessionClaim =
+  | {
+      claimed: false;
+      /** The manager that holds the session, its lease alive. */
+      owner: string;
+    }
+  | {
+      claimed: true;
+      /**
+       * Who held the session before: `null` when nobody did, the claiming manager itself when it
+       * held it already, or a manager whose lease expired.
+       */
+      previousOwner: null | string;
+    };

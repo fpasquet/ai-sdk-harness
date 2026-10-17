@@ -14,8 +14,25 @@ export interface SessionManagerOptions<METADATA> {
   agent: (session: { id: string; metadata: METADATA }) => Promise<SessionAgent> | SessionAgent;
   /** How sessions get a sandbox: `sharedSandbox()`, `sandboxPerSession()`, or your own. */
   sandboxes: SessionSandboxes;
-  /** Where sessions are kept. Default: in memory, `createMemorySessionStore()`. */
+  /**
+   * Where sessions are kept. Default: in memory, `createMemorySessionStore()`. A store that gives
+   * leases (`claimSession`, `renewLease`, `releaseSession`) is shared by several managers: the
+   * instances of an application.
+   */
   store?: SessionStore<METADATA>;
+  /**
+   * This manager, among those sharing the store: what `SessionOwnedElsewhereError.owner` names,
+   * to send a request to the instance that runs the session. Default: `crypto.randomUUID()`. Give
+   * an id of your own — the instance's address — to route by it; never two running managers the
+   * same.
+   */
+  managerId?: string;
+  /**
+   * How long this manager's hold on its sessions lasts without renewal, in milliseconds, with a
+   * store that gives leases: renewed three times within it, and what another manager waits, after
+   * a crash, before taking its sessions over. Default: 30 seconds.
+   */
+  leaseTtlMs?: number;
   /**
    * Suspend a session idle, or awaiting input, for this long, in milliseconds: its harness session
    * stops, its state is kept and its sandbox freed. The next message brings it back. Default:
@@ -106,6 +123,8 @@ export type SessionEvent<METADATA = unknown> =
  * message to the last, across suspensions and restarts. See {@link createSessionManager}.
  */
 export interface SessionManager<METADATA = unknown> {
+  /** This manager, among those sharing the store. */
+  readonly managerId: string;
   /**
    * Opens a session and returns at once, `preparing`: its sandbox and its harness session are
    * opened in the background — minutes the very first time, when the harness is installed in the

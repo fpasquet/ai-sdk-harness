@@ -30,6 +30,7 @@ import type { LiveSession, ReadySession } from './live-session.js';
 import { SessionCapacityError } from '../errors/session-capacity-error.js';
 import { SessionConflictError } from '../errors/session-conflict-error.js';
 import { SessionNotFoundError } from '../errors/session-not-found-error.js';
+import { SessionOwnedElsewhereError } from '../errors/session-owned-elsewhere-error.js';
 import { createMemorySessionStore } from '../store/memory-session-store.js';
 import {
   decidedChunks,
@@ -54,6 +55,7 @@ import {
   textOf,
 } from './live-session.js';
 import { SessionJournal } from './session-journal.js';
+import { SessionLeases } from './session-leases.js';
 
 const INTERRUPTED_BY_CRASH = 'The application stopped without suspending the session.';
 const CUT_BY_SHUTDOWN = 'The turn was cut short: the application stopped. Send the message again.';
@@ -62,6 +64,8 @@ const NOT_STOPPED = 'The harness session could not be stopped cleanly.';
 const NOTHING_TO_RESUME = 'Nothing was kept to resume the session from.';
 /** How long a shutdown waits for a turn it cut short to wind down. */
 const WIND_DOWN_MS = 10_000;
+/** How long a manager's lease on its sessions lasts, unless renewed. */
+const LEASE_TTL_MS = 30_000;
 /** How many approvals `approve` answers in one turn, at most, before leaving them to a person. */
 const MAX_ANSWERED_PER_TURN = 200;
 
@@ -131,8 +135,18 @@ interface TransitionOptions {
 
 /** The options with their defaults. */
 type Settings<METADATA> = Required<
-  Omit<SessionManagerOptions<METADATA>, 'agent' | 'approve' | 'sandboxes' | 'store'>
+  Omit<
+    SessionManagerOptions<METADATA>,
+    'agent' | 'approve' | 'leaseTtlMs' | 'managerId' | 'sandboxes' | 'store'
+  >
 >;
+
+/** A session kept in the store, held by this manager until `release()`. */
+interface HeldSession<METADATA> {
+  record: SessionRecord<METADATA>;
+  /** Lets go of it, unless this manager held it before: a session of its own on its way out. */
+  release: () => Promise<void>;
+}
 
 const defaultReport = (
   error: unknown,
@@ -140,6 +154,18 @@ const defaultReport = (
 ) =>
   // eslint-disable-next-line no-console -- the default, until the application passes onError
   console.error(`ai-sdk-harness-sessions: ${action}${sessionId ? ` ${sessionId}` : ''}:`, error);
+
+function settingsOf<METADATA>(options: SessionManagerOptions<METADATA>): Settings<METADATA> {
+  return {
+    idleTimeoutMs: options.idleTimeoutMs ?? 0,
+    closeSuspendedAfterMs: options.closeSuspendedAfterMs ?? 0,
+    turnTimeoutMs: options.turnTimeoutMs ?? 0,
+    suspendIdleWhenFull: options.suspendIdleWhenFull ?? true,
+    generateId: options.generateId ?? randomUUID,
+    errorMessage: options.errorMessage ?? getHarnessErrorMessage,
+    onError: options.onError ?? defaultReport,
+  };
+}
 
 /**
  * Manages the sessions of an application with its coding agents, `HarnessAgent`s of any harness:
@@ -154,8 +180,10 @@ const defaultReport = (
  *    a session the process left live without it is `interrupted` at the next start.
  * 6. `close()` ends a session for good.
  *
- * Every change is written to the store and sent to the subscribers. Keep one manager per store:
- * a second one would take the sessions of the first for those of a crashed process.
+ * Every change is written to the store and sent to the subscribers. Several managers share a store
+ * that gives them leases (`claimSession`, `renewLease`, `releaseSession`): each runs the sessions it
+ * holds. Without them, keep one manager per store: a second one would take the sessions of the
+ * first for those of a crashed process.
  */
 export function createSessionManager<METADATA = unknown>(
   options: SessionManagerOptions<METADATA>,
@@ -164,9 +192,14 @@ export function createSessionManager<METADATA = unknown>(
 }
 
 class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
+  get managerId(): string {
+    return this.leases.owner;
+  }
+
   private readonly store: SessionStore<METADATA>;
   private readonly settings: Settings<METADATA>;
   private readonly journal: SessionJournal<METADATA>;
+  private readonly leases: SessionLeases;
   private readonly live = new Map<string, LiveSession<METADATA>>();
   /** Starts run one at a time: the first one installs the harness in the sandbox. */
   private starting: Promise<unknown> = Promise.resolve();
@@ -176,17 +209,18 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
 
   constructor(private readonly options: SessionManagerOptions<METADATA>) {
     this.store = options.store ?? createMemorySessionStore<METADATA>();
-    this.settings = {
-      idleTimeoutMs: options.idleTimeoutMs ?? 0,
-      closeSuspendedAfterMs: options.closeSuspendedAfterMs ?? 0,
-      turnTimeoutMs: options.turnTimeoutMs ?? 0,
-      suspendIdleWhenFull: options.suspendIdleWhenFull ?? true,
-      generateId: options.generateId ?? randomUUID,
-      errorMessage: options.errorMessage ?? getHarnessErrorMessage,
-      onError: options.onError ?? defaultReport,
-    };
+    this.settings = settingsOf(options);
     this.journal = new SessionJournal(this.store, this.report);
-    this.recovered = this.recover().catch(this.report('recover'));
+    this.leases = new SessionLeases({
+      store: this.store,
+      owner: options.managerId ?? randomUUID(),
+      ttlMs: options.leaseTtlMs ?? LEASE_TTL_MS,
+      report: this.report,
+    });
+    this.recovered = this.leases
+      .start(() => void this.recoverOrphans().catch(this.report('recover')))
+      .then(() => this.recover())
+      .catch(this.report('recover'));
     const { closeSuspendedAfterMs } = this.settings;
     if (closeSuspendedAfterMs > 0) {
       this.sweeper = setInterval(
@@ -207,7 +241,12 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     await this.ready();
     const existing = this.live.get(id)?.record ?? (await this.store.get(id));
     if (existing !== undefined) throw this.conflict(existing, `A session ${id} already exists.`);
-    await this.makeRoom();
+    const claim = await this.leases.claim(id);
+    if (!claim.claimed) throw new SessionOwnedElsewhereError(id, 'preparing', claim.owner);
+    await this.makeRoom().catch(async (error: unknown) => {
+      await this.leases.release(id);
+      throw error;
+    });
     const session = liveSession(newRecord(id, metadata));
     this.live.set(id, session);
     await this.transition(session, 'preparing');
@@ -304,23 +343,25 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
         : metadata;
     const live = this.live.get(id);
     if (live !== undefined) return this.changeMetadata(live.record, change(live.record.metadata));
-    const kept = await this.store.get(id);
-    if (kept === undefined) throw new SessionNotFoundError(id);
-    const resumeState =
-      kept.status === 'suspended' ? await this.store.getResumeState(id) : undefined;
-    const changed = change(kept.metadata);
-    // Brought back while the store was read: the live session is the one to change.
-    const racing = this.live.get(id);
-    if (racing !== undefined) return this.changeMetadata(racing.record, changed);
-    return this.changeMetadata(kept, changed, resumeState);
+    const { record: kept, release } = await this.hold(id);
+    try {
+      const resumeState =
+        kept.status === 'suspended' ? await this.store.getResumeState(id) : undefined;
+      const changed = change(kept.metadata);
+      // Brought back while the store was read: the live session is the one to change.
+      const racing = this.live.get(id);
+      if (racing !== undefined) return await this.changeMetadata(racing.record, changed);
+      return await this.changeMetadata(kept, changed, resumeState);
+    } finally {
+      await release();
+    }
   };
 
   interrupt = async (id: string): Promise<void> => {
     await this.recovered;
     const session = this.live.get(id);
-    if (session === undefined && (await this.store.get(id)) === undefined) {
-      throw new SessionNotFoundError(id);
-    }
+    // Run by another manager, it throws: the request is for that one.
+    if (session === undefined) await (await this.hold(id)).release();
     const turn = session?.turn;
     if (turn === undefined) return;
     turn.abort.abort(new Error('The turn was interrupted.'));
@@ -331,8 +372,8 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     await this.ready();
     const session = this.live.get(id);
     if (session === undefined) {
-      const kept = await this.store.get(id);
-      if (kept === undefined) throw new SessionNotFoundError(id);
+      const { record: kept, release } = await this.hold(id);
+      await release();
       if (kept.status === 'suspended') return summaryOf(kept);
       throw this.conflict(kept);
     }
@@ -354,9 +395,12 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       await session.ending;
       return summaryOf(session.record);
     }
-    const kept = await this.store.get(id);
-    if (kept === undefined) throw new SessionNotFoundError(id);
-    return this.closeKept(kept);
+    const { record: kept, release } = await this.hold(id);
+    try {
+      return await this.closeKept(kept);
+    } finally {
+      await release();
+    }
   };
 
   delete = async (id: string): Promise<void> => {
@@ -371,6 +415,7 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.sweeper);
+    this.leases.stop();
     await Promise.all([...this.live.values()].map((session) => this.shutdownSession(session)));
     await this.options.sandboxes.shutdown?.().catch(this.report('shutdown'));
     await this.journal.flush();
@@ -387,16 +432,69 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
   }
 
   /**
-   * A session still live in the store was live when the application last stopped without
-   * suspending it: it cannot be brought back.
+   * At the start: a session still live in the store, that no other manager runs, was live when
+   * its manager stopped without suspending it — this one, before, or one that crashed: it cannot
+   * be brought back.
    */
   private async recover(): Promise<void> {
     for (const { id, status } of await this.store.list()) {
       if (!isLive(status)) continue;
+      const claim = await this.leases.claim(id);
+      if (!claim.claimed) continue;
       const record = await this.store.get(id);
-      if (record === undefined) continue;
-      await this.transition(liveSession(record), 'interrupted', { error: INTERRUPTED_BY_CRASH });
+      if (record === undefined || !isLive(record.status)) {
+        await this.leases.release(id);
+        continue;
+      }
+      await this.interruptOrphan(record);
     }
+  }
+
+  /**
+   * Then, once per lease: the sessions of the managers sharing the store whose lease expired —
+   * they crashed — are interrupted.
+   */
+  private async recoverOrphans(): Promise<void> {
+    if (this.stopped) return;
+    for (const { id, status } of await this.store.list()) {
+      if (!isLive(status) || this.live.has(id)) continue;
+      await this.hold(id).then(
+        ({ release }) => release(),
+        () => undefined,
+      );
+    }
+  }
+
+  /**
+   * The session `id` as the store keeps it, held by this manager until `release()`: what to read
+   * and change of a session no manager runs. Throws `SessionOwnedElsewhereError` when another
+   * manager runs it. A session the store keeps live although no manager runs it any more — its
+   * manager crashed — is `interrupted` first.
+   */
+  private async hold(id: string): Promise<HeldSession<METADATA>> {
+    if ((await this.store.get(id)) === undefined) throw new SessionNotFoundError(id);
+    const claim = await this.leases.claim(id);
+    // Read again once held: what the manager that held it last wrote.
+    const record = await this.store.get(id);
+    if (!claim.claimed) {
+      throw new SessionOwnedElsewhereError(id, record?.status ?? 'preparing', claim.owner);
+    }
+    const ours = claim.previousOwner === this.leases.owner;
+    const release = () => (ours ? Promise.resolve() : this.leases.release(id));
+    if (record === undefined) {
+      await release();
+      throw new SessionNotFoundError(id);
+    }
+    if (!ours && isLive(record.status))
+      return { record: await this.interruptOrphan(record), release };
+    return { record, release };
+  }
+
+  /** Interrupts a session left live by a manager that stopped without suspending it. */
+  private async interruptOrphan(record: SessionRecord<METADATA>): Promise<SessionRecord<METADATA>> {
+    const session = liveSession(record);
+    await this.transition(session, 'interrupted', { error: INTERRUPTED_BY_CRASH });
+    return session.record;
   }
 
   /** The one place a session changes status: it is written, unless told not to, and sent out. */
@@ -411,7 +509,9 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     if (error === undefined) delete record.error;
     else record.error = error;
     this.journal.updated(record);
-    return persist ? this.journal.write(record, resumeState) : Promise.resolve();
+    const written = persist ? this.journal.write(record, resumeState) : Promise.resolve();
+    // Once it is written: the manager that claims it next reads where it stopped.
+    return isLive(status) ? written : written.then(() => this.leases.release(record.id));
   }
 
   /** Writes new metadata, without counting it as activity: `updatedAt` stays. */
@@ -573,10 +673,14 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
   private async openSession(id: string): Promise<ReadySession<METADATA>> {
     let session = this.live.get(id);
     if (session === undefined) {
-      const kept = await this.store.get(id);
-      if (kept === undefined) throw new SessionNotFoundError(id);
-      if (kept.status !== 'suspended' && kept.status !== 'failed') throw this.conflict(kept);
-      session = await this.revive(kept);
+      const { record: kept, release } = await this.hold(id);
+      try {
+        if (kept.status !== 'suspended' && kept.status !== 'failed') throw this.conflict(kept);
+        session = await this.revive(kept);
+      } catch (error) {
+        await release();
+        throw error;
+      }
     }
     await session.ready.catch(() => undefined);
     if (this.live.get(id) !== session || !isReady(session)) throw this.conflict(session.record);
@@ -829,8 +933,11 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     const cutoff = new Date(Date.now() - this.settings.closeSuspendedAfterMs).toISOString();
     for (const { id, status, updatedAt } of await this.store.list()) {
       if (status !== 'suspended' || updatedAt >= cutoff || this.live.has(id)) continue;
-      const kept = await this.store.get(id);
-      if (kept?.status === 'suspended' && !this.live.has(id)) await this.closeKept(kept);
+      const held = await this.hold(id).catch(() => undefined);
+      if (held === undefined) continue;
+      const { record: kept, release } = held;
+      if (kept.status === 'suspended' && !this.live.has(id)) await this.closeKept(kept);
+      await release();
     }
   }
 
