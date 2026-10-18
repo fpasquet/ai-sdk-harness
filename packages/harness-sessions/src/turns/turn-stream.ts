@@ -154,7 +154,11 @@ async function stepsOf(result: SessionStreamResult): Promise<TurnStepReport[]> {
   return (steps ?? []).map((step) => ({
     modelId: step.response?.modelId,
     usage: step.usage,
-    toolCalls: (step.toolCalls ?? []).map(({ toolCallId, toolName }) => ({ toolCallId, toolName })),
+    toolCalls: (step.toolCalls ?? []).map(({ toolCallId, toolName, input }) => ({
+      toolCallId,
+      toolName,
+      input: input as unknown,
+    })),
   }));
 }
 

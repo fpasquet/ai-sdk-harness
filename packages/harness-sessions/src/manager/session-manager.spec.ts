@@ -209,7 +209,7 @@ describe('createSessionManager', () => {
           {
             modelId: 'claude-sonnet-4-5',
             usage,
-            toolCalls: [{ toolCallId: 'call-1', toolName: 'Bash' }],
+            toolCalls: [{ toolCallId: 'call-1', toolName: 'Bash', input: { command: 'ls' } }],
           },
         ],
         rawEvents: [limit],

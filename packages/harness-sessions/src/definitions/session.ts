@@ -53,7 +53,8 @@ export interface TurnStepReport {
   /** The model, as the harness names it: `claude-sonnet-4-5`, for instance. */
   modelId: string | undefined;
   usage: LanguageModelUsage;
-  toolCalls: { toolCallId: string; toolName: string }[];
+  /** The tools it called, with their input: the skill it loaded, the subagent it started… */
+  toolCalls: { toolCallId: string; toolName: string; input: unknown }[];
 }
 
 /**

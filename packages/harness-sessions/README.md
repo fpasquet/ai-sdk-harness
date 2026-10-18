@@ -373,7 +373,7 @@ Keep one manager per store, unless the store gives leases (below): at its start,
 
 ### What a turn cost
 
-`onTurn` is called once each turn is over and the session written, with a `TurnReport`: the turn's tokens, cache reads and writes included, each of its steps — the model that answered, its tokens and the tools it called — and the raw events of its harness, in order. Keep them to account for your sessions, or to read the rate limits of a subscription, which Claude Code reports as `rate_limit_event`:
+`onTurn` is called once each turn is over and the session written, with a `TurnReport`: the turn's tokens, cache reads and writes included, each of its steps — the model that answered, its tokens and the tools it called, with their input — and the raw events of its harness, in order. Keep them to account for your sessions, or to read the rate limits of a subscription, which Claude Code reports as `rate_limit_event`:
 
 ```ts
 const sessions = createSessionManager<Metadata>({
