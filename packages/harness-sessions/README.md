@@ -394,6 +394,8 @@ const sessions = createSessionManager<Metadata>({
 });
 ```
 
+A `rate_limit_event` of Claude Code (signed in with a subscription) gives every window in `rate_limit_info.unifiedWindows`, such as `five_hour` and `seven_day`, each with its `utilization` (a fraction) and its `resetsAt` (in seconds). The harness names its tools in lower case: `bash`, not `Bash`.
+
 The steps and the raw events come from the agent's result, `steps` and `fullStream`: a `HarnessAgent` gives both; an agent of your own that gives neither reports its tokens only. What `onTurn` throws goes to `onError`; the turn is settled either way.
 
 ### Several instances
