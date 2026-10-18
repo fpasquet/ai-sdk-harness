@@ -1,5 +1,14 @@
 # ai-sdk-sandbox-sbx
 
+## 0.1.3
+
+### Patch Changes
+
+- 27c77d1: Works with `sbx` 0.48: creating a sandbox no longer passes `--quiet`, which 0.48 refuses, and template images are read from the listing whether `sbx` returns them as an array, as 0.48 does, or under `images`, as earlier versions do.
+- 2d6e2e2: A control command of `sbx` that hangs no longer holds the caller: listing, publishing a port, stopping or removing the sandbox and the package's own short commands in it are stopped after `commandTimeoutMs` (60 seconds by default) and fail with `SbxTimeoutError`. Creating the sandbox, its `setup`, file reads and writes and the agent's commands have no deadline, as before.
+  
+  A signed-out `sbx`, or one whose Docker sign-in expired, now fails with `SbxNotSignedInError`, which says to run `sbx login`; for 30 seconds after, the other commands of the same sandbox fail with it at once instead of running `sbx` again, so a cleanup after the failure no longer waits for minutes.
+
 ## 0.1.2
 
 ### Patch Changes
