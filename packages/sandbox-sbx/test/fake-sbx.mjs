@@ -74,9 +74,12 @@ const commands = {
       status: sandbox.status,
       ...(cloud ? { id: `sbx_${name}` } : {}),
     }));
-    process.stdout.write(JSON.stringify({ sandboxes }));
+    // As `sbx` 0.48 lists them: the array itself.
+    process.stdout.write(JSON.stringify(sandboxes));
   },
   create() {
+    // `sbx` 0.48 dropped it.
+    if (args.includes('--quiet')) fail('error: unknown flag: --quiet');
     const name = flag('--name');
     if (state.sandboxes[name]) fail(`sandbox ${name} already exists`);
     const root = join(home, 'sandboxes', name);
@@ -205,7 +208,7 @@ const commands = {
         }),
       );
     } else if (args[1] === 'ls') {
-      process.stdout.write(JSON.stringify({ images: state.templates }));
+      process.stdout.write(JSON.stringify(state.templates));
     } else if (args[1] === 'save' && cloud) {
       state.cloudTemplates.push(args[3]);
       save(state);

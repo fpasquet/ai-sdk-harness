@@ -35,7 +35,7 @@ describe('createSbxNetworkSandboxSession', () => {
 
     expect(session.id).toBe('box');
     expect(session.defaultWorkingDirectory).toBe(sbx.state().sandboxes.box?.root);
-    expect(sbx.callsOf('create')).toEqual([['create', '--name', 'box', '--quiet', 'shell']]);
+    expect(sbx.callsOf('create')).toEqual([['create', '--name', 'box', 'shell']]);
   });
 
   it('names the sandbox itself when no id is given', async () => {
@@ -62,7 +62,6 @@ describe('createSbxNetworkSandboxSession', () => {
       'create',
       '--name',
       'box',
-      '--quiet',
       '--template',
       'my/image:1',
       '--cpus',
