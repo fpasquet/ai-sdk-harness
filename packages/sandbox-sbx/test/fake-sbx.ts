@@ -30,6 +30,8 @@ export interface FakeSbxState {
     resources: string[];
   }[];
   failOn: string[];
+  /** Listings as `sbx` before 0.48 printed them: `{ sandboxes }`, `{ images }`. */
+  before048?: boolean;
 }
 
 export interface FakeSbx {

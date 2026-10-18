@@ -102,7 +102,6 @@ export function createArgs({
     'create',
     '--name',
     name,
-    '--quiet',
     ...imageFlags(image, fromTemplate && settings.cloud !== true),
     ...resourceFlags(settings),
     ...networkFlags(settings),

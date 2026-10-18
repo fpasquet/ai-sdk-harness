@@ -74,16 +74,23 @@ function containsString(value: unknown, needle: string): boolean {
   return Object.values(value).some((item) => containsString(item, needle));
 }
 
+/** An image of `sbx template ls`. */
+interface TemplateImage {
+  repository: string;
+  tag: string;
+}
+
 async function imageExists(
   cli: SbxCli,
   reference: string,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
-  const listed = JSON.parse(await cli.check(['template', 'ls', '--json'], { abortSignal })) as {
-    images?: { repository: string; tag: string }[];
-  };
+  const listed = JSON.parse(await cli.check(['template', 'ls', '--json'], { abortSignal })) as
+    TemplateImage[] | { images?: TemplateImage[] };
   if (cli.cloud) return containsString(listed, reference);
-  return (listed.images ?? []).some(({ repository, tag }) => `${repository}:${tag}` === reference);
+  // `sbx` 0.48 lists the images themselves, earlier versions under `images`.
+  const images = Array.isArray(listed) ? listed : (listed.images ?? []);
+  return images.some(({ repository, tag }) => `${repository}:${tag}` === reference);
 }
 
 async function buildImage({
@@ -98,10 +105,9 @@ async function buildImage({
   abortSignal?: AbortSignal;
 }): Promise<string> {
   const builder = `${TEMPLATE_REPOSITORY}-${reference.slice(-12)}-${randomBytes(3).toString('hex')}`;
-  await cli.check(
-    ['create', '--name', builder, '--quiet', ...(image ? ['--template', image] : []), agent],
-    { abortSignal },
-  );
+  await cli.check(['create', '--name', builder, ...(image ? ['--template', image] : []), agent], {
+    abortSignal,
+  });
   try {
     await runSetup(cli, builder, { setup, abortSignal });
     const session = await openSandbox(cli, builder, { abortSignal });

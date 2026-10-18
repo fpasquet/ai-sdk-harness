@@ -35,7 +35,7 @@ describe('createSbxNetworkSandboxSession', () => {
 
     expect(session.id).toBe('box');
     expect(session.defaultWorkingDirectory).toBe(sbx.state().sandboxes.box?.root);
-    expect(sbx.callsOf('create')).toEqual([['create', '--name', 'box', '--quiet', 'shell']]);
+    expect(sbx.callsOf('create')).toEqual([['create', '--name', 'box', 'shell']]);
   });
 
   it('names the sandbox itself when no id is given', async () => {
@@ -62,7 +62,6 @@ describe('createSbxNetworkSandboxSession', () => {
       'create',
       '--name',
       'box',
-      '--quiet',
       '--template',
       'my/image:1',
       '--cpus',
@@ -200,6 +199,26 @@ describe('createSbxNetworkSandboxSession', () => {
       });
 
       expect(recipe.prepare).not.toHaveBeenCalled();
+    });
+
+    it('reads the listings of sbx before 0.48', async () => {
+      const recipe = template('recipe-before-0.48');
+      const [repository, tag] = templateReference({ template: recipe, agent: 'shell', setup: [] })
+        .replace('docker.io/library/', '')
+        .split(':');
+      sbx.update((state) => {
+        state.before048 = true;
+        state.templates.push({ repository: `docker.io/library/${repository}`, tag: tag! });
+      });
+
+      await createSbxNetworkSandboxSession({
+        binary: sbx.binary,
+        sandboxId: 'box',
+        template: recipe,
+      });
+
+      expect(recipe.prepare).not.toHaveBeenCalled();
+      expect(Object.keys(sbx.state().sandboxes)).toEqual(['box']);
     });
 
     it('gives another base an image of its own', () => {
