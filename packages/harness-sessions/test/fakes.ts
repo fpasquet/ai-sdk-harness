@@ -29,7 +29,11 @@ export interface ScriptedTurn {
   hold?: Promise<void>;
   /** The stream fails with it. */
   fail?: Error;
-  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage?: Record<string, unknown>;
+  /** The steps the result gives, as `StreamTextResult.steps` does. Default: none, no `steps`. */
+  steps?: Record<string, unknown>[];
+  /** Raw events of the harness, streamed in `fullStream`. Default: none, no `fullStream`. */
+  raw?: unknown[];
 }
 
 /** An agent whose turns follow a script, with what it was asked kept for the tests to read. */
@@ -87,6 +91,17 @@ export class FakeAgent implements SessionAgent {
     const usage = turn.usage ?? { inputTokens: 1, outputTokens: 2, totalTokens: 3 };
     const result: SessionStreamResult = {
       totalUsage: Promise.resolve(usage) as unknown as SessionStreamResult['totalUsage'],
+      ...(turn.steps !== undefined && {
+        steps: Promise.resolve(turn.steps) as unknown as SessionStreamResult['steps'],
+      }),
+      ...(turn.raw !== undefined && {
+        fullStream: new ReadableStream({
+          start(controller) {
+            for (const rawValue of turn.raw!) controller.enqueue({ type: 'raw', rawValue });
+            controller.close();
+          },
+        }),
+      }),
       toUIMessageStream: ((options: {
         originalMessages: UIMessage[];
         generateMessageId: () => string;

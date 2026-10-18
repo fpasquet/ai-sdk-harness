@@ -2,7 +2,13 @@ import type { ToolApprovalResponse, ToolResultPart, UIMessage, UIMessageChunk } 
 
 import type { SessionAgent } from './agent.js';
 import type { SessionSandboxes } from './sandboxes.js';
-import type { ApprovalVerdict, PendingApproval, SessionRecord, SessionSummary } from './session.js';
+import type {
+  ApprovalVerdict,
+  PendingApproval,
+  SessionRecord,
+  SessionSummary,
+  TurnReport,
+} from './session.js';
 import type { SessionStore } from './store.js';
 
 export interface SessionManagerOptions<METADATA> {
@@ -68,6 +74,16 @@ export interface SessionManagerOptions<METADATA> {
    * `@ai-sdk/harness`. The session's `error` keeps the full message.
    */
   errorMessage?: (error: unknown) => string;
+  /**
+   * Called once each turn is over and the session written, with what the turn cost: its tokens,
+   * cache reads and writes included, the model, tokens and tool calls of each step, and the raw
+   * events of its harness — what an application needs to account for its sessions, or to read the
+   * rate limits of a subscription. What it throws goes to `onError`; the turn is settled either way.
+   */
+  onTurn?: (
+    report: TurnReport,
+    context: { session: SessionSummary<METADATA> },
+  ) => PromiseLike<void> | void;
   /**
    * Called with what fails in the background: a start, a suspension, a write to the store. Default:
    * `console.error`.

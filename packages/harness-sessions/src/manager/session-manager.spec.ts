@@ -7,6 +7,7 @@ import type {
   SessionManager,
   SessionManagerOptions,
   SessionStore,
+  TurnReport,
 } from '../index.js';
 
 import {
@@ -163,6 +164,84 @@ describe('createSessionManager', () => {
       const record = await sessions.get('s1');
       expect(record?.messages.map(({ role }) => role)).toEqual(['user', 'assistant']);
       expect((await store.get('s1'))?.messages).toHaveLength(2);
+    });
+
+    it('reports each turn: its tokens in detail, its steps and the raw events of its harness', async () => {
+      const reports: { report: TurnReport; status: string }[] = [];
+      sessions = manager({
+        onTurn: (report, { session }) => {
+          reports.push({ report, status: session.status });
+        },
+      });
+      const usage = {
+        inputTokens: 120,
+        inputTokenDetails: { noCacheTokens: 20, cacheReadTokens: 90, cacheWriteTokens: 10 },
+        outputTokens: 30,
+        outputTokenDetails: { textTokens: 30, reasoningTokens: 0 },
+        totalTokens: 150,
+      };
+      const limit = { type: 'rate_limit_event', rate_limit_info: { rateLimitType: 'five_hour' } };
+      agent.script.push({
+        usage,
+        steps: [
+          {
+            response: { modelId: 'claude-sonnet-4-5' },
+            usage,
+            toolCalls: [{ toolCallId: 'call-1', toolName: 'Bash', input: { command: 'ls' } }],
+          },
+        ],
+        raw: [limit],
+      });
+      await ready();
+
+      await turn('s1', 'hello');
+
+      expect(reports).toHaveLength(1);
+      const [{ report, status }] = reports as [{ report: TurnReport; status: string }];
+      expect(status).toBe('idle');
+      expect(report.startedAt).toBeInstanceOf(Date);
+      expect(report.endedAt.getTime()).toBeGreaterThanOrEqual(report.startedAt.getTime());
+      expect(report).toMatchObject({
+        sessionId: 's1',
+        failure: undefined,
+        usage,
+        steps: [
+          {
+            modelId: 'claude-sonnet-4-5',
+            usage,
+            toolCalls: [{ toolCallId: 'call-1', toolName: 'Bash' }],
+          },
+        ],
+        rawEvents: [limit],
+      });
+    });
+
+    it('reports a turn without steps nor raw events, and sends what onTurn throws to onError', async () => {
+      const reports: TurnReport[] = [];
+      sessions = manager({
+        onTurn: (report) => {
+          reports.push(report);
+          throw new Error('no ledger');
+        },
+      });
+      await ready();
+
+      const { session } = await turn('s1', 'hello');
+
+      expect(session.status).toBe('idle');
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+        steps: [],
+        rawEvents: [],
+      });
+      expect(errors).toEqual([
+        expect.objectContaining({
+          action: 'report turn',
+          sessionId: 's1',
+          error: new Error('no ledger'),
+        }),
+      ]);
     });
 
     it('waits for a session still preparing', async () => {

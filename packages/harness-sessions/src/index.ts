@@ -17,6 +17,8 @@ export type {
   SessionStatus,
   SessionSummary,
   SessionUsage,
+  TurnReport,
+  TurnStepReport,
 } from './definitions/session.js';
 export type { SessionClaim, SessionStore } from './definitions/store.js';
 export { SessionCapacityError } from './errors/session-capacity-error.js';
