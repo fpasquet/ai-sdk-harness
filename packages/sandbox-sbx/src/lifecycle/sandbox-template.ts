@@ -107,6 +107,7 @@ async function buildImage({
   const builder = `${TEMPLATE_REPOSITORY}-${reference.slice(-12)}-${randomBytes(3).toString('hex')}`;
   await cli.check(['create', '--name', builder, ...(image ? ['--template', image] : []), agent], {
     abortSignal,
+    unbounded: true,
   });
   try {
     await runSetup(cli, builder, { setup, abortSignal });
@@ -116,6 +117,7 @@ async function buildImage({
     if (!cli.cloud) await cli.check(['stop', builder], { abortSignal });
     await cli.check(['template', 'save', builder, reference.replace(LOCAL_STORE, '')], {
       abortSignal,
+      unbounded: true,
     });
     return reference;
   } finally {

@@ -50,6 +50,15 @@ export interface SbxConnectionSettings {
    */
   keepProxyManagedEnv?: boolean;
   /**
+   * How long a control command of `sbx` may take before it is stopped and fails with
+   * `SbxTimeoutError`: listing, publishing a port, stopping or removing the sandbox, the package's
+   * own short commands in it. Creating the sandbox, its `setup`, file reads and writes and the
+   * commands the agent runs have no deadline: they end with their `abortSignal`.
+   *
+   * @defaultValue `60_000`
+   */
+  commandTimeoutMs?: number;
+  /**
    * The `sbx` binary.
    *
    * @defaultValue `'sbx'`, looked up on the `PATH`

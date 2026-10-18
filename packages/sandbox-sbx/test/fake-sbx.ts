@@ -32,6 +32,10 @@ export interface FakeSbxState {
   failOn: string[];
   /** Listings as `sbx` before 0.48 printed them: `{ sandboxes }`, `{ images }`. */
   before048?: boolean;
+  /** Calls whose command line contains one of these never end. */
+  hangOn?: string[];
+  /** Every call fails as a signed-out `sbx` does. */
+  signedOut?: boolean;
 }
 
 export interface FakeSbx {

@@ -55,7 +55,7 @@ export async function createSbxNetworkSandboxSession(
   const name = options.sandboxId ?? `ai-sdk-${randomBytes(4).toString('hex')}`;
   assertSandboxName(name, cloud);
   assertSettingsFit(options, cloud);
-  const cli = new SbxCli(options.binary, cloud);
+  const cli = new SbxCli(options.binary, cloud, options);
   await assertNameFree(cli, name, abortSignal);
 
   const agent = options.agent ?? 'shell';
@@ -64,9 +64,8 @@ export async function createSbxNetworkSandboxSession(
     : options.image;
   await cli.check(
     createArgs({ name, image, fromTemplate: template !== undefined, settings: options }),
-    {
-      abortSignal,
-    },
+    // Pulling the image may take minutes: the creation has no deadline.
+    { abortSignal, unbounded: true },
   );
   try {
     // A template already ran the setup, before it was saved.
@@ -91,7 +90,7 @@ export async function resumeSbxNetworkSandboxSession(
   options: SbxNetworkSandboxSessionResumeOptions,
 ): Promise<SbxNetworkSandboxSession> {
   options.abortSignal?.throwIfAborted();
-  const cli = new SbxCli(options.binary, options.cloud ?? false);
+  const cli = new SbxCli(options.binary, options.cloud ?? false, options);
   await assertSandboxExists(cli, options.sandboxId, options.abortSignal);
   return openSandbox(cli, options.sandboxId, options);
 }

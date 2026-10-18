@@ -6,6 +6,8 @@ import { constants } from 'node:os';
 import { Readable } from 'node:stream';
 
 import { SbxError } from '../errors/sbx-error.js';
+import { SbxNotSignedInError } from '../errors/sbx-not-signed-in-error.js';
+import { SbxTimeoutError } from '../errors/sbx-timeout-error.js';
 import { abortReason } from '../utils/abort.js';
 
 /** What a finished `sbx` invocation left behind. */
@@ -26,6 +28,28 @@ export interface SbxCallOptions {
    */
   env?: Record<string, string>;
   abortSignal?: AbortSignal;
+  /**
+   * The command may take long by nature, creating a sandbox, its setup, a file: no deadline, only
+   * `abortSignal`. Every other command is stopped after the CLI's `commandTimeoutMs`.
+   */
+  unbounded?: boolean;
+}
+
+/** How long a control command of `sbx` (`ls`, `ports`, `stop`, a probe…) may take by default. */
+export const COMMAND_TIMEOUT_MS = 60_000;
+/** How long the commands of a sandbox fail at once after `sbx` was found signed out. */
+const SIGNED_OUT_HOLD_MS = 30_000;
+/**
+ * What `sbx` prints when it is signed out of Docker or its sign-in expired: its own hint, and the
+ * Docker sign-in service's refusal. Read on the commands this package runs, never on an agent's.
+ */
+const SIGNED_OUT = /^\s*try: sbx login\s*$|please sign in to Docker|no valid user session found/im;
+
+export interface SbxCliOptions {
+  /** See {@link COMMAND_TIMEOUT_MS}. */
+  commandTimeoutMs?: number;
+  /** See {@link SIGNED_OUT_HOLD_MS}. */
+  signedOutHoldMs?: number;
 }
 
 const exitCodeOf = (code: null | number, signal: NodeJS.Signals | null): number =>
@@ -36,6 +60,11 @@ const exitCodeOf = (code: null | number, signal: NodeJS.Signals | null): number 
  * reaches a sandbox. Every argument is passed as-is, never through a host shell.
  */
 export class SbxCli {
+  readonly commandTimeoutMs: number;
+  private readonly signedOutHoldMs: number;
+  /** When `sbx` was last found signed out, and what it said: the next commands fail at once. */
+  private signedOut: undefined | { at: number; stderr: string };
+
   /**
    * @param binary The `sbx` binary.
    * @param cloud Address Docker Sandboxes Cloud rather than this host's sandboxes: every command
@@ -44,10 +73,21 @@ export class SbxCli {
   constructor(
     readonly binary = 'sbx',
     readonly cloud = false,
-  ) {}
+    {
+      commandTimeoutMs = COMMAND_TIMEOUT_MS,
+      signedOutHoldMs = SIGNED_OUT_HOLD_MS,
+    }: SbxCliOptions = {},
+  ) {
+    this.commandTimeoutMs = commandTimeoutMs;
+    this.signedOutHoldMs = signedOutHoldMs;
+  }
 
-  /** Starts `sbx` and hands back the running process, streams untouched. */
+  /**
+   * Starts `sbx` and hands back the running process, streams untouched. Neither bounded nor read:
+   * it runs what the caller asked for, as long as the caller wants.
+   */
   start(args: readonly string[], options: SbxCallOptions = {}): ChildProcessWithoutNullStreams {
+    this.assertSignedIn(args);
     const child = spawn(this.binary, this.cloud ? ['--cloud', ...args] : args, {
       env: { ...process.env, ...options.env },
       signal: options.abortSignal,
@@ -66,26 +106,19 @@ export class SbxCli {
     return child;
   }
 
-  /** Runs `sbx` to completion, whatever its exit code. */
-  run(args: readonly string[], options: SbxCallOptions = {}): Promise<SbxResult> {
-    if (options.abortSignal?.aborted) return Promise.reject(abortReason(options.abortSignal));
-    const child = this.start(args, options);
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    return new Promise((resolve, reject) => {
-      child.once('error', (error: NodeJS.ErrnoException) =>
-        reject(error.code === 'ENOENT' ? this.notFound() : error),
-      );
-      child.once('close', (code, signal) =>
-        resolve({
-          exitCode: exitCodeOf(code, signal),
-          stdout: Buffer.concat(stdout),
-          stderr: Buffer.concat(stderr).toString(),
-        }),
-      );
-    });
+  /**
+   * Runs `sbx` to completion, whatever its exit code. Throws {@link SbxTimeoutError} past its
+   * deadline, and {@link SbxNotSignedInError} when `sbx` is signed out.
+   */
+  async run(args: readonly string[], options: SbxCallOptions = {}): Promise<SbxResult> {
+    if (options.abortSignal?.aborted) throw abortReason(options.abortSignal);
+    const result = await this.collect(args, options);
+    if (result.exitCode !== 0 && SIGNED_OUT.test(result.stderr)) {
+      this.signedOut = { at: Date.now(), stderr: result.stderr };
+      throw new SbxNotSignedInError(args, result);
+    }
+    this.signedOut = undefined;
+    return result;
   }
 
   /** Runs `sbx` and returns its standard output as text, throwing {@link SbxError} on failure. */
@@ -93,6 +126,48 @@ export class SbxCli {
     const result = await this.run(args, options);
     if (result.exitCode !== 0) throw new SbxError(args, result);
     return result.stdout.toString();
+  }
+
+  /** Fails at once while `sbx` was found signed out a moment ago: it would only fail, or hang. */
+  private assertSignedIn(args: readonly string[]): void {
+    if (this.signedOut === undefined) return;
+    if (Date.now() - this.signedOut.at >= this.signedOutHoldMs) return;
+    throw new SbxNotSignedInError(args, { exitCode: 1, stderr: this.signedOut.stderr });
+  }
+
+  /** Runs `sbx`, its output kept, killed past its deadline unless the call is unbounded. */
+  private collect(args: readonly string[], options: SbxCallOptions): Promise<SbxResult> {
+    const child = this.start(args, options);
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    return new Promise((resolve, reject) => {
+      let timedOut = false;
+      const deadline = options.unbounded
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+          }, this.commandTimeoutMs);
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        clearTimeout(deadline);
+        reject(error.code === 'ENOENT' ? this.notFound() : error);
+      });
+      child.once('close', (code, signal) => {
+        clearTimeout(deadline);
+        const errors = Buffer.concat(stderr).toString();
+        if (timedOut) {
+          reject(new SbxTimeoutError(args, errors, this.commandTimeoutMs));
+          return;
+        }
+        resolve({
+          exitCode: exitCodeOf(code, signal),
+          stdout: Buffer.concat(stdout),
+          stderr: errors,
+        });
+      });
+    });
   }
 
   private notFound(): Error {
