@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-harness-sessions",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Sessions for AI SDK harness agents: the lifecycle of conversations with Claude Code, Codex and friends — one turn at a time, suspended when idle, resumed on the next message and after a restart, several of them sharing one sandbox.",
   "keywords": [
     "ai",
