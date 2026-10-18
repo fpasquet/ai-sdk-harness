@@ -1,6 +1,7 @@
 import type { LanguageModelUsage, UIMessage, UIMessageChunk } from 'ai';
 
 import type { SessionStreamResult } from '../definitions/agent.js';
+import type { TurnStepReport } from '../definitions/session.js';
 
 /** The tokens a turn used, added up over its streams. */
 export type TurnUsage = Pick<LanguageModelUsage, 'inputTokens' | 'outputTokens' | 'totalTokens'>;
@@ -12,6 +13,8 @@ export interface TurnOutcome {
   /** What went wrong, when the turn failed or was cut short. */
   failure: string | undefined;
   usage: TurnUsage;
+  /** The turn's tokens in detail, its steps and the raw events of its harness, for `onTurn`. */
+  report: { usage: LanguageModelUsage; steps: TurnStepReport[]; rawEvents: unknown[] };
 }
 
 /**
@@ -97,6 +100,85 @@ async function readSegment(
   return outcome;
 }
 
+/** Tokens of nothing yet: what the turn's tokens are added to. */
+function emptyUsage(): LanguageModelUsage {
+  return {
+    inputTokens: 0,
+    inputTokenDetails: { noCacheTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    outputTokens: 0,
+    outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+    totalTokens: 0,
+  };
+}
+
+const add = (a: number | undefined, b: number | undefined) =>
+  a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+
+/** `total` plus `spent`, detail by detail: a count neither of them knows stays unknown. */
+function addDetails(
+  total: LanguageModelUsage,
+  spent: LanguageModelUsage | undefined,
+): LanguageModelUsage {
+  if (spent === undefined) return total;
+  return {
+    inputTokens: add(total.inputTokens, spent.inputTokens),
+    inputTokenDetails: {
+      noCacheTokens: add(
+        total.inputTokenDetails.noCacheTokens,
+        spent.inputTokenDetails?.noCacheTokens,
+      ),
+      cacheReadTokens: add(
+        total.inputTokenDetails.cacheReadTokens,
+        spent.inputTokenDetails?.cacheReadTokens,
+      ),
+      cacheWriteTokens: add(
+        total.inputTokenDetails.cacheWriteTokens,
+        spent.inputTokenDetails?.cacheWriteTokens,
+      ),
+    },
+    outputTokens: add(total.outputTokens, spent.outputTokens),
+    outputTokenDetails: {
+      textTokens: add(total.outputTokenDetails.textTokens, spent.outputTokenDetails?.textTokens),
+      reasoningTokens: add(
+        total.outputTokenDetails.reasoningTokens,
+        spent.outputTokenDetails?.reasoningTokens,
+      ),
+    },
+    totalTokens: add(total.totalTokens, spent.totalTokens),
+  };
+}
+
+/** The steps of a stream of the turn: their model, tokens and tool calls. */
+async function stepsOf(result: SessionStreamResult): Promise<TurnStepReport[]> {
+  const steps = await Promise.resolve(result.steps).catch(() => undefined);
+  return (steps ?? []).map((step) => ({
+    modelId: step.response?.modelId,
+    usage: step.usage,
+    toolCalls: (step.toolCalls ?? []).map(({ toolCallId, toolName, input }) => ({
+      toolCallId,
+      toolName,
+      input: input as unknown,
+    })),
+  }));
+}
+
+/**
+ * The raw events a stream of the turn carries, read from its own copy of the stream, beside the
+ * client's: what the harness sends that no other part says.
+ */
+async function rawEventsOf(result: SessionStreamResult): Promise<unknown[]> {
+  const events: unknown[] = [];
+  if (result.fullStream === undefined) return events;
+  try {
+    for await (const part of result.fullStream) {
+      if (part.type === 'raw') events.push(part.rawValue);
+    }
+  } catch {
+    // The turn's failure is told by the client's stream: the events read so far are kept.
+  }
+  return events;
+}
+
 /** Adds the tokens a stream of the turn used, once it is over. */
 async function addUsage(usage: TurnUsage, result: SessionStreamResult): Promise<void> {
   const spent = await Promise.resolve(result.totalUsage).catch(() => undefined);
@@ -108,6 +190,9 @@ async function addUsage(usage: TurnUsage, result: SessionStreamResult): Promise<
 /** Runs a turn's streams one after the other, sending their chunks to the client. */
 class TurnRun {
   private readonly usage: TurnUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  private details: LanguageModelUsage = emptyUsage();
+  private readonly steps: TurnStepReport[] = [];
+  private readonly rawEvents: unknown[] = [];
   private messages: UIMessage[] | undefined;
   private failure: string | undefined;
   private finish: UIMessageChunk | undefined;
@@ -121,12 +206,19 @@ class TurnRun {
     let result: SessionStreamResult | undefined = first;
     let originalMessages = this.options.originalMessages;
     for (let index = 0; result !== undefined; index += 1) {
+      const raw = rawEventsOf(result);
       const outcome = await readSegment(result, originalMessages, {
         first: index === 0,
         send: this.send,
         options: this.options,
       });
       await addUsage(this.usage, result);
+      const spent = await Promise.resolve(result.totalUsage).catch(() => undefined);
+      this.details = addDetails(this.details, spent);
+      const steps = await stepsOf(result);
+      const events = await raw;
+      this.steps.push(...steps);
+      this.rawEvents.push(...events);
       this.failure ??= outcome.failure;
       this.finish = outcome.finish;
       this.messages = outcome.messages ?? this.messages;
@@ -135,7 +227,12 @@ class TurnRun {
       if (step) originalMessages = this.messages = step.messages;
     }
     if (this.finish !== undefined) this.send(this.finish);
-    return { messages: this.messages, failure: this.failure, usage: this.usage };
+    return {
+      messages: this.messages,
+      failure: this.failure,
+      usage: this.usage,
+      report: { usage: this.details, steps: this.steps, rawEvents: this.rawEvents },
+    };
   }
 
   /**

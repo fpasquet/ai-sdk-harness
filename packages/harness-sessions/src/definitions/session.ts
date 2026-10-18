@@ -1,4 +1,4 @@
-import type { UIMessage } from 'ai';
+import type { LanguageModelUsage, UIMessage } from 'ai';
 
 /**
  * Where a session stands in its lifecycle.
@@ -46,6 +46,34 @@ export interface SessionUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+}
+
+/** A step of a turn: the model that answered, the tokens it used, and the tools it called. */
+export interface TurnStepReport {
+  /** The model, as the harness names it: `claude-sonnet-4-5`, for instance. */
+  modelId: string | undefined;
+  usage: LanguageModelUsage;
+  /** The tools it called, with their input: the skill it loaded, the subagent it started… */
+  toolCalls: { toolCallId: string; toolName: string; input: unknown }[];
+}
+
+/**
+ * A turn once it is over, for accounting: its tokens, cache reads and writes included, each of its
+ * steps, and the raw events its harness sent — rate limits, for instance, which Claude Code reports
+ * as `rate_limit_event`.
+ */
+export interface TurnReport {
+  sessionId: string;
+  startedAt: Date;
+  endedAt: Date;
+  /** What went wrong, when the turn failed or was cut short. */
+  failure: string | undefined;
+  /** The tokens of the whole turn, over all its streams. */
+  usage: LanguageModelUsage;
+  /** Its steps, in order; empty when the agent's results do not give them. */
+  steps: TurnStepReport[];
+  /** The raw events of the harness, in order; empty when the agent's results do not stream them. */
+  rawEvents: unknown[];
 }
 
 /** An answer to an approval request, as `ToolApprovalResponse` carries it. */

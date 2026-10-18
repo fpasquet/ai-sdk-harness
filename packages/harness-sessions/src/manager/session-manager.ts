@@ -21,6 +21,7 @@ import type {
   SessionRecord,
   SessionStatus,
   SessionSummary,
+  TurnReport,
 } from '../definitions/session.js';
 import type { SessionStore } from '../definitions/store.js';
 import type { InputResponses } from '../turns/pending-input.js';
@@ -137,7 +138,7 @@ interface TransitionOptions {
 type Settings<METADATA> = Required<
   Omit<
     SessionManagerOptions<METADATA>,
-    'agent' | 'approve' | 'leaseTtlMs' | 'managerId' | 'sandboxes' | 'store'
+    'agent' | 'approve' | 'leaseTtlMs' | 'managerId' | 'onTurn' | 'sandboxes' | 'store'
   >
 >;
 
@@ -420,6 +421,20 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     await this.options.sandboxes.shutdown?.().catch(this.report('shutdown'));
     await this.journal.flush();
   };
+
+  /** Hands a turn that is over to `onTurn`: what it throws goes to `onError`, the turn stays settled. */
+  private async reportTurn(
+    session: ReadySession<METADATA>,
+    turn: Omit<TurnReport, 'endedAt' | 'sessionId'>,
+  ): Promise<void> {
+    if (this.options.onTurn === undefined) return;
+    const report: TurnReport = { sessionId: session.record.id, ...turn, endedAt: new Date() };
+    try {
+      await this.options.onTurn(report, { session: summaryOf(session.record) });
+    } catch (error) {
+      this.report('report turn', session.record.id)(error);
+    }
+  }
 
   private readonly report =
     (action: string, sessionId?: string) =>
@@ -738,6 +753,7 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
         : undefined;
     let finish!: () => void;
     session.turn = { abort, done: new Promise((resolve) => (finish = resolve)) };
+    const startedAt = new Date();
     await this.transition(session, 'busy');
     const settle = async (failure?: string): Promise<void> => {
       clearTimeout(timer);
@@ -764,13 +780,14 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       generateMessageId: generateId,
       errorMessage,
       next: (messages) => this.answerPause(session, messages, answered),
-      onSettled: async ({ messages, failure, usage }) => {
+      onSettled: async ({ messages, failure, usage, report }) => {
         if (messages !== undefined) record.messages = messages;
         record.turns += 1;
         record.usage.inputTokens += usage.inputTokens ?? 0;
         record.usage.outputTokens += usage.outputTokens ?? 0;
         record.usage.totalTokens += usage.totalTokens ?? 0;
         await settle(failure);
+        await this.reportTurn(session, { startedAt, failure, ...report });
       },
     });
     // A turn cut short by a close or a shutdown is over once they wrote the session.

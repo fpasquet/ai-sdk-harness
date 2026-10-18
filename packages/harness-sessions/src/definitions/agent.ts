@@ -6,8 +6,13 @@ import type { StreamTextResult, ToolApprovalResponse, ToolResultPart, ToolSet } 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any context, any output
 type AnyStreamTextResult = StreamTextResult<ToolSet, any, any>;
 
-/** What the manager reads of a turn: a `StreamTextResult` is one. */
-export type SessionStreamResult = Pick<AnyStreamTextResult, 'totalUsage' | 'toUIMessageStream'>;
+/**
+ * What the manager reads of a turn: a `StreamTextResult` is one. Its `steps` and `fullStream`, when
+ * it has them, give `onTurn` the model, the tokens and the tools of each step, and the raw events of
+ * the harness.
+ */
+export type SessionStreamResult = Partial<Pick<AnyStreamTextResult, 'fullStream' | 'steps'>> &
+  Pick<AnyStreamTextResult, 'totalUsage' | 'toUIMessageStream'>;
 
 /**
  * What the manager needs of an agent: a `HarnessAgent` is one, whatever its harness, tools and

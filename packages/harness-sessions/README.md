@@ -371,6 +371,33 @@ A resume state holds secrets: the token of the harness bridge, the placeholders 
 
 Keep one manager per store, unless the store gives leases (below): at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
 
+### What a turn cost
+
+`onTurn` is called once each turn is over and the session written, with a `TurnReport`: the turn's tokens, cache reads and writes included, each of its steps — the model that answered, its tokens and the tools it called, with their input — and the raw events of its harness, in order. Keep them to account for your sessions, or to read the rate limits of a subscription, which Claude Code reports as `rate_limit_event`:
+
+```ts
+const sessions = createSessionManager<Metadata>({
+  // …
+  onTurn: async ({ sessionId, usage, steps, rawEvents }) => {
+    await db.turns.insert({
+      sessionId,
+      inputTokens: usage.inputTokens,
+      cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+      outputTokens: usage.outputTokens,
+      models: [...new Set(steps.map(({ modelId }) => modelId))],
+    });
+    const limits = rawEvents.filter(
+      (event) => (event as { type?: string }).type === 'rate_limit_event',
+    );
+    if (limits.length > 0) await db.rateLimits.insert(sessionId, limits.at(-1));
+  },
+});
+```
+
+A `rate_limit_event` of Claude Code (signed in with a subscription) gives every window in `rate_limit_info.unifiedWindows`, such as `five_hour` and `seven_day`, each with its `utilization` (a fraction) and its `resetsAt` (in seconds). The harness names its tools in lower case: `bash`, not `Bash`.
+
+The steps and the raw events come from the agent's result, `steps` and `fullStream`: a `HarnessAgent` gives both; an agent of your own that gives neither reports its tokens only. What `onTurn` throws goes to `onError`; the turn is settled either way.
+
 ### Several instances
 
 An application that runs on several instances — behind a load balancer, scaled out, or a new version deployed beside the old one — shares one store between their managers. The store tells them apart with leases: three more methods, on the same database, and the managers share it.
@@ -433,6 +460,7 @@ The lease's expiry is read on the database's clock, the one clock all instances 
 | `approve`               | none                     | Answers an approval before anyone sees it: `{ approved, reason }`, or `undefined` to ask a person   |
 | `generateId`            | `crypto.randomUUID`      | The ids of new sessions and of the messages of their turns                                          |
 | `errorMessage`          | `getHarnessErrorMessage` | What a client is told of an error in a turn; the session's `error` keeps the full message           |
+| `onTurn`                | none                     | Called once each turn is over, with its `TurnReport`: tokens in detail, steps, raw harness events   |
 | `onError`               | `console.error`          | Called with what fails in the background: a start, a suspension, a write to the store               |
 
 | Method                     | What it does                                                                                               |
