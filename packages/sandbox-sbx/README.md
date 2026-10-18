@@ -44,7 +44,7 @@ Every command and file operation is an `sbx exec` into the microVM, and every re
 ## Requirements
 
 - Node.js 24 or later.
-- [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) installed, with `sbx` on the `PATH` (or pointed at by the `binary` option), and signed in (`sbx login`).
+- [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) installed, with `sbx` on the `PATH` (or pointed at by the `binary` option), and signed in (`sbx login`). On a machine that runs sandboxes unattended, a server or a long development session, sign in with a [personal access token](https://docs.docker.com/ai/sandboxes/workflows/authentication/) (`sbx login --username <user> --password-stdin`) rather than in the browser, whose sign-in has to be refreshed.
 - `@ai-sdk/harness` and a harness adapter, such as `@ai-sdk/harness-claude-code`.
 
 ## Installation
@@ -316,12 +316,15 @@ A view starts its own processes, publishes its own ports and registers its own c
 | `brokerCredentials`   | `true`         | _Connection._ Keep credentials out of the sandbox, swapped in by the proxy                      |
 | `clearEnv`            | `[]`           | _Connection._ More variables to drop from commands that do not set them                         |
 | `keepProxyManagedEnv` | `false`        | _Connection._ Keep the `proxy-managed` credential variables Docker Sandboxes pre-sets           |
+| `commandTimeoutMs`    | `60_000`       | _Connection._ How long a control command of `sbx` may take (see [Errors](#errors))              |
 | `binary`              | `'sbx'`        | _Connection._ The `sbx` binary                                                                  |
 
 ## Errors
 
 - `SbxSandboxNotFoundError`: `resumeSbxNetworkSandboxSession()` found no sandbox of that name. Carries `sandboxId`.
 - `SbxError`: an `sbx` command exited with a non-zero status. Carries `args`, `exitCode` and `stderr`.
+- `SbxTimeoutError` (an `SbxError`): a control command of `sbx` — listing, publishing a port, stopping or removing the sandbox, the package's own short commands in it — did not finish within `commandTimeoutMs`, and was stopped. Creating the sandbox, its `setup`, file reads and writes and the commands the agent runs have no deadline: they end with their `abortSignal`. Carries `timeoutMs`.
+- `SbxNotSignedInError` (an `SbxError`): `sbx` is signed out of Docker, or its sign-in expired. Run `sbx login`, then try again. For 30 seconds after, the other commands of the same sandbox fail with it at once rather than run `sbx` again, which would only fail, or hang: a cleanup after the failure does not hold the caller for minutes.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a credential the proxy cannot broker.
 
 ## Security checklist

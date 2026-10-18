@@ -5,8 +5,12 @@ export class SbxError extends Error {
   readonly exitCode: number;
   readonly stderr: string;
 
-  constructor(args: readonly string[], result: { exitCode: number; stderr: string }) {
-    super(`\`sbx ${args[0] ?? ''}\` exited with ${result.exitCode}: ${result.stderr.trim()}`);
+  constructor(
+    args: readonly string[],
+    result: { exitCode: number; stderr: string },
+    message = `\`sbx ${args[0] ?? ''}\` exited with ${result.exitCode}: ${result.stderr.trim()}`,
+  ) {
+    super(message);
     this.name = 'SbxError';
     this.args = args;
     this.exitCode = result.exitCode;

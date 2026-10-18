@@ -137,6 +137,7 @@ export class SbxSandboxSession implements SandboxSession {
     const target = this.resolve(path);
     const result = await this.handle.cli.run([...this.execArgs({}), 'sh', '-c', READ, target], {
       abortSignal,
+      unbounded: true,
     });
     if (result.exitCode === READ_MISSING) return null;
     if (result.exitCode === READ_DIRECTORY) {
@@ -175,7 +176,7 @@ export class SbxSandboxSession implements SandboxSession {
     const target = this.resolve(path);
     const result = await this.handle.cli.run(
       [...this.execArgs({ stdin: true }), 'sh', '-c', WRITE, target],
-      { stdin: content, abortSignal },
+      { stdin: content, abortSignal, unbounded: true },
     );
     if (result.exitCode !== 0) {
       throw new Error(`Could not write ${target} in the sandbox: ${result.stderr.trim()}`);

@@ -4,7 +4,8 @@
 // sandbox, so files and processes behave as they do in a real sandbox.
 //
 // FAKE_SBX_HOME points at its state. Every call is appended to `calls.jsonl` there, and a call
-// whose command line contains one of the state's `failOn` strings exits with 1.
+// whose command line contains one of the state's `failOn` strings exits with 1, one that contains
+// a `hangOn` string never ends, and every call fails as a signed-out `sbx` does while `signedOut`.
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -38,6 +39,13 @@ const state = load();
 const line = args.join(' ');
 if ((state.failOn ?? []).some((pattern) => line.includes(pattern)))
   fail(`failing on purpose: ${line}`);
+if (state.signedOut)
+  fail(
+    'error: failed to look up sandbox: request failed: 401 Unauthorized: no valid user session ' +
+      'found, please sign in to Docker to proceed\n  try: sbx login',
+  );
+if ((state.hangOn ?? []).some((pattern) => line.includes(pattern)))
+  await new Promise(() => setInterval(() => {}, 60_000));
 
 /** The environment Docker Sandboxes gives a sandbox, credentials left to its proxy. */
 const SANDBOX_ENV = {

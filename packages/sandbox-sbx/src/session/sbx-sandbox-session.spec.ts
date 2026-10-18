@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FakeSbx } from '../../test/fake-sbx.js';
 
 import { createFakeSbx } from '../../test/fake-sbx.js';
+import { SbxNotSignedInError } from '../errors/sbx-not-signed-in-error.js';
 import { SbxCli } from '../transport/sbx-cli.js';
 import { assertEnvNames, SbxSandboxSession } from './sbx-sandbox-session.js';
 
@@ -30,6 +31,21 @@ describe('SbxSandboxSession', () => {
   it('describes the sandbox for the agent', () => {
     expect(session.description).toContain(`Docker Sandbox "box"`);
     expect(session.description).toContain(root);
+  });
+
+  it('fails the commands at once once sbx is found signed out', async () => {
+    sbx.update((state) => {
+      state.signedOut = true;
+    });
+    await expect(session.readTextFile({ path: 'notes.txt' })).rejects.toBeInstanceOf(
+      SbxNotSignedInError,
+    );
+    const calls = sbx.calls().length;
+
+    await expect(session.spawn({ command: 'sleep 60' })).rejects.toBeInstanceOf(
+      SbxNotSignedInError,
+    );
+    expect(sbx.calls()).toHaveLength(calls);
   });
 
   describe('run', () => {

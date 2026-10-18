@@ -45,7 +45,7 @@ export async function runSetup(
   { setup, abortSignal }: { setup: readonly string[]; abortSignal?: AbortSignal },
 ): Promise<void> {
   for (const command of setup) {
-    await cli.check(['exec', name, 'sh', '-c', command], { abortSignal });
+    await cli.check(['exec', name, 'sh', '-c', command], { abortSignal, unbounded: true });
   }
 }
 
