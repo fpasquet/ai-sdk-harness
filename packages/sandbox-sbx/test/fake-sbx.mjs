@@ -74,8 +74,8 @@ const commands = {
       status: sandbox.status,
       ...(cloud ? { id: `sbx_${name}` } : {}),
     }));
-    // As `sbx` 0.48 lists them: the array itself.
-    process.stdout.write(JSON.stringify(sandboxes));
+    // As `sbx` 0.48 lists them, the array itself; under `sandboxes` before.
+    process.stdout.write(JSON.stringify(state.before048 ? { sandboxes } : sandboxes));
   },
   create() {
     // `sbx` 0.48 dropped it.
@@ -208,7 +208,8 @@ const commands = {
         }),
       );
     } else if (args[1] === 'ls') {
-      process.stdout.write(JSON.stringify(state.templates));
+      const images = state.templates;
+      process.stdout.write(JSON.stringify(state.before048 ? { images } : images));
     } else if (args[1] === 'save' && cloud) {
       state.cloudTemplates.push(args[3]);
       save(state);

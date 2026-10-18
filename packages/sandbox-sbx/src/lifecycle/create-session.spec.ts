@@ -201,6 +201,26 @@ describe('createSbxNetworkSandboxSession', () => {
       expect(recipe.prepare).not.toHaveBeenCalled();
     });
 
+    it('reads the listings of sbx before 0.48', async () => {
+      const recipe = template('recipe-before-0.48');
+      const [repository, tag] = templateReference({ template: recipe, agent: 'shell', setup: [] })
+        .replace('docker.io/library/', '')
+        .split(':');
+      sbx.update((state) => {
+        state.before048 = true;
+        state.templates.push({ repository: `docker.io/library/${repository}`, tag: tag! });
+      });
+
+      await createSbxNetworkSandboxSession({
+        binary: sbx.binary,
+        sandboxId: 'box',
+        template: recipe,
+      });
+
+      expect(recipe.prepare).not.toHaveBeenCalled();
+      expect(Object.keys(sbx.state().sandboxes)).toEqual(['box']);
+    });
+
     it('gives another base an image of its own', () => {
       const recipe = template();
 
