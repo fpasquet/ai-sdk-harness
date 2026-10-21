@@ -1,5 +1,7 @@
 import type { Plugin } from '../definitions/plugin.js';
 
+import { ARGUMENT, citedArguments } from './command-arguments.js';
+
 /**
  * What a user can call by name at the start of a message: a command of a plugin, or one of its
  * skills — as in Claude Code, where `/<skill>` asks the agent to use it.
@@ -111,9 +113,9 @@ function render(prompt: string, raw: string): string {
   const positional = [...raw.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map(
     ([, double, single, bare]) => double ?? single ?? bare ?? '',
   );
-  const uses = /\$ARGUMENTS|\$[1-9]/.test(prompt);
-  const expanded = prompt
-    .replaceAll('$ARGUMENTS', raw)
-    .replace(/\$([1-9])/g, (_, index: string) => positional[Number(index) - 1] ?? '');
-  return uses || raw === '' ? expanded : `${expanded}\n\nARGUMENTS: ${raw}`;
+  const { all, positions } = citedArguments(prompt);
+  const expanded = prompt.replace(ARGUMENT, (_, index?: string) =>
+    index === undefined ? raw : (positional[Number(index) - 1] ?? ''),
+  );
+  return all || positions.length > 0 || raw === '' ? expanded : `${expanded}\n\nARGUMENTS: ${raw}`;
 }

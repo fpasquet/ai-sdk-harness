@@ -8,10 +8,12 @@ import {
   COMMAND_NAME,
   FILE_PATH,
   PLUGIN_HOOK_EVENTS,
+  PLUGIN_ROOT,
   SERVER_NAME,
   SLUG,
 } from '../definitions/plugin.js';
-import { isCodeSchema, undeclaredPlaceholders } from './input-schema.js';
+import { inputPropertiesOf, isCodeSchema, undeclaredPlaceholders } from './input-schema.js';
+import { citedInputVariables, inputVariable } from './input-variables.js';
 
 /** A name a model can call a tool by. */
 export const TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -55,6 +57,50 @@ export const declaredPlaceholders = (
   });
 };
 
+/** Each `required` entry of a tool's input schema is one of its properties: the model sees no other. */
+export const declaredRequired = (
+  tool: { inputSchema?: unknown },
+  context: z.core.$RefinementCtx,
+): void => {
+  const input = inputPropertiesOf(tool.inputSchema);
+  for (const [index, key] of (input?.required ?? []).entries()) {
+    if (typeof key === 'string' && input?.properties.includes(key)) continue;
+    context.addIssue({
+      code: 'custom',
+      path: ['inputSchema', 'required', index],
+      message: `must be one of the properties: the model is asked for "${String(key)}" but never sees it`,
+    });
+  }
+};
+
+/**
+ * A `sandbox-command` reads only the variables its input schema sets, and no `${PLUGIN_ROOT}`: the
+ * shell would expand either to nothing.
+ */
+export const declaredVariables = (
+  tool: { command: string; inputSchema?: unknown },
+  context: z.core.$RefinementCtx,
+): void => {
+  if (tool.command.match(PLUGIN_ROOT) !== null) {
+    context.addIssue({
+      code: 'custom',
+      path: ['command'],
+      message:
+        'must not cite ${PLUGIN_ROOT}: a sandbox-command runs in the default working directory of the sandbox, where it points at nothing',
+    });
+  }
+  const input = inputPropertiesOf(tool.inputSchema);
+  if (input === undefined) return;
+  const set = new Set(input.properties.map(inputVariable));
+  const missing = citedInputVariables(tool.command).names.filter((name) => !set.has(name));
+  if (missing.length === 0) return;
+  context.addIssue({
+    code: 'custom',
+    path: ['command'],
+    message: `reads ${missing.map((name) => `$${name}`).join(', ')}, which no property of the input schema sets: the model fills only what the schema shows`,
+  });
+};
+
 /** An absolute http(s) URL whose origin holds no `{key}`: the input never picks the host. */
 const urlTemplate = z.string().refine((url) => {
   const origin = /^https?:\/\/[^/?#]+/.exec(url)?.[0];
@@ -85,8 +131,11 @@ export const toolFields = {
 
 /** A {@link ToolDefinition}. */
 export const toolDefinitionSchema = z.discriminatedUnion('type', [
-  z.strictObject(toolFields['sandbox-command']),
-  z.strictObject(toolFields.http).superRefine(declaredPlaceholders),
+  z
+    .strictObject(toolFields['sandbox-command'])
+    .superRefine(declaredRequired)
+    .superRefine(declaredVariables),
+  z.strictObject(toolFields.http).superRefine(declaredPlaceholders).superRefine(declaredRequired),
   z.strictObject(toolFields.registered),
 ]);
 

@@ -5,6 +5,7 @@ import { tool } from '@ai-sdk/provider-utils';
 import type { ToolDefinition } from '../definitions/plugin.js';
 
 import { toolInputSchema } from './input-schema.js';
+import { inputVariable } from './input-variables.js';
 
 /** What a command hands back of each stream: past it, the agent reads a note instead. */
 export const MAX_OUTPUT = 20_000;
@@ -54,8 +55,7 @@ export function environmentOf(input: Record<string, unknown>): Record<string, st
   const env: Record<string, string> = { INPUT: JSON.stringify(input ?? {}) };
   for (const [key, value] of Object.entries(input ?? {})) {
     if (value === undefined) continue;
-    env[`INPUT_${key.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()}`] =
-      typeof value === 'string' ? value : JSON.stringify(value);
+    env[inputVariable(key)] = typeof value === 'string' ? value : JSON.stringify(value);
   }
   return env;
 }

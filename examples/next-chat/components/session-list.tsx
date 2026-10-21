@@ -2,7 +2,8 @@
 
 import type { SessionStatus, SessionSummary } from 'ai-sdk-harness-sessions';
 
-import { EllipsisIcon, PauseIcon, SquarePenIcon, Trash2Icon } from 'lucide-react';
+import { EllipsisIcon, FileCheckIcon, PauseIcon, SquarePenIcon, Trash2Icon } from 'lucide-react';
+import Link from 'next/link';
 
 import type { Conversation } from '@/lib/conversations';
 
@@ -89,6 +90,18 @@ export function SessionList({
           />
         ))}
       </nav>
+      <div className="border-t p-2">
+        <Button asChild className="w-full justify-start" size="sm" variant="ghost">
+          <Link href="/plugin-check">
+            <FileCheckIcon /> Check a plugin
+          </Link>
+        </Button>
+        <Button asChild className="w-full justify-start" size="sm" variant="ghost">
+          <Link href="/item-check">
+            <FileCheckIcon /> Check an item
+          </Link>
+        </Button>
+      </div>
     </aside>
   );
 }

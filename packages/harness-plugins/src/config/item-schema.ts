@@ -15,6 +15,8 @@ import type {
 import {
   commandFields,
   declaredPlaceholders,
+  declaredRequired,
+  declaredVariables,
   files,
   hookFields,
   mcpServerFields,
@@ -66,10 +68,14 @@ const kind = <KIND extends ItemKind>(value: KIND) => ({ kind: z.literal(value) }
 /** The schema of each kind of {@link Item}: what `defineItem` checks, and a form builds from. */
 export const itemSchemas = {
   tool: z.discriminatedUnion('type', [
-    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'] }),
+    z
+      .strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'] })
+      .superRefine(declaredRequired)
+      .superRefine(declaredVariables),
     z
       .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http })
-      .superRefine(declaredPlaceholders),
+      .superRefine(declaredPlaceholders)
+      .superRefine(declaredRequired),
     z.strictObject({ ...kind('tool'), name: toolName, ...toolFields.registered }),
   ]),
   skill: z.strictObject({ ...kind('skill'), ...skillFields }),

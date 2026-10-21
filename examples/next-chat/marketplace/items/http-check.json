@@ -1,0 +1,25 @@
+{
+  "kind": "tool",
+  "name": "http-check",
+  "type": "sandbox-command",
+  "description": "Request a server running in the sandbox, one you started on localhost, and read its answer and its HTTP status. Use it to check that a server you started works.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "port": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "The port the server listens on"
+      },
+      "path": {
+        "type": "string",
+        "pattern": "^/",
+        "description": "The path to request, starting with /: / when absent"
+      }
+    },
+    "required": ["port"],
+    "additionalProperties": false
+  },
+  "command": "curl -sS --max-time 10 -w '\\nHTTP %{http_code}\\n' \"http://localhost:${INPUT_PORT}${INPUT_PATH:-/}\""
+}

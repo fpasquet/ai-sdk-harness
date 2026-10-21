@@ -29,6 +29,12 @@ Checks a plugin, written in code or as JSON, and returns it as it is. Throws `In
 
 <AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginFile" />
 
+## `lintPlugin(plugin)`
+
+What `definePlugin` accepts but is likely a mistake, by field: `lintItem(item)` for an item on its own.
+
+<AutoTypeTable path="packages/harness-plugins/src/config/lint-plugin.ts" name="PluginWarning" />
+
 ## `withPlugins(settings, plugins, options)`
 
 Returns the `HarnessAgent` settings with the plugins applied.
