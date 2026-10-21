@@ -18,9 +18,10 @@
  *   SKIP_APP    an instance already serves $EXAMPLE_URL (no boot, no teardown)
  *
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
- * among them takes the screenshots of the sessions too, `approvals` those of the approvals, and
- * `workspace` that of the workspace: the example then works on a repository of its own
- * (`EXAMPLE_REPOSITORY`), which the other screenshots do without.
+ * among them takes the screenshots of the sessions too, `approvals` those of the approvals,
+ * `marketplace` the empty chat and the details of a plugin, and `workspace` that of the
+ * workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
+ * other screenshots do without.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
  * CODEX_PROMPT. The conversations run in a throwaway sandbox, removed at the end; the template
@@ -62,6 +63,12 @@ const USE_CASES = [
     name: 'plugin',
     prompt: '/docs zod How do I turn a zod 4 schema into a JSON Schema? Two sentences.',
     tool: undefined,
+  },
+  {
+    name: 'plugin-requires',
+    prompt:
+      '/upgrade Run npm init -y and npm install zod@3.22.4, then upgrade zod. Answer in two sentences.',
+    tool: /npm-latest/i,
   },
   {
     name: 'item-tool',
@@ -237,6 +244,16 @@ async function captureUseCases(page: Page): Promise<void> {
   }
 }
 
+/** The marketplace of a new conversation, then what a plugin holds: its items, and those linked. */
+async function captureMarketplace(page: Page): Promise<void> {
+  await capture(page, 'empty');
+  await page.getByRole('button', { name: 'What upgrades holds' }).click();
+  await page.getByRole('dialog').waitFor();
+  await capture(page, 'plugin-details');
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+}
+
 /** Types `/` in the prompt, captures the commands and skills it completes, and empties it. */
 async function captureCommands(page: Page): Promise<void> {
   await promptOf(page).click();
@@ -400,9 +417,10 @@ async function shootPage(page: Page): Promise<void> {
     }
     if (ONLY.includes('approvals')) await captureApprovals(page);
     if (ONLY.includes('workspace')) await captureWorkspace(page);
+    if (ONLY.includes('marketplace')) await captureMarketplace(page);
     return;
   }
-  await capture(page, 'empty');
+  await captureMarketplace(page);
   await captureCommands(page);
   await converse(page, PROMPT);
   await capture(page, 'conversation');

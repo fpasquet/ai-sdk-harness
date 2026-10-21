@@ -1,0 +1,12 @@
+{
+  "name": "upgrades",
+  "description": "Dependency upgrades, with the npm-latest tool published on its own: a plugin that requires an item rather than copy it.",
+  "skills": [
+    {
+      "name": "upgrade",
+      "description": "How to upgrade a dependency. Use it whenever you upgrade or update a package.",
+      "content": "# Upgrading a dependency\n\n1. Look the package up with the npm-latest tool: its latest version and its license.\n2. Install that exact version, pinned in package.json.\n3. Run the tests, or the project, and say what changed."
+    }
+  ],
+  "requires": ["tool:npm-latest"]
+}

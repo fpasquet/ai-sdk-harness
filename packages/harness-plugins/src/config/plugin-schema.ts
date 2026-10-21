@@ -209,6 +209,7 @@ const pluginFields = {
   subagents: z.array(z.strictObject(subagentFields)).optional(),
   mcpServers: z.record(serverName, mcpServerSchema).optional(),
   files: files.optional(),
+  requires,
 };
 
 /** A plugin, its tools AI SDK tools or definitions: what `definePlugin` checks. */

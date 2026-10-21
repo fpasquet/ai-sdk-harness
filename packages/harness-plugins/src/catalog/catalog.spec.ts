@@ -416,3 +416,96 @@ describe('a rule in a catalog', () => {
     ]);
   });
 });
+
+describe('a plugin that requires items outside itself', () => {
+  /** A plugin that uses, as they are published, a command and a whole plugin. */
+  const reviewKit = {
+    name: 'review-kit',
+    description: 'Reviews.',
+    skills: [{ name: 'review', description: 'Reviews.', content: 'Review.' }],
+    requires: ['command:npm', 'plugin:safety'],
+  };
+  const sources = {
+    plugins: [safety, tracker, reviewKit],
+    items,
+    tools: { 'tickets.create': createTicket },
+  };
+  const catalog = createCatalog(sources);
+
+  it('lists what it requires after its items, and describes it', async () => {
+    expect(catalog.entries().find(({ id }) => id === 'plugin:review-kit')).toEqual({
+      id: 'plugin:review-kit',
+      kind: 'plugin',
+      name: 'review-kit',
+      requires: ['review-kit/skill:review', 'command:npm', 'plugin:safety'],
+    });
+    const { plugins } = await catalog.describe();
+    expect(plugins.map(({ id, requires }) => ({ id, requires }))).toEqual([
+      { id: 'plugin:safety', requires: undefined },
+      { id: 'plugin:tracker', requires: undefined },
+      { id: 'plugin:review-kit', requires: ['command:npm', 'plugin:safety'] },
+    ]);
+    expect(plugins[0]).not.toHaveProperty('requires');
+  });
+
+  it('brings what it requires, and what that requires, when the plugin is selected', () => {
+    expect(catalog.expand(['plugin:review-kit'])).toEqual([
+      'plugin:safety',
+      'safety/tool:inspect',
+      'safety/tool:dynamic',
+      'safety/skill:checklist',
+      'safety/hook:guard',
+      'safety/hook:stop-2',
+      'safety/subagent:auditor',
+      'plugin:review-kit',
+      'review-kit/skill:review',
+      'tool:npm-latest',
+      'command:npm',
+    ]);
+  });
+
+  it('brings nothing of it when one of its items is selected alone', () => {
+    expect(catalog.expand(['review-kit/skill:review'])).toEqual(['review-kit/skill:review']);
+  });
+
+  it('delivers what it requires as the items they are, not in the plugin', async () => {
+    const { plugins, close } = await catalog.resolve(['plugin:review-kit'], {
+      resolveSecret: (name) => `value-of-${name}`,
+    });
+    expect(plugins.map(({ name }) => name)).toEqual([
+      'safety',
+      'review-kit',
+      'tool-npm-latest',
+      'command-npm',
+    ]);
+    const { requires: _requires, ...delivered } = reviewKit;
+    expect(plugins[1]).toEqual(delivered);
+    await close();
+  });
+
+  it('refuses a requirement the catalog does not have, unless it is skipped', () => {
+    expect(() =>
+      createCatalog({ plugins: [{ ...reviewKit, requires: ['tool:nope'] }], items }),
+    ).toThrow('plugin:review-kit requires tool:nope, which the catalog does not have.');
+    expect(() =>
+      createCatalog({ plugins: [{ ...reviewKit, requires: ['safety/skill:nope'] }] }),
+    ).toThrow('plugin:review-kit requires safety/skill:nope, which the catalog does not have.');
+    expect(
+      catalog.expand(['plugin:gone', 'review-kit/skill:review'], { ignoreUnknown: true }),
+    ).toEqual(['review-kit/skill:review']);
+  });
+
+  it('changes the fingerprint of the plugin with what it requires', () => {
+    const before = catalog.fingerprint(['plugin:review-kit']);
+    const edited = createCatalog({
+      ...sources,
+      plugins: [safety, tracker, { ...reviewKit, requires: ['command:npm'] }],
+    });
+    expect(edited.fingerprint(['plugin:review-kit'])).not.toBe(before);
+    expect(edited.fingerprint(['tool:npm-latest'])).toBe(catalog.fingerprint(['tool:npm-latest']));
+    // One of its items alone brings none of it: its fingerprint does not follow it either.
+    expect(edited.fingerprint(['review-kit/skill:review'])).toBe(
+      catalog.fingerprint(['review-kit/skill:review']),
+    );
+  });
+});

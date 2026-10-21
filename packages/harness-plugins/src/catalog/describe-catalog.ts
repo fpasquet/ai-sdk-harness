@@ -44,7 +44,14 @@ export interface CatalogItemDescription {
 
 /** Everything a catalog offers: its plugins, and every item, theirs and those on their own. */
 export interface CatalogDescription {
-  plugins: (PluginDescription & { id: string })[];
+  plugins: (PluginDescription & {
+    id: string;
+    /**
+     * The ids of what the plugin requires besides its items, selected with it. Absent when it
+     * requires nothing outside itself.
+     */
+    requires?: string[];
+  })[];
   items: CatalogItemDescription[];
 }
 
@@ -68,7 +75,13 @@ export async function describeCatalog(
   );
   const plugins = described
     .filter(({ source }) => !source.single)
-    .map(({ source, description }) => ({ id: `plugin:${source.name}`, ...description }));
+    .map(({ source, description }) => {
+      const id = `plugin:${source.name}`;
+      const requires = (entries.find((entry) => entry.id === id)?.requires ?? []).filter(
+        (ref) => !ref.startsWith(`${source.name}/`),
+      );
+      return { id, ...description, ...(requires.length > 0 && { requires }) };
+    });
   const byKey = new Map(
     described.flatMap(({ source, description }) =>
       itemDescriptions(source, description).map((item) => [keyOf(source, item), item] as const),

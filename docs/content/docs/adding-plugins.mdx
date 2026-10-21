@@ -150,6 +150,31 @@ const { plugins } = await catalog.resolve(['plugin:team', 'command:npm'], { reso
 
 ![/npm zod: the command brings the npm-latest tool, written in JSON, which reads the npm registry](/screenshots/next-chat/item-command.png)
 
+A plugin `requires` too, by the same ids: what it uses outside itself, such as a tool published on its own. Selecting the plugin brings the tool as it is, never a copy, so an edit of the tool reaches every plugin that uses it. Add this one to the catalog's `plugins`, beside `team` and `docs`:
+
+```ts
+const upgrades = definePlugin({
+  name: 'upgrades',
+  description: 'Dependency upgrades.',
+  skills: [
+    {
+      name: 'upgrade',
+      description: 'How to upgrade a dependency. Use it whenever you upgrade or update a package.',
+      content:
+        'Look the package up with the npm-latest tool, install that exact version, run the tests.',
+    },
+  ],
+  requires: ['tool:npm-latest'],
+});
+
+// plugin:upgrades, its skill, and tool:npm-latest, resolved as the item it is.
+const { plugins } = await catalog.resolve(['plugin:upgrades'], { resolveSecret });
+```
+
+![/upgrade zod: picking the plugin brings the npm-latest tool it requires, which the skill calls](/screenshots/next-chat/plugin-requires.png)
+
+Selecting only `upgrades/skill:upgrade` brings what that skill requires, not what the plugin does. A plugin never requires itself nor one of its own items: they come with it. In its `requires`, `tool:npm-latest` always names an item on its own, where an item of a plugin looks within its plugin first.
+
 </Step>
 </Steps>
 
