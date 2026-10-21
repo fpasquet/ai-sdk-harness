@@ -19,13 +19,15 @@ export const everything = ({ items, plugins }: CatalogDescription): string[] => 
 
 /**
  * The ids `selection` comes to, the way the server's catalog expands it: a plugin brings its
- * items, an item what it requires.
+ * items and what it requires, an item what it requires.
  */
 export function expandSelection(
-  { items }: CatalogDescription,
+  { items, plugins }: CatalogDescription,
   selection: readonly string[],
 ): Set<string> {
-  const byId = new Map(items.map((item) => [item.id, item]));
+  const byId = new Map<string, { requires?: string[] }>(
+    [...plugins, ...items].map((entry) => [entry.id, entry]),
+  );
   const wanted = new Set<string>();
   const queue = [...selection];
   for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
