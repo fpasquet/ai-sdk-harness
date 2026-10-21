@@ -174,6 +174,10 @@ lintPlugin({
 // [{ path: ['commands', 0, 'prompt'], code: 'argument-beyond-hint', message: 'reads $2, but the hint announces 1 argument' }, …]
 ```
 
+The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) has a page that checks a plugin or an item as you edit its JSON, each mistake and each warning at its field:
+
+![The example's page that checks a plugin: accepted, with a property its command never reads and arguments its commands drop or append.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/plugin-check-warnings.png)
+
 ### Claude Code plugins
 
 `loadClaudeCodePlugin('./plugins/commit-helper')` reads a Claude Code plugin directory — `commands/`, `agents/`, `skills/`, `hooks/hooks.json`, `.mcp.json` and its other files — into a plugin. A command's `allowed-tools` and `model` are not applied.
@@ -210,6 +214,40 @@ Here is one item of each kind, as the [Next.js example](https://github.com/fpasq
 ![The agent calls npm-latest with { "name": "zod" }, and reads the registry's answer.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/item-tool.png)
 
 The agent calls npm-latest with { "name": "zod" }, and reads the registry's answer. An http tool: your server makes the request, `{name}` taking the input its JSON Schema declares.
+
+A tool can run a command in the sandbox instead, a `sandbox-command`: no code either, the input reaching the command as environment variables, never spliced into it.
+
+```json
+{
+  "kind": "tool",
+  "name": "http-check",
+  "type": "sandbox-command",
+  "description": "Request a server running in the sandbox, one you started on localhost, and read its answer and its HTTP status. Use it to check that a server you started works.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "port": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "The port the server listens on"
+      },
+      "path": {
+        "type": "string",
+        "pattern": "^/",
+        "description": "The path to request, starting with /: / when absent"
+      }
+    },
+    "required": ["port"],
+    "additionalProperties": false
+  },
+  "command": "curl -sS --max-time 10 -w '\\nHTTP %{http_code}\\n' \"http://localhost:${INPUT_PORT}${INPUT_PATH:-/}\""
+}
+```
+
+![The agent starts a server in the sandbox, then calls http-check with { "port": 8080, "path": "/health" }.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/item-sandbox-command.png)
+
+The agent starts a server in the sandbox, then calls http-check with { "port": 8080, "path": "/health" }. The command reads `$INPUT_PORT`, and `${INPUT_PATH:-/}` for the optional `path`: `definePlugin()` refuses a command that reads a variable no property sets, `lintItem()` finds a property the command never reads.
 
 ### A skill
 

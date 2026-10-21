@@ -1,7 +1,19 @@
-import type { Catalog, CatalogDescription, Plugin } from 'ai-sdk-harness-plugins';
+import type {
+  Catalog,
+  CatalogDescription,
+  Item,
+  Plugin,
+  PluginWarning,
+} from 'ai-sdk-harness-plugins';
 
 import { tool } from 'ai';
-import { createCatalog, definePlugin, loadClaudeCodePlugin } from 'ai-sdk-harness-plugins';
+import {
+  createCatalog,
+  definePlugin,
+  lintItem,
+  lintPlugin,
+  loadClaudeCodePlugin,
+} from 'ai-sdk-harness-plugins';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -114,13 +126,23 @@ const sandboxInspector = definePlugin({
   ],
 });
 
-/** The JSON files of a directory of `marketplace/`: configuration, wherever it is kept. */
-async function stored(directory: 'items' | 'plugins'): Promise<unknown[]> {
+/** The JSON files of a directory of `marketplace/`, as they are written: `items/npm.json`… */
+export async function storedFiles(
+  directory: 'items' | 'plugins',
+): Promise<{ path: string; text: string }[]> {
   const root = join(process.cwd(), 'marketplace', directory);
   const names = (await readdir(root)).filter((name) => name.endsWith('.json')).sort();
   return Promise.all(
-    names.map(async (name) => JSON.parse(await readFile(join(root, name), 'utf8')) as unknown),
+    names.map(async (name) => ({
+      path: `${directory}/${name}`,
+      text: await readFile(join(root, name), 'utf8'),
+    })),
   );
+}
+
+/** The JSON files of a directory of `marketplace/`: configuration, wherever it is kept. */
+async function stored(directory: 'items' | 'plugins'): Promise<unknown[]> {
+  return (await storedFiles(directory)).map(({ text }) => JSON.parse(text) as unknown);
 }
 
 interface ExampleState {
@@ -138,20 +160,34 @@ const state: ExampleState = (globals.__aiSdkMarketplaceExample ??= { resolved: n
  * The marketplace of the example: plugins and items, configuration all of them, written in code
  * (`safety-guard`, `code-tour`, `sandbox-inspector`), read from a Claude Code plugin directory
  * (`plugins/commit-helper`), or from JSON files (`marketplace/`: the `library-docs` plugin, the
- * `upgrades` plugin that requires the `npm-latest` tool, and items on their own).
+ * `upgrades` plugin that requires the `npm-latest` tool, and items on their own). What
+ * `lintPlugin()` and `lintItem()` find in them is logged as the marketplace is read.
  */
 export function marketplace(): Promise<Catalog> {
   state.catalog ??= Promise.all([
     loadClaudeCodePlugin(join(process.cwd(), 'plugins/commit-helper')),
     stored('plugins'),
     stored('items'),
-  ]).then(([commitHelper, configured, items]) =>
-    createCatalog({
-      plugins: [safetyGuard, codeTour, sandboxInspector, commitHelper, ...configured],
-      items,
-    }),
-  );
+  ]).then(([commitHelper, configured, items]) => {
+    const plugins = [safetyGuard, codeTour, sandboxInspector, commitHelper, ...configured];
+    // Checked first: what lintPlugin() and lintItem() read is valid.
+    const catalog = createCatalog({ plugins, items });
+    for (const plugin of plugins as Plugin[]) warn(`plugin:${plugin.name}`, lintPlugin(plugin));
+    for (const item of items as Item[]) warn(`${item.kind}:${item.name}`, lintItem(item));
+    return catalog;
+  });
   return state.catalog;
+}
+
+/**
+ * What the marketplace accepts but is likely a mistake — a parameter nothing reads, an argument
+ * a command's hint does not announce —, in the server's log: a back office would show it next to
+ * the field.
+ */
+function warn(id: string, warnings: PluginWarning[]): void {
+  for (const { path, code, message } of warnings) {
+    process.emitWarning(`${id}: ${path.join('.')} ${message}`, { type: 'PluginWarning', code });
+  }
 }
 
 /** What the page shows of the marketplace: its documentation, never its code. */
