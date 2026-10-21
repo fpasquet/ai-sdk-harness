@@ -173,7 +173,7 @@ const { plugins } = await catalog.resolve(['plugin:upgrades'], { resolveSecret }
 
 ![/upgrade zod: picking the plugin brings the npm-latest tool it requires, which the skill calls](/screenshots/next-chat/plugin-requires.png)
 
-Selecting only `upgrades/skill:upgrade` brings what that skill requires, not what the plugin does. A plugin never requires itself nor one of its own items: they come with it.
+Selecting only `upgrades/skill:upgrade` brings what that skill requires, not what the plugin does. A plugin never requires itself nor one of its own items: they come with it. In its `requires`, `tool:npm-latest` always names an item on its own, where an item of a plugin looks within its plugin first.
 
 </Step>
 </Steps>
