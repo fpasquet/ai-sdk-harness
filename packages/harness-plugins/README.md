@@ -325,18 +325,32 @@ const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plug
 - `catalog.describe()` is what a marketplace page shows of every plugin and item — never code, prompts or secrets: safe for a browser.
 - `catalog.fingerprint(selection)` changes when what the selection resolves to is edited: key your built agents by it.
 
+### A plugin that requires an item
+
 A plugin can `requires` too, at its top: what it uses outside itself — an item on its own, an item of another plugin, a whole plugin —, by the same ids. Selecting the plugin (`plugin:<name>`) selects them, and what they require in turn; each is delivered as the item it is, never copied into the plugin, so the plugin follows the edits of an item published on its own. Selecting one item of the plugin brings only what that item requires. A plugin cannot require itself nor one of its own items, which come with it.
 
-```ts
-const reviewKit = definePlugin({
-  name: 'review-kit',
-  description: 'Reviews, and the npm lookup they rely on.',
-  skills: [{ name: 'review', description: 'Reviews the changes.', content: '…' }],
-  requires: ['command:npm', 'plugin:library-docs'],
-});
+This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) brings a skill, and the `npm-latest` tool above, as it is published:
 
-createCatalog({ plugins: [libraryDocs, reviewKit], items }).expand(['plugin:review-kit']);
-// review-kit and its skill, command:npm and the tool it requires, library-docs and its items
+```json
+{
+  "name": "upgrades",
+  "description": "Dependency upgrades, with the npm-latest tool published on its own: a plugin that requires an item rather than copy it.",
+  "skills": [
+    {
+      "name": "upgrade",
+      "description": "How to upgrade a dependency. Use it whenever you upgrade or update a package.",
+      "content": "# Upgrading a dependency\n\n1. Look the package up with the npm-latest tool: its latest version and its license.\n2. Install that exact version, pinned in package.json.\n3. Run the tests, or the project, and say what changed."
+    }
+  ],
+  "requires": ["tool:npm-latest"]
+}
+```
+
+![/upgrade zod: picking the plugin brings the npm-latest tool it requires, which the skill calls.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/plugin-requires.png)
+
+```ts
+catalog.expand(['plugin:upgrades']); // ['plugin:upgrades', 'upgrades/skill:upgrade', 'tool:npm-latest']
+catalog.expand(['upgrades/skill:upgrade']); // ['upgrades/skill:upgrade']
 ```
 
 In `catalog.entries()`, a plugin's `requires` lists its items, then what it requires besides them; `catalog.describe()` gives the latter alone, as the `requires` of a plugin that has any.

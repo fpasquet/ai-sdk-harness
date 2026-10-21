@@ -137,8 +137,8 @@ const state: ExampleState = (globals.__aiSdkMarketplaceExample ??= { resolved: n
 /**
  * The marketplace of the example: plugins and items, configuration all of them, written in code
  * (`safety-guard`, `code-tour`, `sandbox-inspector`), read from a Claude Code plugin directory
- * (`plugins/commit-helper`), or from JSON files (`marketplace/`: the `library-docs` plugin, and
- * items on their own).
+ * (`plugins/commit-helper`), or from JSON files (`marketplace/`: the `library-docs` plugin, the
+ * `upgrades` plugin that requires the `npm-latest` tool, and items on their own).
  */
 export function marketplace(): Promise<Catalog> {
   state.catalog ??= Promise.all([

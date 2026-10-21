@@ -203,7 +203,11 @@ function expandSelection(
   return entries.map(({ id }) => id).filter((id) => wanted.has(id));
 }
 
-/** Each source with items selected, filtered down to them. */
+/**
+ * Each source with items selected, filtered down to them. A plugin leaves without its `requires`:
+ * what it requires is selected beside it, each the item it is, or not at all when one of its items
+ * is selected alone.
+ */
 function selectedPlugins(sources: readonly Source[], ids: ReadonlySet<string>): Plugin[] {
   const plugins: Plugin[] = [];
   for (const source of sources) {
@@ -213,7 +217,8 @@ function selectedPlugins(sources: readonly Source[], ids: ReadonlySet<string>): 
         .map(itemKey),
     );
     if (keep.size === 0) continue;
-    plugins.push(filterPlugin(source.plugin, keep));
+    const { requires: _requires, ...plugin } = filterPlugin(source.plugin, keep);
+    plugins.push(plugin);
   }
   return plugins;
 }

@@ -159,8 +159,9 @@ const upgrades = definePlugin({
   skills: [
     {
       name: 'upgrade',
-      description: 'Upgrade a dependency to its latest version.',
-      content: 'Look the package up with the npm-latest tool, then update it and run the tests.',
+      description: 'How to upgrade a dependency. Use it whenever you upgrade or update a package.',
+      content:
+        'Look the package up with the npm-latest tool, install that exact version, run the tests.',
     },
   ],
   requires: ['tool:npm-latest'],
@@ -169,6 +170,8 @@ const upgrades = definePlugin({
 // plugin:upgrades, its skill, and tool:npm-latest, resolved as the item it is.
 const { plugins } = await catalog.resolve(['plugin:upgrades'], { resolveSecret });
 ```
+
+![/upgrade zod: picking the plugin brings the npm-latest tool it requires, which the skill calls](/screenshots/next-chat/plugin-requires.png)
 
 Selecting only `upgrades/skill:upgrade` brings what that skill requires, not what the plugin does. A plugin never requires itself nor one of its own items: they come with it.
 

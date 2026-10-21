@@ -478,7 +478,8 @@ describe('a plugin that requires items outside itself', () => {
       'tool-npm-latest',
       'command-npm',
     ]);
-    expect(plugins[1]).toEqual(reviewKit);
+    const { requires: _requires, ...delivered } = reviewKit;
+    expect(plugins[1]).toEqual(delivered);
     await close();
   });
 
@@ -502,5 +503,9 @@ describe('a plugin that requires items outside itself', () => {
     });
     expect(edited.fingerprint(['plugin:review-kit'])).not.toBe(before);
     expect(edited.fingerprint(['tool:npm-latest'])).toBe(catalog.fingerprint(['tool:npm-latest']));
+    // One of its items alone brings none of it: its fingerprint does not follow it either.
+    expect(edited.fingerprint(['review-kit/skill:review'])).toBe(
+      catalog.fingerprint(['review-kit/skill:review']),
+    );
   });
 });
