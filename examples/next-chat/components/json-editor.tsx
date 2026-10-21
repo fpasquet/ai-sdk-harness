@@ -11,7 +11,7 @@ const TOKEN =
   /("(?:\\.|[^"\\\n])*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\],:])/g;
 
 /** In a string, what a command or a prompt reads: `$INPUT_PATH`, `${INPUT_PATH:-.}`, `$1`. */
-const PARAMETER = /\$\{[^}"]*\}|\$(?:[A-Za-z_]\w*|[1-9])/g;
+const PARAMETER = /\$\{[^{}"]*\}|\$(?:[A-Za-z_]\w*|[1-9])/g;
 
 /** The colours of One Light and One Dark Pro, as the code blocks of the example use them. */
 const COLOURS = {

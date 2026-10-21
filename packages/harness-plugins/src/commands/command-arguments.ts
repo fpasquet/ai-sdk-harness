@@ -28,7 +28,8 @@ export function citedArguments(prompt: string): CitedArguments {
  * the rest (`[files...]`), `undefined` when it is free text, which cannot be counted.
  */
 export function hintedArguments(hint: string): number | undefined {
-  const groups = [...hint.matchAll(/<[^>]*>|\[[^\]]*\]/g)].map(([group]) => group);
+  // Neither bracket inside a group: a hint of `<` after `<` is read in linear time.
+  const groups = [...hint.matchAll(/<[^<>]*>|\[[^[\]]*\]/g)].map(([group]) => group);
   if (groups.length === 0) return undefined;
   return /\.\.\.|…/.test(groups.at(-1) ?? '') ? Infinity : groups.length;
 }

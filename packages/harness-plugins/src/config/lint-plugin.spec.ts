@@ -63,6 +63,13 @@ describe('citedArguments and hintedArguments', () => {
     expect(hintedArguments('[files...]')).toBe(Infinity);
     expect(hintedArguments('a file path')).toBeUndefined();
   });
+
+  it('reads a hint of brackets that never close in linear time', () => {
+    const start = performance.now();
+    expect(hintedArguments('<'.repeat(100_000))).toBeUndefined();
+    expect(hintedArguments('['.repeat(100_000))).toBeUndefined();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
 });
 
 describe('lintPlugin', () => {
