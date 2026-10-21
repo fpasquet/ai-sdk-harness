@@ -34,6 +34,12 @@ describe('expandCommand', () => {
     });
   });
 
+  it('leaves what the arguments hold as it is', () => {
+    expect(expandCommand('/plan cost $1 and $& more', [review])?.prompt).toBe(
+      'Plan this: cost $1 and $& more',
+    );
+  });
+
   it('replaces $ARGUMENTS, and leaves missing positional ones empty', () => {
     expect(expandCommand('  /plan add a cache\n', [review])?.prompt).toBe('Plan this: add a cache');
     expect(expandCommand('/review', [review])?.prompt).toBe('Review pull request #, focus on .');

@@ -49,6 +49,37 @@ export function plainInputSchema(schema: unknown): Record<string, unknown> | und
     : undefined;
 }
 
+/**
+ * What the model can pass to a tool, as its input schema shows: the top-level properties, those
+ * of the branches of an `anyOf`, a `oneOf` or an `allOf` included, and which are required.
+ * `undefined` when the schema cannot be read at once, or leaves the input open
+ * (`additionalProperties`, `patternProperties`): what checks it then trusts it.
+ */
+export function inputPropertiesOf(
+  schema: unknown,
+): undefined | { properties: string[]; required: unknown[] } {
+  if (schema === undefined) return { properties: [], required: [] };
+  const plain = plainInputSchema(schema);
+  if (plain === undefined || isOpen(plain)) return undefined;
+  const branches = ['anyOf', 'oneOf', 'allOf'].flatMap((keyword) =>
+    Array.isArray(plain[keyword]) ? (plain[keyword] as unknown[]) : [],
+  );
+  const properties = new Set<string>();
+  for (const part of [plain, ...branches]) {
+    const own = (part as null | { properties?: unknown })?.properties;
+    if (typeof own === 'object' && own !== null) {
+      for (const key of Object.keys(own)) properties.add(key);
+    }
+  }
+  const required = Array.isArray(plain.required) ? (plain.required as unknown[]) : [];
+  return { properties: [...properties], required };
+}
+
+/** Whether `schema` takes properties it does not list. */
+const isOpen = (schema: Record<string, unknown>): boolean =>
+  schema.patternProperties !== undefined ||
+  (schema.additionalProperties !== undefined && schema.additionalProperties !== false);
+
 /** The `{key}` placeholders of a URL template. */
 export const placeholdersOf = (url: string): string[] =>
   [...url.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map(([, key]) => key as string);

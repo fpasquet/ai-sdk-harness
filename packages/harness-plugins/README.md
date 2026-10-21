@@ -163,6 +163,17 @@ Everything above can be JSON — a file, a database row —, checked by the same
 
 A tool whose logic is code is named in JSON, `{ "type": "registered", "ref": "acme.deploy" }`, and passed once: `resolvePlugins(plugins, { tools: { 'acme.deploy': deployTool } })`.
 
+`lintPlugin(plugin)` — `lintItem(item)` for an item — lists what `definePlugin()` accepts but is likely a mistake, by field, for an editor to show next to it: a property of a `sandbox-command`'s input that neither the command nor a file of the plugin it names reads (`unread-input`), a command whose prompt reads an argument its `argumentHint` does not announce (`argument-beyond-hint`), leaves one it announces unread (`unread-argument`), or reads none, so they are appended (`appended-arguments`). `citedInputVariables(command)` and `citedArguments(prompt)` read a text by the same rules.
+
+```ts
+lintPlugin({
+  name: 'billing',
+  description: '',
+  commands: [{ name: 'pay', description: '', argumentHint: '<invoice>', prompt: 'Pay $2' }],
+});
+// [{ path: ['commands', 0, 'prompt'], code: 'argument-beyond-hint', message: 'reads $2, but the hint announces 1 argument' }, …]
+```
+
 ### Claude Code plugins
 
 `loadClaudeCodePlugin('./plugins/commit-helper')` reads a Claude Code plugin directory — `commands/`, `agents/`, `skills/`, `hooks/hooks.json`, `.mcp.json` and its other files — into a plugin. A command's `allowed-tools` and `model` are not applied.
@@ -366,7 +377,9 @@ In `catalog.entries()`, a plugin's `requires` lists its items, then what it requ
 | `sandbox-command` | `{ type, description, inputSchema?, command }`               | in the sandbox, the input as `INPUT` (JSON) and `INPUT_<KEY>` environment variables, never spliced into the command     |
 | `registered`      | `{ type, ref }`                                              | the tool your application passes as `tools[ref]`                                                                        |
 
-`inputSchema` is what the model reads to call the tool: a JSON Schema, in JSON or in code, or a zod schema, in code. Without one, the tool takes no input; each `{key}` of an `http` URL must be one of its required properties, which `definePlugin()` checks.
+`inputSchema` is what the model reads to call the tool: a JSON Schema, in JSON or in code, or a zod schema, in code. Without one, the tool takes no input. `definePlugin()` checks that each of its `required` entries is one of its `properties`, and that each `{key}` of an `http` URL is one of its required properties.
+
+A `sandbox-command` receives `INPUT`, the input as JSON, and `INPUT_<KEY>` for each top-level property, its key in upper case with any other character than a letter or a digit as `_` (`max-count` → `INPUT_MAX_COUNT`, `inputVariable(key)`): a string as it is, anything else as JSON, an absent property unset. Its `command` reads them as any shell variable — `$INPUT_PATH`, `${INPUT_PATH:-.}` —, and `definePlugin()` refuses one that reads an `INPUT_<KEY>` no property sets: the model fills only what the schema shows. It runs in the default working directory of the sandbox, where `${PLUGIN_ROOT}` points at nothing: `definePlugin()` refuses it there too.
 
 ### MCP servers
 
@@ -378,7 +391,7 @@ In `catalog.entries()`, a plugin's `requires` lists its items, then what it requ
 ### Rules, commands, hooks, files
 
 - A rule without `paths` is always followed. With `paths`, globs from the session's working directory, Claude Code loads it once the agent reads or edits a matching file; other runtimes read every rule in the agent's instructions, each saying which files it is for.
-- In a command's `prompt`, `$ARGUMENTS` is everything after the name, `$1` to `$9` each argument.
+- In a command's `prompt`, `$ARGUMENTS` is everything after the name, `$1` to `$9` each argument; a prompt with neither gets the arguments appended. `argumentHint` announces them, each `<…>` or `[…]`, the last one taking the rest when it ends with `...`.
 - A hook's `command` runs in the sandbox with the event as JSON on its standard input; for `PreToolUse`, exit status `2` blocks the call. It guards against mistakes, not against a hostile agent: the sandbox stays the security boundary.
 - Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; hooks, subagents and rules go to `.claude/`. All of it is kept out of Git.
 - `${PLUGIN_ROOT}` is not an environment variable: in a hook's `command`, or the `command`, `args` and `env` of an MCP server run in the sandbox, the package replaces it with that directory of the plugin, `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it included.
