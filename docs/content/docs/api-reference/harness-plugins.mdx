@@ -65,6 +65,18 @@ A marketplace: plugins of code, and plugins and items kept as data.
 
 <AutoTypeTable path="packages/harness-plugins/src/catalog/catalog.ts" name="CatalogEntry" />
 
+### `SelectedEntry`
+
+What `explain()` gives for each id a selection comes to.
+
+<AutoTypeTable path="packages/harness-plugins/src/catalog/selection.ts" name="SelectedEntry" />
+
+### `Deselection`
+
+What `deselect()` gives: the selection without the id, what still brings it, and what the change takes away.
+
+<AutoTypeTable path="packages/harness-plugins/src/catalog/selection.ts" name="Deselection" />
+
 ### `CatalogItemDescription`
 
 What `describe()` gives for each item: safe to send to a browser.
@@ -82,6 +94,10 @@ What `describe()` gives for each plugin: safe to send to a browser.
   path="packages/harness-plugins/src/catalog/describe-plugin.ts"
   name="PluginDescription"
 />
+
+## `ai-sdk-harness-plugins/selection`
+
+`expand(description, selection)`, `explain(description, selection)` and `deselect(description, selection, id)`: the answers of `catalog.expand()`, `explain()` and `deselect()` from `catalog.describe()` alone, for a browser. They import nothing that runs on a server.
 
 ## `mcpToolsPlugin(options)`
 

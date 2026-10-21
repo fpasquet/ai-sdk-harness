@@ -8,7 +8,7 @@ import {
   lintPlugin,
 } from 'ai-sdk-harness-plugins';
 
-import { storedFiles } from '@/lib/plugins';
+import { marketplace, storedFiles } from '@/lib/plugins';
 
 /** What a page checks: a whole plugin, or an item on its own. */
 export type CheckKind = 'item' | 'plugin';
@@ -24,33 +24,44 @@ export const isCheckKind = (value: unknown): value is CheckKind =>
 export interface PluginCheck {
   /** Whether the text is JSON: when it is not, the one issue says why. */
   json: boolean;
-  /** Why `definePlugin()` or `defineItem()` refuses it: a back office would not save it. */
+  /**
+   * Why `definePlugin()` or `defineItem()` refuses it, or what the marketplace could not meet
+   * with it in place — a `requires` naming what it does not have, an item it removes that another
+   * requires —, as `catalog.check()` finds: a back office would not save it.
+   */
   issues: PluginIssue[];
+  /** Whether the issues are the marketplace's, `catalog.check()`'s, rather than its own. */
+  unmet: boolean;
   /** What `lintPlugin()` or `lintItem()` finds in it once accepted: saved, with a warning. */
   warnings: PluginWarning[];
 }
 
 /**
- * Checks `text` as `definePlugin()` — or `defineItem()`, for an item — would, then lints what it
- * accepts with `lintPlugin()` or `lintItem()`.
+ * Checks `text` as `definePlugin()` — or `defineItem()`, for an item — would, then against the
+ * marketplace with `catalog.check()`, as if it took the place of the one of its name, and lints
+ * what both accept with `lintPlugin()` or `lintItem()`.
  */
-export function checkText(text: string, kind: CheckKind): PluginCheck {
+export async function checkText(text: string, kind: CheckKind): Promise<PluginCheck> {
   let config: unknown;
   try {
     config = JSON.parse(text);
   } catch (error) {
-    return { json: false, issues: [{ path: [], message: (error as Error).message }], warnings: [] };
+    const issues = [{ path: [], message: (error as Error).message }];
+    return { json: false, issues, unmet: false, warnings: [] };
   }
+  let warnings: PluginWarning[];
   try {
-    const warnings =
-      kind === 'item' ? lintItem(defineItem(config)) : lintPlugin(definePlugin(config));
-    return { json: true, issues: [], warnings };
+    warnings = kind === 'item' ? lintItem(defineItem(config)) : lintPlugin(definePlugin(config));
   } catch (error) {
     if (!InvalidPluginError.isInstance(error)) throw error;
     const issues =
       error.issues.length > 0 ? [...error.issues] : [{ path: [], message: error.message }];
-    return { json: true, issues, warnings: [] };
+    return { json: true, issues, unmet: false, warnings: [] };
   }
+  const catalog = await marketplace();
+  const unmet = catalog.check(config, kind);
+  if (unmet.length > 0) return { json: true, issues: unmet, unmet: true, warnings: [] };
+  return { json: true, issues: [], unmet: false, warnings };
 }
 
 /** A plugin or an item to start from, in the page's picker. */
@@ -99,6 +110,14 @@ const FAULTY_ITEMS: Record<string, unknown> = {
     },
     command: 'du -s "${INPUT_PATH:-.}"',
   },
+  'A command that requires a tool the marketplace does not have (refused)': {
+    kind: 'command',
+    name: 'outdated',
+    description: 'List the outdated dependencies',
+    prompt:
+      'Look each dependency of package.json up with the npm-latest tool, and list the outdated.',
+    requires: ['tool:npm-latest', 'tool:npm-audit'],
+  },
   'A command whose prompt reads more than its hint announces (warning)': {
     kind: 'command',
     name: 'pay',
@@ -139,6 +158,19 @@ const FAULTY_PLUGINS: Record<string, unknown> = {
         prompt: 'Write the announcement of the last release.',
       },
     ],
+  },
+  'A plugin that requires what the marketplace does not have (refused)': {
+    name: 'audit-kit',
+    description: 'Audit the dependencies before a release.',
+    commands: [
+      {
+        name: 'audit',
+        description: 'Audit the dependencies',
+        prompt: 'Review each dependency of package.json: its latest version, and its license.',
+        requires: ['skill:licenses'],
+      },
+    ],
+    requires: ['tool:npm-latest', 'mcp-server:snyk'],
   },
   'A plugin whose sandbox-command runs a script of its files (refused)': {
     name: 'lint-kit',

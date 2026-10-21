@@ -116,7 +116,8 @@ export function PluginChecker({ kind, samples }: { kind: CheckKind; samples: Plu
             value={text}
           />
           <p className="text-xs text-muted-foreground">
-            Checked by <code>{KINDS[kind].define}()</code>, then — once accepted — by{' '}
+            Checked by <code>{KINDS[kind].define}()</code>, then against the marketplace by{' '}
+            <code>catalog.check()</code> — in place of the {KINDS[kind].name} of its name —, then by{' '}
             <code>{KINDS[kind].lint}()</code>. Nothing is saved, nothing is run.
           </p>
         </section>
@@ -146,7 +147,11 @@ function CheckResult({ check, kind }: { check: PluginCheck; kind: CheckKind }) {
       <Findings
         icon={<CircleXIcon className="size-4 text-destructive" />}
         rows={check.issues}
-        subtitle={`${define}() throws InvalidPluginError: a back office would not save this ${name}.`}
+        subtitle={
+          check.unmet
+            ? `catalog.check() finds what the marketplace could not meet with it: a back office would not save this ${name}.`
+            : `${define}() throws InvalidPluginError: a back office would not save this ${name}.`
+        }
         title={`Refused: ${count(check.issues.length, 'mistake')}`}
       />
     );

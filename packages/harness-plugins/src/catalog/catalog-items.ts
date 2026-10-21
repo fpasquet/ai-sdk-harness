@@ -54,6 +54,38 @@ export function itemsOf(plugin: Plugin): PluginItem[] {
   ];
 }
 
+/** One `requires` entry of a plugin, at its path within it; `ofPlugin` for the plugin's own. */
+export interface RequiresAt {
+  path: (number | string)[];
+  ref: string;
+  ofPlugin: boolean;
+}
+
+/** Every `requires` entry of `plugin` and of its items, at its path within the plugin. */
+export function requiresAt(plugin: Plugin): RequiresAt[] {
+  const listed = (prefix: (number | string)[], value: unknown): RequiresAt[] =>
+    requiresOf(value).map((ref, index) => ({
+      path: [...prefix, 'requires', index],
+      ref,
+      ofPlugin: false,
+    }));
+  return [
+    ...Object.entries(plugin.tools ?? {}).flatMap(([name, tool]) => listed(['tools', name], tool)),
+    ...(plugin.skills ?? []).flatMap((skill, index) => listed(['skills', index], skill)),
+    ...(plugin.rules ?? []).flatMap((rule, index) => listed(['rules', index], rule)),
+    ...(plugin.commands ?? []).flatMap((command, index) => listed(['commands', index], command)),
+    ...(plugin.hooks ?? []).flatMap((hook, index) => listed(['hooks', index], hook)),
+    ...(plugin.subagents ?? []).flatMap((subagent, index) =>
+      listed(['subagents', index], subagent),
+    ),
+    ...(plugin.requires ?? []).map((ref, index) => ({
+      path: ['requires', index],
+      ref,
+      ofPlugin: true,
+    })),
+  ];
+}
+
 /** `<kind>:<name>`: an item, within its plugin. */
 export const itemKey = ({ kind, name }: { kind: ItemKind; name: string }): string =>
   `${kind}:${name}`;
