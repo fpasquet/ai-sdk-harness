@@ -39,7 +39,10 @@ export interface CatalogEntry {
   name: string;
   /** The plugin an item belongs to; absent for a plugin, and for an item on its own. */
   plugin?: string;
-  /** The ids of what it needs, selected with it. */
+  /**
+   * The ids of what it needs, selected with it. For a plugin, its items, then what it requires
+   * besides them — whose ids do not start with `<plugin>/`.
+   */
   requires: string[];
 }
 
@@ -53,15 +56,18 @@ export interface SelectOptions {
 
 /**
  * A marketplace: plugins and items, from code and from your database, each with an id an agent's
- * selection keeps. Selecting a plugin selects all its items; selecting an item selects what it
- * requires.
+ * selection keeps. Selecting a plugin selects all its items and what the plugin requires;
+ * selecting an item selects what it requires.
  */
 export interface Catalog {
   /** Every plugin and item, in the order given: what a back office lists. */
   entries(): CatalogEntry[];
   /** The public description of every plugin and item: what a marketplace page shows. */
   describe(): Promise<CatalogDescription>;
-  /** The ids `selection` comes to once what its items require is added, in catalog order. */
+  /**
+   * The ids `selection` comes to once what its plugins and items require is added, in catalog
+   * order.
+   */
   expand(selection: readonly string[], options?: SelectOptions): string[];
   /**
    * The plugins `withPlugins` applies for `selection`: each plugin with the items selected, each
@@ -135,7 +141,11 @@ function entriesOf(sources: readonly Source[]): CatalogEntry[] {
     }
     seen.add(source.name);
     if (!source.single) {
-      const requires = itemsOf(source.plugin).map((item) => idOf(source, item));
+      // What the plugin requires is outside it: an id of the whole catalog, as it is written.
+      const requires = [
+        ...itemsOf(source.plugin).map((item) => idOf(source, item)),
+        ...(source.plugin.requires ?? []),
+      ];
       entries.push({ id: `plugin:${source.name}`, kind: 'plugin', name: source.name, requires });
     }
     for (const item of itemsOf(source.plugin)) {
@@ -168,7 +178,7 @@ function checkRequires(entries: readonly CatalogEntry[], byId: Map<string, Catal
         continue;
       }
       throw new InvalidPluginError(
-        `${entry.id} requires ${bare}, which the catalog does not have.`,
+        `${entry.id} requires ${entry.plugin === undefined ? ref : bare}, which the catalog does not have.`,
       );
     }
   }

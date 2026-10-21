@@ -325,6 +325,22 @@ const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plug
 - `catalog.describe()` is what a marketplace page shows of every plugin and item — never code, prompts or secrets: safe for a browser.
 - `catalog.fingerprint(selection)` changes when what the selection resolves to is edited: key your built agents by it.
 
+A plugin can `requires` too, at its top: what it uses outside itself — an item on its own, an item of another plugin, a whole plugin —, by the same ids. Selecting the plugin (`plugin:<name>`) selects them, and what they require in turn; each is delivered as the item it is, never copied into the plugin, so the plugin follows the edits of an item published on its own. Selecting one item of the plugin brings only what that item requires. A plugin cannot require itself nor one of its own items, which come with it.
+
+```ts
+const reviewKit = definePlugin({
+  name: 'review-kit',
+  description: 'Reviews, and the npm lookup they rely on.',
+  skills: [{ name: 'review', description: 'Reviews the changes.', content: '…' }],
+  requires: ['command:npm', 'plugin:library-docs'],
+});
+
+createCatalog({ plugins: [libraryDocs, reviewKit], items }).expand(['plugin:review-kit']);
+// review-kit and its skill, command:npm and the tool it requires, library-docs and its items
+```
+
+In `catalog.entries()`, a plugin's `requires` lists its items, then what it requires besides them; `catalog.describe()` gives the latter alone, as the `requires` of a plugin that has any.
+
 ## Reference
 
 ### Tools

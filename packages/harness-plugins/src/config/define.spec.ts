@@ -90,6 +90,26 @@ describe('definePlugin', () => {
     expect(error.issues).toEqual([{ path: [], message: 'it has two commands named "triage".' }]);
   });
 
+  it('refuses a plugin that requires itself or one of its own items, which come with it', () => {
+    const error = errorOf({
+      ...manifest,
+      requires: [
+        'tool:npm-latest',
+        'plugin:ticketing',
+        'ticketing/command:triage',
+        'tool:countTodos',
+        'hook:stop-1',
+        'mcp-server:tracker',
+      ],
+    });
+    const message =
+      'must name what is outside the plugin: the plugin and its own items come with it';
+    expect(error.message).toBe(`Plugin "ticketing": requires.1: ${message} (and 4 more).`);
+    expect(error.issues).toEqual(
+      [1, 2, 3, 4, 5].map((index) => ({ path: ['requires', index], message })),
+    );
+  });
+
   it('refuses what is not a plugin at all', () => {
     expect(errorOf(null).message).toMatch(/^Invalid input/);
     expect(errorOf(null).plugin).toBeUndefined();
@@ -113,6 +133,7 @@ describe('definePlugin', () => {
       'subagents',
       'mcpServers',
       'files',
+      'requires',
     ]);
   });
 

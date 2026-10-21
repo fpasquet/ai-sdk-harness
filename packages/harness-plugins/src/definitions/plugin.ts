@@ -277,6 +277,13 @@ export interface Plugin {
   /** By server name. */
   mcpServers?: Record<string, PluginMcpServer>;
   files?: PluginFile[];
+  /**
+   * What it needs besides its own items, by catalog id (`tool:search`, `mcp-server:context7`,
+   * `<plugin>/<kind>:<name>` or `plugin:<name>`): selecting the whole plugin in a catalog selects
+   * them too, each delivered as it is published, never copied into the plugin. Never one of its
+   * own items, nor itself: they come with it.
+   */
+  requires?: string[];
 }
 
 /** `${PLUGIN_ROOT}`, and `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it. */

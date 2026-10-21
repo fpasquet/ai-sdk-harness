@@ -3,7 +3,7 @@ import { z } from 'zod/v4';
 import type { Plugin } from '../definitions/plugin.js';
 import type { Item, ItemKind } from './item-schema.js';
 
-import { checkPlugin } from '../definitions/plugin.js';
+import { checkPlugin, hookNameOf } from '../definitions/plugin.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
 import { ITEM_KINDS, itemSchemas, pluginOfItem } from './item-schema.js';
 import { inputSchemaField, pluginJsonSchemaSource, pluginSchema } from './plugin-schema.js';
@@ -19,6 +19,7 @@ export function definePlugin(config: unknown): Plugin {
   checked(pluginSchema, config, nameOf(config));
   const plugin = config as Plugin;
   checkNames(plugin, plugin.name);
+  checkRequiresOutside(plugin);
   return plugin;
 }
 
@@ -93,6 +94,35 @@ function checkNames(plugin: Plugin, label: string): void {
     throw new InvalidPluginError(message, label, [{ path: [], message }]);
   }
 }
+
+/**
+ * A plugin requires what is outside it: itself and its own items come with it. Checked here
+ * rather than refined in the schema, which `pick()` and `omit()` would then refuse.
+ */
+function checkRequiresOutside(plugin: Plugin): void {
+  const own = new Set([`plugin:${plugin.name}`, ...ownItemIds(plugin)]);
+  const message = 'must name what is outside the plugin: the plugin and its own items come with it';
+  const issues = (plugin.requires ?? []).flatMap((ref, index) =>
+    own.has(ref) || ref.startsWith(`${plugin.name}/`)
+      ? [{ path: ['requires', index], message }]
+      : [],
+  );
+  const first = issues[0];
+  if (first === undefined) return;
+  const more = issues.length > 1 ? ` (and ${issues.length - 1} more)` : '';
+  throw new InvalidPluginError(`${first.path.join('.')}: ${message}${more}.`, plugin.name, issues);
+}
+
+/** The ids a plugin's own items go by in a `requires`, `<kind>:<name>`, as in an item's. */
+const ownItemIds = (plugin: Plugin): string[] => [
+  ...Object.keys(plugin.tools ?? {}).map((name) => `tool:${name}`),
+  ...(plugin.skills ?? []).map(({ name }) => `skill:${name}`),
+  ...(plugin.rules ?? []).map(({ name }) => `rule:${name}`),
+  ...(plugin.commands ?? []).map(({ name }) => `command:${name}`),
+  ...(plugin.hooks ?? []).map((hook, index) => `hook:${hookNameOf(hook, index)}`),
+  ...(plugin.subagents ?? []).map(({ name }) => `subagent:${name}`),
+  ...Object.keys(plugin.mcpServers ?? {}).map((name) => `mcp-server:${name}`),
+];
 
 function nameOf(value: unknown): string | undefined {
   const name = (value as null | { name?: unknown })?.name;

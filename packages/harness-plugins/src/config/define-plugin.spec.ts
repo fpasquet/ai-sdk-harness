@@ -73,6 +73,16 @@ describe('definePlugin', () => {
     expect(definePlugin(plugin)).toBe(plugin);
   });
 
+  it('accepts what a plugin requires outside itself', () => {
+    const plugin = {
+      name: 'kit',
+      description: '',
+      skills: [{ name: 'review', description: '', content: '' }],
+      requires: ['tool:npm-latest', 'other/skill:review', 'plugin:other'],
+    };
+    expect(definePlugin(plugin)).toBe(plugin);
+  });
+
   it.each([
     [{ name: 'Not A Slug' }, 'Plugin "Not A Slug": name: must be a kebab-case slug.'],
     [
