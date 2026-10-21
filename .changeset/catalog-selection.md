@@ -1,5 +1,0 @@
----
-'ai-sdk-harness-plugins': patch
----
-
-`catalog.explain(selection)` gives each id a selection comes to, in catalog order, whether it was chosen, and the ids that require it (`requiredBy`). `catalog.deselect(selection, id)` takes an id out of a selection — an item of a plugin chosen whole leaves the plugin's other items chosen, each on its own — and gives the ids that still bring it, and what the change takes away (`removed`). `catalog.check(plugin)` — `catalog.check(item, 'item')` — tells, before an edit is saved, what the catalog could not meet with it in place of the one of its name: each of its `requires` the catalog does not have, at its field, and each `requires` elsewhere it would leave unmet. `ai-sdk-harness-plugins/selection` gives the answers of `expand()`, `explain()` and `deselect()` in a browser, from `catalog.describe()` alone. `createCatalog()` now refuses a `requires` naming what the catalog does not have with an `InvalidPluginError` whose `issues` sit at each such `requires`, within the plugin or the item (`commands.0.requires.1`, `requires.0`), and whose `plugin` is the plugin or the item at fault; its message changes accordingly.
