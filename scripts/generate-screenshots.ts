@@ -19,8 +19,8 @@
  *
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
  * among them takes the screenshots of the sessions too, `approvals` those of the approvals,
- * `marketplace` the empty chat and the details of a plugin, `plugin-check` the page that checks
- * a plugin, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
+ * `marketplace` the empty chat and the details of a plugin, `plugin-check` the pages that check
+ * a plugin and an item, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
  * other screenshots do without.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
@@ -261,17 +261,16 @@ async function captureMarketplace(page: Page): Promise<void> {
 }
 
 /**
- * The page that checks a plugin as JSON: a tool `definePlugin()` refuses, then a plugin it accepts
- * with what `lintPlugin()` finds in it.
+ * The pages that check a plugin and an item as JSON: a plugin `definePlugin()` accepts with what
+ * `lintPlugin()` finds in it, then a tool `defineItem()` refuses.
  */
 async function capturePluginCheck(page: Page): Promise<void> {
   await page.goto(`${EXAMPLE_URL}/plugin-check`);
-  await page.getByRole('heading', { name: /^Refused/ }).waitFor();
-  await capture(page, 'plugin-check');
-  await page.getByRole('combobox', { name: 'Start from' }).click();
-  await page.getByRole('option', { name: /^A plugin with a parameter/ }).click();
   await page.getByRole('heading', { name: /^Accepted, with/ }).waitFor();
-  await capture(page, 'plugin-check-warnings');
+  await capture(page, 'plugin-check');
+  await page.getByRole('link', { name: 'An item' }).click();
+  await page.getByRole('heading', { name: /^Refused/ }).waitFor();
+  await capture(page, 'item-check');
 }
 
 /** Types `/` in the prompt, captures the commands and skills it completes, and empties it. */

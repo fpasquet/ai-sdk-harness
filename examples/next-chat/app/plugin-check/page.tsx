@@ -1,13 +1,13 @@
 import { PluginChecker } from '@/components/plugin-checker';
-import { pluginSamples } from '@/lib/plugin-check';
+import { checkSamples } from '@/lib/plugin-check';
 
 // The marketplace's files are read as they are now, not as they were at build time.
 export const dynamic = 'force-dynamic';
 
 /**
- * A plugin, or an item, edited as JSON and checked as you type: what `definePlugin()` and
- * `defineItem()` refuse, and what `lintPlugin()` and `lintItem()` find in what they accept.
+ * A plugin edited as JSON and checked as you type: what `definePlugin()` refuses, and what
+ * `lintPlugin()` finds in what it accepts.
  */
 export default async function Page() {
-  return <PluginChecker samples={await pluginSamples()} />;
+  return <PluginChecker kind="plugin" samples={await checkSamples('plugin')} />;
 }

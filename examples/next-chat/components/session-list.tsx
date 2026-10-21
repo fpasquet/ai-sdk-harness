@@ -96,6 +96,11 @@ export function SessionList({
             <FileCheckIcon /> Check a plugin
           </Link>
         </Button>
+        <Button asChild className="w-full justify-start" size="sm" variant="ghost">
+          <Link href="/item-check">
+            <FileCheckIcon /> Check an item
+          </Link>
+        </Button>
       </div>
     </aside>
   );

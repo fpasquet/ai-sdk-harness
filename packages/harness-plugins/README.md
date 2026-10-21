@@ -174,9 +174,9 @@ lintPlugin({
 // [{ path: ['commands', 0, 'prompt'], code: 'argument-beyond-hint', message: 'reads $2, but the hint announces 1 argument' }, …]
 ```
 
-The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) has a page that checks a plugin or an item as you edit its JSON, each mistake and each warning at its field:
+The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) has a page that checks a plugin, and one that checks an item, as you edit its JSON, each mistake and each warning at its field:
 
-![The example's page that checks a plugin: accepted, with a property its command never reads and arguments its commands drop or append.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/plugin-check-warnings.png)
+![The example's page that checks a plugin: accepted, with a property its command never reads and arguments its commands drop or append.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/plugin-check.png)
 
 ### Claude Code plugins
 
