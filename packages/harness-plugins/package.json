@@ -30,6 +30,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./selection": {
+      "types": "./dist/selection.d.ts",
+      "import": "./dist/selection.js",
+      "default": "./dist/selection.js"
     }
   },
   "files": [

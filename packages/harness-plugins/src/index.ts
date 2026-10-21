@@ -8,10 +8,11 @@ export type {
   WithPluginsOptions,
 } from './agent/with-plugins.js';
 export { createCatalog } from './catalog/catalog.js';
-export type { Catalog, CatalogEntry, CatalogSources, SelectOptions } from './catalog/catalog.js';
+export type { Catalog, CatalogEntry, CatalogSources } from './catalog/catalog.js';
 export type { CatalogDescription, CatalogItemDescription } from './catalog/describe-catalog.js';
 export { describePlugin } from './catalog/describe-plugin.js';
 export type { JsonSchema, PluginDescription } from './catalog/describe-plugin.js';
+export type { Deselection, SelectedEntry, SelectOptions } from './catalog/selection.js';
 export { citedArguments } from './commands/command-arguments.js';
 export type { CitedArguments } from './commands/command-arguments.js';
 export { expandCommand, listSlashCommands } from './commands/expand-command.js';

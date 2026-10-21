@@ -373,6 +373,28 @@ const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plug
 
 - `catalog.describe()` is what a marketplace page shows of every plugin and item — never code, prompts or secrets: safe for a browser.
 - `catalog.fingerprint(selection)` changes when what the selection resolves to is edited: key your built agents by it.
+- `catalog.explain(selection)` gives each id the selection comes to, whether it was chosen, and the ids that require it: what a back office shows as "required by".
+- `catalog.deselect(selection, id)` takes an id out of a selection — an item of a plugin chosen whole leaves the plugin's other items chosen — and tells what still brings it, in `requiredBy`: refuse the change while anything does. `removed` lists what the change takes away, what the plugin required besides its items included.
+- `createCatalog()` refuses a `requires` naming what the catalog does not have, with an `InvalidPluginError` whose `issues` sit at each such `requires`. `catalog.check(plugin)` — `catalog.check(item, 'item')` for an item — tells it of an edit before it is saved, as if it took the place of the one of its name: an issue at each `requires` the catalog cannot meet, and one at the root for each `requires` elsewhere it would leave unmet.
+
+```ts
+catalog.explain(['command:npm']);
+// [{ id: 'tool:npm-latest', chosen: false, requiredBy: ['command:npm'] },
+//  { id: 'command:npm', chosen: true, requiredBy: [] }]
+catalog.deselect(['command:npm'], 'tool:npm-latest');
+// { selection: ['command:npm'], requiredBy: ['command:npm'], removed: [] }
+catalog.check({ ...npm, requires: ['tool:npm-latest', 'tool:npm-audit'] }, 'item');
+// [{ path: ['requires', 1], message: 'names tool:npm-audit, which the catalog does not have' }]
+```
+
+In a browser, `ai-sdk-harness-plugins/selection` gives the same answers from `catalog.describe()` alone, and imports nothing that runs on a server: a page that picks from the marketplace shows what a pick comes to, and locks what is required, without asking the server at each click.
+
+```ts
+import { deselect, expand, explain } from 'ai-sdk-harness-plugins/selection';
+
+explain(description, selection); // catalog.explain(selection)
+deselect(description, selection, 'tool:npm-latest'); // catalog.deselect(selection, …)
+```
 
 ### A plugin that requires an item
 

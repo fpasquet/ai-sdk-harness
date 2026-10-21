@@ -3,7 +3,9 @@ import type { Tool } from '@ai-sdk/provider-utils';
 import type { ItemKind } from '../config/item-schema.js';
 import type { ResolvedPlugins, ResolveOptions } from '../config/resolve-plugins.js';
 import type { Plugin, ToolDefinition } from '../definitions/plugin.js';
+import type { PluginIssue } from '../errors/invalid-plugin-error.js';
 import type { CatalogDescription } from './describe-catalog.js';
+import type { Deselection, SelectedEntry, SelectOptions } from './selection.js';
 
 import { defineItem, definePlugin } from '../config/define.js';
 import { plainInputSchema } from '../config/input-schema.js';
@@ -12,8 +14,9 @@ import { pluginFingerprint } from '../config/plugin-fingerprint.js';
 import { isToolDefinition } from '../config/plugin-schema.js';
 import { resolveChecked } from '../config/resolve-plugins.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
-import { filterPlugin, itemKey, itemsOf } from './catalog-items.js';
+import { filterPlugin, itemKey, itemsOf, requiresAt } from './catalog-items.js';
 import { describeCatalog } from './describe-catalog.js';
+import { deselect, expandSelection, explainSelection } from './selection.js';
 
 /** What a catalog offers: plugins and items, written in code or as configuration — JSON. */
 export interface CatalogSources {
@@ -46,14 +49,6 @@ export interface CatalogEntry {
   requires: string[];
 }
 
-export interface SelectOptions {
-  /**
-   * Skip the ids the catalog does not have rather than throw: a selection kept in a database may
-   * name something removed since.
-   */
-  ignoreUnknown?: boolean;
-}
-
 /**
  * A marketplace: plugins and items, from code and from your database, each with an id an agent's
  * selection keeps. Selecting a plugin selects all its items and what the plugin requires;
@@ -69,6 +64,26 @@ export interface Catalog {
    * order.
    */
   expand(selection: readonly string[], options?: SelectOptions): string[];
+  /**
+   * Each id `selection` comes to, in catalog order, chosen or not, and the ids that require it:
+   * what a back office shows as "required by", and keeps selected while they are.
+   */
+  explain(selection: readonly string[], options?: SelectOptions): SelectedEntry[];
+  /**
+   * `selection` without `id` — an item of a plugin chosen whole leaves its other items chosen —,
+   * and what still brings `id`: refuse the change while anything does.
+   */
+  deselect(selection: readonly string[], id: string): Deselection;
+  /**
+   * What the catalog could not meet once `value` — a plugin, or an item on its own for
+   * `kind: 'item'` — takes the place of the one of its name, or joins it: an issue at each of its
+   * `requires` naming what the catalog does not have, as `createCatalog()` would refuse it, then
+   * one at the root for each `requires` elsewhere it would no longer meet — an item it removes
+   * that another requires. Empty when it can be saved. What a back office checks before it saves
+   * an edit; throws {@link InvalidPluginError} for what `definePlugin()` or `defineItem()`
+   * refuses.
+   */
+  check(value: unknown, kind?: 'item' | 'plugin'): PluginIssue[];
   /**
    * The plugins `withPlugins` applies for `selection`: each plugin with the items selected, each
    * item on its own as a plugin of its own, resolved — their tool definitions built, their
@@ -95,30 +110,30 @@ interface Source {
 
 /**
  * A catalog of plugins and items, each checked. Throws {@link InvalidPluginError} for an invalid
- * one, two of one name, or a `requires` naming what the catalog does not have.
+ * one, two of one name, or a `requires` naming what the catalog does not have — its `issues` at
+ * each such `requires`, within the plugin or the item. `catalog.check()` tells the same of an edit
+ * before it is saved.
  */
 export function createCatalog(sources: CatalogSources): Catalog {
   const all: Source[] = [
-    ...(sources.plugins ?? []).map((value) => {
-      const plugin = definePlugin(value);
-      return { name: plugin.name, single: false, plugin };
-    }),
-    ...(sources.items ?? []).map((value) => {
-      const plugin = pluginOfItem(defineItem(value));
-      return { name: plugin.name, single: true, plugin };
-    }),
+    ...(sources.plugins ?? []).map((value) => sourceOf(value, false)),
+    ...(sources.items ?? []).map((value) => sourceOf(value, true)),
   ];
   const entries = entriesOf(all);
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  checkRequires(entries, byId);
-  const expand = (selection: readonly string[], options: SelectOptions = {}): string[] =>
-    expandSelection(selection, { entries, byId }, options);
+  checkRequires(all, byId);
+  resolveRequires(entries, byId);
+  const expand = (selection: readonly string[], options?: SelectOptions): string[] =>
+    expandSelection(entries, selection, options);
   const selected = (selection: readonly string[], options?: SelectOptions) =>
     selectedPlugins(all, new Set(expand(selection, options)));
   return {
     entries: () => entries.map((entry) => ({ ...entry, requires: [...entry.requires] })),
     describe: () => describeCatalog(all, entries, sources.tools ?? {}),
     expand,
+    explain: (selection, options) => explainSelection(entries, selection, options),
+    deselect: (selection, id) => deselect(entries, selection, id),
+    check: (value, kind = 'plugin') => checkEdit(all, sourceOf(value, kind === 'item')),
     resolve: (selection, options = {}) =>
       resolveChecked(selected(selection, options), { ...options, tools: sources.tools }),
     fingerprint: (selection, options) =>
@@ -168,39 +183,85 @@ const idOf = (source: Source, item: { kind: ItemKind; name: string }): string =>
 const refOf = (source: Source, ref: string): string =>
   source.single || ref.includes('/') || ref.startsWith('plugin:') ? ref : `${source.name}/${ref}`;
 
-function checkRequires(entries: readonly CatalogEntry[], byId: Map<string, CatalogEntry>): void {
-  for (const entry of entries) {
-    for (const [index, ref] of entry.requires.entries()) {
-      if (byId.has(ref)) continue;
-      const bare = ref.replace(/^[^/]+\//, '');
-      if (entry.plugin !== undefined && byId.has(bare)) {
-        entry.requires[index] = bare;
-        continue;
-      }
-      throw new InvalidPluginError(
-        `${entry.id} requires ${entry.plugin === undefined ? ref : bare}, which the catalog does not have.`,
-      );
-    }
+/** A plugin, or an item on its own as the plugin it resolves to, checked. */
+function sourceOf(value: unknown, single: boolean): Source {
+  const plugin = single ? pluginOfItem(defineItem(value)) : definePlugin(value);
+  return { name: plugin.name, single, plugin };
+}
+
+/** What an error names a source by: its plugin's name, or `<kind>:<name>` for an item. */
+const labelOf = (source: Source): string | undefined =>
+  source.single ? itemsOf(source.plugin).map(itemKey)[0] : source.name;
+
+/** Each `requires` of `source` the catalog does not have, at its path within the source. */
+function unmetRequires(
+  source: Source,
+  byId: Map<string, CatalogEntry>,
+): { path: (number | string)[]; ref: string }[] {
+  const met = ({ ref, ofPlugin }: { ref: string; ofPlugin: boolean }): boolean => {
+    if (source.single || ofPlugin) return byId.has(ref);
+    const id = refOf(source, ref);
+    return byId.has(id) || byId.has(id.replace(/^[^/]+\//, ''));
+  };
+  return requiresAt(source.plugin)
+    .filter((required) => !met(required))
+    .map(({ path, ref }) => ({
+      // An item on its own: within it, not within the plugin it resolves to.
+      path: source.single ? path.slice(2) : path,
+      ref,
+    }));
+}
+
+/** An unmet `requires`, at its path. */
+const missing = ({ path, ref }: { path: (number | string)[]; ref: string }): PluginIssue => ({
+  path,
+  message: `names ${ref}, which the catalog does not have`,
+});
+
+/** Each source's `requires` the catalog has: the first source naming any it lacks throws. */
+function checkRequires(sources: readonly Source[], byId: Map<string, CatalogEntry>): void {
+  for (const source of sources) {
+    const issues = unmetRequires(source, byId).map(missing);
+    const first = issues[0];
+    if (first === undefined) continue;
+    const more = issues.length > 1 ? ` (and ${issues.length - 1} more)` : '';
+    throw new InvalidPluginError(
+      `${first.path.join('.')}: ${first.message}${more}.`,
+      labelOf(source),
+      issues,
+    );
   }
 }
 
-function expandSelection(
-  selection: readonly string[],
-  { entries, byId }: { entries: readonly CatalogEntry[]; byId: Map<string, CatalogEntry> },
-  { ignoreUnknown = false }: SelectOptions,
-): string[] {
-  const unknown = selection.filter((id) => !byId.has(id));
-  if (unknown.length > 0 && !ignoreUnknown) {
-    throw new InvalidPluginError(`The catalog has no ${unknown.join(', ')}.`);
+/**
+ * What `sources` could not meet with `edited` in place of the one of its name: its own unmet
+ * `requires`, then, at its root, each of the others' it would leave unmet.
+ */
+function checkEdit(sources: readonly Source[], edited: Source): PluginIssue[] {
+  const others = sources.filter((source) => source.name !== edited.name);
+  const byId = new Map(entriesOf([...others, edited]).map((entry) => [entry.id, entry]));
+  const own = unmetRequires(edited, byId).map(missing);
+  const broken = others.flatMap((source) =>
+    unmetRequires(source, byId).map(({ ref }) => ({
+      path: [],
+      message: `${source.single ? labelOf(source) : `plugin:${source.name}`} requires ${ref}, which it would no longer have`,
+    })),
+  );
+  return [...own, ...broken];
+}
+
+/**
+ * Each item's `requires` as an id: `<kind>:<name>` names an item of its plugin first, then one on
+ * its own. Every one is met, `createCatalog()` has checked: what is not an id already is one on
+ * its own.
+ */
+function resolveRequires(entries: readonly CatalogEntry[], byId: Map<string, CatalogEntry>): void {
+  for (const entry of entries) {
+    for (const [index, ref] of entry.requires.entries()) {
+      if (byId.has(ref)) continue;
+      entry.requires[index] = ref.replace(/^[^/]+\//, '');
+    }
   }
-  const wanted = new Set<string>();
-  const queue = selection.filter((id) => byId.has(id));
-  for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-    if (wanted.has(id)) continue;
-    wanted.add(id);
-    queue.push(...(byId.get(id)?.requires ?? []));
-  }
-  return entries.map(({ id }) => id).filter((id) => wanted.has(id));
 }
 
 /**

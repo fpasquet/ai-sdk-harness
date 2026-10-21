@@ -366,7 +366,7 @@ describe('createCatalog', () => {
           { kind: 'skill', name: 'x', description: '', content: '', requires: ['tool:nope'] },
         ],
       }),
-    ).toThrow('skill:x requires tool:nope, which the catalog does not have.');
+    ).toThrow('Plugin "skill:x": requires.0: names tool:nope, which the catalog does not have.');
     expect(() => createCatalog({ items: [{ kind: 'widget', name: 'x' }] })).toThrow(
       'kind: must be one of tool, skill, rule, command, hook, subagent, mcp-server.',
     );
@@ -486,10 +486,12 @@ describe('a plugin that requires items outside itself', () => {
   it('refuses a requirement the catalog does not have, unless it is skipped', () => {
     expect(() =>
       createCatalog({ plugins: [{ ...reviewKit, requires: ['tool:nope'] }], items }),
-    ).toThrow('plugin:review-kit requires tool:nope, which the catalog does not have.');
+    ).toThrow('Plugin "review-kit": requires.0: names tool:nope, which the catalog does not have.');
     expect(() =>
       createCatalog({ plugins: [{ ...reviewKit, requires: ['safety/skill:nope'] }] }),
-    ).toThrow('plugin:review-kit requires safety/skill:nope, which the catalog does not have.');
+    ).toThrow(
+      'Plugin "review-kit": requires.0: names safety/skill:nope, which the catalog does not have.',
+    );
     expect(
       catalog.expand(['plugin:gone', 'review-kit/skill:review'], { ignoreUnknown: true }),
     ).toEqual(['review-kit/skill:review']);
@@ -509,3 +511,145 @@ describe('a plugin that requires items outside itself', () => {
     );
   });
 });
+
+describe('choosing in a catalog', () => {
+  /** Two commands sharing a tool, one in a plugin that also requires a whole plugin. */
+  const reviewKit = {
+    name: 'review-kit',
+    description: 'Reviews.',
+    skills: [{ name: 'review', description: 'Reviews.', content: 'Review.' }],
+    commands: [
+      {
+        name: 'check',
+        description: 'Checks.',
+        prompt: 'Check.',
+        requires: ['skill:review', 'tool:npm-latest'],
+      },
+    ],
+    requires: ['plugin:tracker'],
+  };
+  const catalog = createCatalog({
+    plugins: [tracker, reviewKit],
+    items,
+    tools: { 'tickets.create': createTicket },
+  });
+
+  it('explains what a selection comes to, and what brings each id', () => {
+    expect(
+      catalog.explain(['review-kit/command:check']).map(({ id, requiredBy }) => [id, requiredBy]),
+    ).toEqual([
+      ['review-kit/skill:review', ['review-kit/command:check']],
+      ['review-kit/command:check', []],
+      ['tool:npm-latest', ['review-kit/command:check']],
+    ]);
+    expect(
+      catalog.explain(['plugin:review-kit']).find(({ id }) => id === 'plugin:tracker'),
+    ).toEqual({ id: 'plugin:tracker', chosen: false, requiredBy: ['plugin:review-kit'] });
+  });
+
+  it('deselects an item of a plugin chosen whole, and tells what still brings an id', () => {
+    expect(catalog.deselect(['plugin:review-kit'], 'review-kit/command:check')).toEqual({
+      selection: ['review-kit/skill:review'],
+      requiredBy: [],
+      removed: [
+        'plugin:tracker',
+        'tracker/tool:createTicket',
+        'tracker/tool:countTodos',
+        'tracker/command:triage',
+        'tracker/mcp-server:issues',
+        'plugin:review-kit',
+        'review-kit/command:check',
+        'tool:npm-latest',
+      ],
+    });
+    expect(
+      catalog.deselect(['plugin:review-kit', 'command:npm'], 'review-kit/skill:review'),
+    ).toEqual({
+      selection: ['review-kit/command:check', 'command:npm'],
+      requiredBy: ['review-kit/command:check'],
+      removed: [
+        'plugin:tracker',
+        'tracker/tool:createTicket',
+        'tracker/tool:countTodos',
+        'tracker/command:triage',
+        'tracker/mcp-server:issues',
+        'plugin:review-kit',
+      ],
+    });
+  });
+
+  it('checks an edit before it is saved, against the catalog with it in place', () => {
+    expect(catalog.check({ ...reviewKit, requires: ['plugin:tracker', 'tool:nope'] })).toEqual([
+      { path: ['requires', 1], message: 'names tool:nope, which the catalog does not have' },
+    ]);
+    expect(catalog.check({ ...items[1]!, requires: ['tool:nope'] }, 'item')).toEqual([
+      { path: ['requires', 0], message: 'names tool:nope, which the catalog does not have' },
+    ]);
+    expect(catalog.check({ ...reviewKit, name: 'other-kit' })).toEqual([]);
+  });
+
+  it('tells what an edit would leave unmet elsewhere', () => {
+    expect(catalog.check({ ...reviewKit, skills: [] })).toEqual([
+      {
+        path: ['commands', 0, 'requires', 0],
+        message: 'names skill:review, which the catalog does not have',
+      },
+    ]);
+    expect(catalog.check({ ...tracker, commands: [] })).toEqual([
+      {
+        path: [],
+        message: 'subagent:reviewer requires tracker/command:triage, which it would no longer have',
+      },
+    ]);
+    // Renamed, it joins the catalog: the one of its old name stays.
+    expect(catalog.check({ ...items[0]!, name: 'npm-next' }, 'item')).toEqual([]);
+  });
+
+  it('refuses through definePlugin() and defineItem() what they refuse', () => {
+    expect(() => catalog.check({ name: 'Not A Slug' })).toThrow(InvalidPluginError);
+    expect(() => catalog.check({ kind: 'widget', name: 'x' }, 'item')).toThrow(
+      'kind: must be one of',
+    );
+  });
+
+  it('refuses what it cannot meet with an issue at each requires of the plugin', () => {
+    const edited = {
+      ...reviewKit,
+      skills: [],
+      requires: ['plugin:tracker', 'tool:nope', 'plugin:gone'],
+    };
+    const error = caught(() => createCatalog({ plugins: [tracker, edited], items }));
+    expect(error.plugin).toBe('review-kit');
+    expect(error.message).toBe(
+      'Plugin "review-kit": commands.0.requires.0: names skill:review, which the catalog does not have (and 2 more).',
+    );
+    expect(error.issues).toEqual([
+      {
+        path: ['commands', 0, 'requires', 0],
+        message: 'names skill:review, which the catalog does not have',
+      },
+      { path: ['requires', 1], message: 'names tool:nope, which the catalog does not have' },
+      { path: ['requires', 2], message: 'names plugin:gone, which the catalog does not have' },
+    ]);
+  });
+
+  it('refuses what an item on its own cannot meet, at its own requires', () => {
+    const npm = { ...items[1]!, requires: ['tool:npm-latest', 'tool:nope'] };
+    const error = caught(() => createCatalog({ items: [items[0]!, npm] }));
+    expect(error.plugin).toBe('command:npm');
+    expect(error.issues).toEqual([
+      { path: ['requires', 1], message: 'names tool:nope, which the catalog does not have' },
+    ]);
+  });
+});
+
+/** The {@link InvalidPluginError} `run` throws. */
+function caught(run: () => unknown): InvalidPluginError {
+  try {
+    run();
+  } catch (error) {
+    if (InvalidPluginError.isInstance(error)) return error;
+    throw error;
+  }
+  throw new Error('nothing thrown');
+}

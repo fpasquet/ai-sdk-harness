@@ -3,7 +3,8 @@
 import type { CatalogDescription, CatalogItemDescription } from 'ai-sdk-harness-plugins';
 import type { ReactNode } from 'react';
 
-import { CheckIcon, InfoIcon, PuzzleIcon } from 'lucide-react';
+import { deselect, explain } from 'ai-sdk-harness-plugins/selection';
+import { CheckIcon, InfoIcon, LockIcon, PuzzleIcon } from 'lucide-react';
 
 import type { HarnessId } from '@/lib/harnesses';
 
@@ -27,42 +28,18 @@ export const everything = ({ items, plugins }: CatalogDescription): string[] => 
   ...items.filter(({ plugin }) => plugin === undefined).map(({ id }) => id),
 ];
 
-/**
- * The ids `selection` comes to, the way the server's catalog expands it: a plugin brings its
- * items and what it requires, an item what it requires.
- */
-export function expandSelection(
-  marketplace: CatalogDescription,
-  selection: readonly string[],
-): Set<string> {
-  return new Set(reach(marketplace, selection).keys());
+/** What a card calls `id`: a plugin by its name, an item of a plugin by its plugin. */
+function nameOf({ items, plugins }: CatalogDescription, id: string): string {
+  const plugin = plugins.find((entry) => entry.id === id);
+  if (plugin !== undefined) return plugin.name;
+  const item = items.find((entry) => entry.id === id);
+  return item === undefined ? id : (item.plugin ?? item.invocation ?? item.name);
 }
 
-/** Each id `selection` comes to, with the id that brought it: absent for one selected. */
-function reach(
-  { items, plugins }: CatalogDescription,
-  selection: readonly string[],
-): Map<string, string | undefined> {
-  const byId = new Map<string, { requires?: string[] }>(
-    [...plugins, ...items].map((entry) => [entry.id, entry]),
-  );
-  const broughtBy = new Map<string, string | undefined>();
-  const queue = selection.map((id): [string, string | undefined] => [id, undefined]);
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    const [id, by] = next;
-    if (broughtBy.has(id)) continue;
-    broughtBy.set(id, by);
-    const plugin = id.startsWith('plugin:') ? id.slice('plugin:'.length) : undefined;
-    if (plugin !== undefined) {
-      queue.push(
-        ...items
-          .filter((item) => item.plugin === plugin)
-          .map(({ id: item }): [string, string] => [item, id]),
-      );
-    }
-    queue.push(...(byId.get(id)?.requires ?? []).map((ref): [string, string] => [ref, id]));
-  }
-  return broughtBy;
+/** What keeps an id selected, each named once: `Required by upgrades, /npm`. */
+function requiredByOf(marketplace: CatalogDescription, requiredBy: readonly string[]) {
+  const names = [...new Set(requiredBy.map((id) => nameOf(marketplace, id)))];
+  return names.length > 0 ? `Required by ${names.join(', ')}` : undefined;
 }
 
 /**
@@ -109,6 +86,7 @@ function Card({
   note,
   on,
   onToggle,
+  requiredBy,
   title,
 }: {
   /** Beside the card, not in it: a card is a toggle. */
@@ -118,6 +96,8 @@ function Card({
   note?: string;
   on: boolean;
   onToggle: () => void;
+  /** What keeps it selected: the card is locked while anything does. */
+  requiredBy?: string;
   title: string;
 }) {
   return (
@@ -125,10 +105,12 @@ function Card({
       <button
         aria-pressed={on}
         className={cn(
-          'flex size-full items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent',
+          'flex size-full items-start gap-3 rounded-lg border p-3 text-left transition-colors',
           on ? 'border-primary/40 bg-accent/40' : 'opacity-70',
+          requiredBy === undefined ? 'hover:bg-accent' : 'cursor-not-allowed',
           action !== undefined && 'pr-10',
         )}
+        disabled={requiredBy !== undefined}
         onClick={onToggle}
         type="button"
       >
@@ -146,6 +128,11 @@ function Card({
             {label && <KindLabel kind={label} />}
           </span>
           <span className="text-xs text-muted-foreground">{details}</span>
+          {requiredBy && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <LockIcon className="size-3" /> {requiredBy}
+            </span>
+          )}
           {note && <span className="text-xs text-amber-600 dark:text-amber-400">{note}</span>}
         </span>
       </button>
@@ -185,9 +172,9 @@ function DetailRow({
 }
 
 /**
- * Everything selecting `plugin` brings, from the marketplace's description: its own items, then
- * the items it is linked to — what it requires, and what that requires in turn —, each with what
- * brings it.
+ * Everything selecting `plugin` brings, as `explain()` reads it from the marketplace's
+ * description: its own items, then the items it is linked to — what it requires, and what that
+ * requires in turn —, each with what brings it.
  */
 function PluginDetails({
   harness,
@@ -199,7 +186,9 @@ function PluginDetails({
   plugin: PluginDescription;
 }) {
   const own = marketplace.items.filter((item) => item.plugin === plugin.name);
-  const broughtBy = reach(marketplace, [plugin.id]);
+  const broughtBy = new Map(
+    explain(marketplace, [plugin.id]).map(({ id, requiredBy }) => [id, requiredBy]),
+  );
   const linked = [...marketplace.plugins, ...marketplace.items].filter(
     (entry) =>
       entry.id !== plugin.id &&
@@ -207,9 +196,11 @@ function PluginDetails({
       !('kind' in entry && entry.plugin === plugin.name),
   );
   const why = (id: string): string => {
-    const by = broughtBy.get(id);
-    if (by === plugin.id) return `Required by ${plugin.name}.`;
-    return by?.startsWith('plugin:') ? `Comes with ${by}.` : `Required by ${by}.`;
+    const by = broughtBy.get(id) ?? [];
+    if (by.includes(plugin.id)) return `Required by ${plugin.name}.`;
+    const carrier = by.find((other) => other.startsWith('plugin:'));
+    if (carrier !== undefined) return `Comes with ${nameOf(marketplace, carrier)}.`;
+    return `${requiredByOf(marketplace, by)}.`;
   };
 
   return (
@@ -281,7 +272,9 @@ function PluginDetails({
 
 /**
  * What the conversation picks in the marketplace, before its first message: plugins, and items
- * on their own. "New chat" brings it back.
+ * on their own. A card is on for what the pick comes to — `explain()`, from the description the
+ * server's catalog gave —, and locked, with what requires it, while anything does. "New chat"
+ * brings it back.
  */
 export function MarketplacePicker({
   harness,
@@ -295,8 +288,21 @@ export function MarketplacePicker({
   selection: string[];
 }) {
   const order = everything(marketplace);
-  const toggle = (id: string) =>
-    onChange(order.filter((other) => (other === id) !== selection.includes(other)));
+  const picked = new Map(
+    explain(marketplace, selection, { ignoreUnknown: true }).map(({ id, requiredBy }) => [
+      id,
+      requiredByOf(marketplace, requiredBy),
+    ]),
+  );
+  const toggle = (id: string) => {
+    if (!picked.has(id)) {
+      onChange(order.filter((other) => other === id || selection.includes(other)));
+      return;
+    }
+    const { requiredBy, selection: next } = deselect(marketplace, selection, id);
+    // A card locked: what still brings it keeps it in.
+    if (requiredBy.length === 0) onChange(next);
+  };
   const single = marketplace.items.filter(({ plugin }) => plugin === undefined);
 
   return (
@@ -312,8 +318,9 @@ export function MarketplacePicker({
               details={`${plugin.description} ${contentsOf(plugin)}`}
               key={plugin.id}
               note={leftOut(harness, plugin)}
-              on={selection.includes(plugin.id)}
+              on={picked.has(plugin.id)}
               onToggle={() => toggle(plugin.id)}
+              requiredBy={picked.get(plugin.id)}
               title={plugin.name}
             />
           ))}
@@ -334,8 +341,9 @@ export function MarketplacePicker({
               key={item.id}
               label={item.kind}
               note={leftOut(harness, undefined, item)}
-              on={selection.includes(item.id)}
+              on={picked.has(item.id)}
               onToggle={() => toggle(item.id)}
+              requiredBy={picked.get(item.id)}
               title={item.invocation ?? item.name}
             />
           ))}

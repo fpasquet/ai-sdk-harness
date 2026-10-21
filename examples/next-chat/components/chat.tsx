@@ -11,6 +11,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
 } from 'ai';
 import { QUESTIONS_TOOL_NAME } from 'ai-sdk-harness-approval';
+import { expand } from 'ai-sdk-harness-plugins/selection';
 import { BoxIcon, ShieldQuestionIcon, SquarePenIcon } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -36,12 +37,7 @@ import {
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { ChangesPanel } from '@/components/changes-panel';
-import {
-  everything,
-  expandSelection,
-  MarketplacePicker,
-  SelectionCount,
-} from '@/components/marketplace-picker';
+import { everything, MarketplacePicker, SelectionCount } from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
 import {
   type PromptCommand,
@@ -594,7 +590,7 @@ function AskFirstToggle({
  * `expandCommand()` expands.
  */
 function slashCommandsOf(marketplace: CatalogDescription, selection: string[]): PromptCommand[] {
-  const picked = expandSelection(marketplace, selection);
+  const picked = new Set(expand(marketplace, selection, { ignoreUnknown: true }));
   const items = marketplace.items.filter(({ id }) => picked.has(id));
   return [
     ...items.filter(({ kind }) => kind === 'command'),
