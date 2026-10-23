@@ -49,6 +49,7 @@ export const HARNESSES = {
     asksFirst: true,
     resumes: true,
     // `openrouter/` picks OpenCode's OpenRouter provider; the rest is the OpenRouter model.
+    openRouter: { prefix: 'openrouter/' },
     models: [
       { id: 'openrouter/deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
       { id: 'openrouter/moonshotai/kimi-k3', label: 'Kimi K3' },
@@ -63,7 +64,9 @@ export const HARNESSES = {
     runsIn: 'server',
     asksFirst: true,
     resumes: true,
-    // Models of Pi's own catalog, under its `openrouter` provider.
+    // Pi's `openrouter` provider. Pi only runs the models of its own catalog, generated from
+    // OpenRouter's: a model added since then is refused, with a message that says so.
+    openRouter: { prefix: 'openrouter/' },
     models: [
       { id: 'openrouter/deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
       { id: 'openrouter/moonshotai/kimi-k3', label: 'Kimi K3' },
@@ -78,6 +81,7 @@ export const HARNESSES = {
     runsIn: 'server',
     asksFirst: true,
     resumes: true,
+    openRouter: { prefix: '' },
     models: [
       { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
       { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
@@ -95,6 +99,7 @@ export const HARNESSES = {
     // Its conversation lives in the bridge's memory: a suspension forgets it, the files stay.
     resumes: false,
     // Deep Agents speaks the Anthropic API: OpenRouter's Anthropic-compatible endpoint.
+    openRouter: { prefix: '' },
     models: [
       { id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' },
       { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
@@ -109,6 +114,8 @@ export const HARNESSES = {
     runsIn: 'sandbox',
     asksFirst: false,
     resumes: true,
+    // Grok Build runs xAI's models only.
+    openRouter: { prefix: '', only: 'x-ai/' },
     models: [
       { id: 'x-ai/grok-build-0.1', label: 'Grok Build 0.1' },
       { id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
@@ -174,14 +181,103 @@ export const TEMPLATE_HARNESSES: readonly HarnessId[] = ['claude-code', 'codex']
  */
 export type HarnessAvailability = Record<HarnessId, boolean>;
 
+/** A model of OpenRouter's catalog that can call tools, as `lib/models.ts` reads it. */
+export interface OpenRouterModel {
+  /** `moonshotai/kimi-k3` */
+  id: string;
+  /** `MoonshotAI: Kimi K3` */
+  name: string;
+}
+
+/** A model a conversation may pick, in a group of the model selector. */
+export interface ModelOption {
+  /** What the harness is given: `openrouter/moonshotai/kimi-k3` for OpenCode. */
+  id: string;
+  label: string;
+}
+
+/**
+ * How a harness names a model of OpenRouter's catalog, for those that go through OpenRouter: the
+ * prefix that picks their OpenRouter provider, and the models they can run when not all.
+ */
+interface OpenRouterRoute {
+  only?: string;
+  prefix: string;
+}
+
+function openRouterOf(harness: HarnessId): OpenRouterRoute | undefined {
+  const entry = HARNESSES[harness];
+  return 'openRouter' in entry ? (entry.openRouter as OpenRouterRoute) : undefined;
+}
+
+/** `model` as a harness on `route` names it, or `undefined` when the harness cannot run it. */
+function openRouterOptionOf(
+  { id, name }: OpenRouterModel,
+  { only, prefix }: OpenRouterRoute,
+): ModelOption | undefined {
+  if (only !== undefined && !id.startsWith(only)) return undefined;
+  return { id: `${prefix}${id}`, label: name.split(': ').at(-1) ?? name };
+}
+
+/** Who makes `model`, as OpenRouter names it: `MoonshotAI` of `MoonshotAI: Kimi K3`. */
+const providerOf = ({ id, name }: OpenRouterModel): string =>
+  name.includes(': ') ? name.slice(0, name.indexOf(': ')) : id.slice(0, id.indexOf('/'));
+
+/**
+ * The models `harness` offers, in groups: the few the example suggests, then, for a harness that
+ * goes through OpenRouter, every model of `catalog` it can run, by provider.
+ */
+export function modelGroupsOf(
+  harness: HarnessId,
+  catalog: readonly OpenRouterModel[],
+): { label: string; models: ModelOption[] }[] {
+  const suggested: ModelOption[] = [...HARNESSES[harness].models];
+  const route = openRouterOf(harness);
+  if (route === undefined) return [{ label: 'Suggested', models: suggested }];
+  const byProvider = new Map<string, ModelOption[]>();
+  for (const model of catalog) {
+    const option = openRouterOptionOf(model, route);
+    if (option === undefined || suggested.some(({ id }) => id === option.id)) continue;
+    const provider = providerOf(model);
+    byProvider.set(provider, [...(byProvider.get(provider) ?? []), option]);
+  }
+  return [
+    { label: 'Suggested', models: suggested },
+    ...[...byProvider]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([provider, models]) => ({ label: `OpenRouter · ${provider}`, models })),
+  ];
+}
+
+/** How a conversation's model reads: its label when suggested, its OpenRouter id otherwise. */
+export function modelLabelOf(harness: HarnessId, model: string): string {
+  const suggested = HARNESSES[harness].models.find(({ id }) => id === model);
+  if (suggested !== undefined) return suggested.label;
+  const prefix = openRouterOf(harness)?.prefix ?? '';
+  return model.startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
 /** The model a conversation starts with: the first, and cheapest, of its harness. */
 export const defaultModel = (harness: HarnessId): string => HARNESSES[harness].models[0].id;
 
-/** Whether `harness` and `model` name an agent of the catalog. */
-export function isKnown(harness: unknown, model: unknown): harness is HarnessId {
+/**
+ * Whether `harness` and `model` name an agent the example offers: a suggested model, or one of
+ * `catalog` the harness can run through OpenRouter.
+ */
+export function isKnown(
+  harness: unknown,
+  model: unknown,
+  catalog: readonly OpenRouterModel[],
+): harness is HarnessId {
   return (
     typeof harness === 'string' &&
     harness in HARNESSES &&
-    HARNESSES[harness as HarnessId].models.some(({ id }) => id === model)
+    modelGroupsOf(harness as HarnessId, catalog).some(({ models }) =>
+      models.some(({ id }) => id === model),
+    )
   );
 }
+
+/** Whether any harness goes through OpenRouter: the catalog is then worth reading. */
+export const usesOpenRouter = (harnesses: readonly HarnessId[]): boolean =>
+  harnesses.some((harness) => openRouterOf(harness) !== undefined);

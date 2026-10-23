@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { STATUS_LABELS } from '@/lib/conversations';
-import { HARNESSES } from '@/lib/harnesses';
+import { HARNESSES, modelLabelOf } from '@/lib/harnesses';
 import { cn } from '@/lib/utils';
 
 /** The colour of each status's dot: green when it can take a message, amber when it needs you. */
@@ -123,7 +123,7 @@ function SessionItem({
 }) {
   const { metadata, status } = session;
   const harness = HARNESSES[metadata.harness];
-  const model = harness.models.find(({ id }) => id === metadata.model)?.label ?? metadata.model;
+  const model = modelLabelOf(metadata.harness, metadata.model);
   const suspendable = status === 'idle' || status === 'awaiting-input';
 
   return (

@@ -41,6 +41,7 @@ import { ChangesPanel } from '@/components/changes-panel';
 import { HarnessGallery } from '@/components/harness-gallery';
 import { everything, MarketplacePicker, SelectionCount } from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
+import { ModelPicker } from '@/components/model-picker';
 import {
   type PromptCommand,
   PromptEditor,
@@ -65,6 +66,7 @@ import {
   type HarnessAvailability,
   HARNESSES,
   type HarnessId,
+  type OpenRouterModel,
   TEMPLATE_HARNESSES,
 } from '@/lib/harnesses';
 import { SANDBOXES, type SandboxId } from '@/lib/sandboxes';
@@ -86,6 +88,12 @@ const withHarness = (agent: Agent, harness: HarnessId): Agent => ({
   model: defaultModel(harness),
   askFirst: agent.askFirst && HARNESSES[harness].asksFirst,
 });
+
+/**
+ * Where a conversation opens: on its last message, or, a new one, on its top, where the coding
+ * agents are to pick from.
+ */
+const initialScrollOf = (messages: UIMessage[]) => (messages.length > 0 ? 'smooth' : false);
 
 /** A conversation open in this tab: a new one has no session on the server yet. */
 interface Opened {
@@ -123,6 +131,7 @@ export function ChatApp({
   availability,
   initialSessions,
   marketplace,
+  openRouterModels,
   repository,
   sandbox,
 }: {
@@ -130,6 +139,8 @@ export function ChatApp({
   availability: HarnessAvailability;
   initialSessions: SessionSummary<Conversation>[];
   marketplace: CatalogDescription;
+  /** The models of OpenRouter, for the harnesses that go through it. */
+  openRouterModels: OpenRouterModel[];
   /** The repository each conversation works on a checkout of, with `EXAMPLE_REPOSITORY`. */
   repository?: string | undefined;
   sandbox: SandboxId;
@@ -203,6 +214,7 @@ export function ChatApp({
             marketplace={marketplace}
             onDraftChange={setDraft}
             onNewChat={newChat}
+            openRouterModels={openRouterModels}
             repository={repository}
             sandbox={sandbox}
             session={byId.get(id)}
@@ -244,6 +256,7 @@ interface ChatProps {
   marketplace: CatalogDescription;
   onDraftChange: (agent: Agent) => void;
   onNewChat: () => void;
+  openRouterModels: OpenRouterModel[];
   repository: string | undefined;
   sandbox: SandboxId;
   /** The conversation's session, once the server opened it. */
@@ -259,6 +272,7 @@ function Chat({
   marketplace,
   onDraftChange,
   onNewChat,
+  openRouterModels,
   repository,
   sandbox,
   session,
@@ -325,6 +339,7 @@ function Chat({
         locked={locked}
         onDraftChange={onDraftChange}
         onNewChat={onNewChat}
+        openRouterModels={openRouterModels}
         sandbox={sandbox}
         session={session}
       />
@@ -332,7 +347,7 @@ function Chat({
         <ChangesPanel id={id} repository={repository} session={session} />
       )}
       <BlockedHostsPanel sandbox={sandbox} session={session} />
-      <ConversationView className="flex-1">
+      <ConversationView className="flex-1" initial={initialScrollOf(initialMessages)}>
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (
             <ConversationEmptyState className="justify-start gap-6 pt-12">
@@ -407,6 +422,7 @@ function ChatHeader({
   locked,
   onDraftChange,
   onNewChat,
+  openRouterModels,
   sandbox,
   session,
 }: {
@@ -416,6 +432,7 @@ function ChatHeader({
   locked: boolean;
   onDraftChange: (agent: Agent) => void;
   onNewChat: () => void;
+  openRouterModels: OpenRouterModel[];
   sandbox: SandboxId;
   session: SessionSummary<Conversation> | undefined;
 }) {
@@ -443,6 +460,7 @@ function ChatHeader({
           availability={availability}
           locked={locked}
           onChange={onDraftChange}
+          openRouterModels={openRouterModels}
         />
         <SelectionCount count={agent.selection.length} />
         <Button className="md:hidden" disabled={busy} onClick={onNewChat} size="sm" variant="ghost">
@@ -698,22 +716,21 @@ function ChatMessage({
 
 /**
  * The harness and its model; locked once the conversation started. Kept out of the prompt's form:
- * resetting it after each message would reset these selects too.
+ * resetting it after each message would reset these pickers too.
  */
 function AgentPicker({
   agent,
   availability,
   locked,
   onChange,
+  openRouterModels,
 }: {
   agent: Agent;
   availability: HarnessAvailability;
   locked: boolean;
   onChange: (agent: Agent) => void;
+  openRouterModels: OpenRouterModel[];
 }) {
-  const { models } = HARNESSES[agent.harness];
-  const modelLabel = models.find(({ id }) => id === agent.model)?.label ?? agent.model;
-
   return (
     <>
       <Select
@@ -732,24 +749,13 @@ function AgentPicker({
           ))}
         </SelectContent>
       </Select>
-      {/* Remounted with each harness, so it never shows a model of the previous one. */}
-      <Select
+      <ModelPicker
         disabled={locked}
-        key={agent.harness}
-        onValueChange={(model: string) => onChange({ ...agent, model })}
-        value={agent.model}
-      >
-        <SelectTrigger aria-label="Model" size="sm">
-          <SelectValue>{modelLabel}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {models.map(({ id, label }) => (
-            <SelectItem key={id} value={id}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        harness={agent.harness}
+        model={agent.model}
+        onChange={(model) => onChange({ ...agent, model })}
+        openRouterModels={openRouterModels}
+      />
     </>
   );
 }

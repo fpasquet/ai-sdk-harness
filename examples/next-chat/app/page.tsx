@@ -1,5 +1,7 @@
 import { ChatApp } from '@/components/chat';
 import { harnessAvailability } from '@/lib/harness-adapters';
+import { HARNESS_IDS } from '@/lib/harnesses';
+import { openRouterModelsFor } from '@/lib/models';
 import { describeMarketplace } from '@/lib/plugins';
 import { sandboxIdOf } from '@/lib/sandboxes';
 import { sessions } from '@/lib/sessions';
@@ -15,11 +17,15 @@ export const dynamic = 'force-dynamic';
  * sessions opens no sandbox.
  */
 export default async function Page() {
+  const availability = harnessAvailability();
+  // The models of OpenRouter, for the harnesses that go through it and can run.
+  const openRouterModels = await openRouterModelsFor(HARNESS_IDS.filter((id) => availability[id]));
   return (
     <ChatApp
-      availability={harnessAvailability()}
+      availability={availability}
       initialSessions={await sessions().list()}
       marketplace={await describeMarketplace()}
+      openRouterModels={openRouterModels}
       repository={repositoryLabel()}
       sandbox={sandboxIdOf(process.env.EXAMPLE_SANDBOX)}
     />
