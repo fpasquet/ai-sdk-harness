@@ -62,7 +62,7 @@
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
-    "@ai-sdk/mcp": "^2.0.73"
+    "@ai-sdk/mcp": "^2.0.77"
   },
   "peerDependencies": {
     "@ai-sdk/harness": "^1.0.0",
@@ -70,10 +70,10 @@
     "zod": "^3.25.76 || ^4.1.8"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "^1.0.147",
-    "@ai-sdk/harness-claude-code": "^1.0.151",
-    "@ai-sdk/harness-codex": "^1.0.149",
-    "@ai-sdk/provider-utils": "^5.0.58",
+    "@ai-sdk/harness": "^1.0.153",
+    "@ai-sdk/harness-claude-code": "^1.0.157",
+    "@ai-sdk/harness-codex": "^1.0.155",
+    "@ai-sdk/provider-utils": "^5.0.61",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
     "@repo/prettier-config": "workspace:*",
