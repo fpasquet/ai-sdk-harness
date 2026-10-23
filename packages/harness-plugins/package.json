@@ -79,7 +79,7 @@
     "@repo/prettier-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
-    "@types/node": "^24.13.5",
+    "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.5",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "typescript": "^6.0.3",
