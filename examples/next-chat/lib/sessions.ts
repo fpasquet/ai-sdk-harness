@@ -14,7 +14,7 @@ import type { Conversation } from '@/lib/conversations';
 import type { HarnessId } from '@/lib/harnesses';
 
 import { APPROVAL_POLICY } from '@/lib/approval';
-import { resolveSelection } from '@/lib/plugins';
+import { marketplaceSandboxHosts, resolveSelection } from '@/lib/plugins';
 import {
   createConversationMicrosandbox,
   MICROSANDBOX_CONVERSATIONS,
@@ -155,8 +155,13 @@ function createExampleSessions(): SessionManager<Conversation> {
       : sharedSandbox({
           // The first creation installs both Claude Code and Codex in the sandbox, then saves it
           // as a template (a few minutes); every later one starts from that template in seconds.
-          // With `EXAMPLE_REPOSITORY`, the sandbox's network lets its checkouts be fetched.
-          open: async () => openSandbox(harnessTemplate, (await state.workspace?.hosts()) ?? []),
+          // Its network lets its checkouts be fetched, with `EXAMPLE_REPOSITORY`, and lets through
+          // what the marketplace's plugins reach from it.
+          open: async () => {
+            const repositoryHosts = (await state.workspace?.hosts()) ?? [];
+            const pluginHosts = await marketplaceSandboxHosts();
+            return openSandbox(harnessTemplate, [...repositoryHosts, ...pluginHosts]);
+          },
           ports: SESSION_PORTS,
           stopWhenUnused: SANDBOX === 'cloud-run',
         });

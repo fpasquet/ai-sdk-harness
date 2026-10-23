@@ -1,6 +1,7 @@
 import type { Tool } from '@ai-sdk/provider-utils';
 
 import type { ItemKind } from '../config/item-schema.js';
+import type { PluginHosts } from '../config/plugin-hosts.js';
 import type { ResolvedPlugins, ResolveOptions } from '../config/resolve-plugins.js';
 import type { Plugin, ToolDefinition } from '../definitions/plugin.js';
 import type { PluginIssue } from '../errors/invalid-plugin-error.js';
@@ -11,6 +12,7 @@ import { defineItem, definePlugin } from '../config/define.js';
 import { plainInputSchema } from '../config/input-schema.js';
 import { pluginOfItem } from '../config/item-schema.js';
 import { pluginFingerprint } from '../config/plugin-fingerprint.js';
+import { pluginHosts } from '../config/plugin-hosts.js';
 import { isToolDefinition } from '../config/plugin-schema.js';
 import { resolveChecked } from '../config/resolve-plugins.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
@@ -98,6 +100,12 @@ export interface Catalog {
    * selected plugin or item builds a new one.
    */
   fingerprint(selection: readonly string[], options?: SelectOptions): string;
+  /**
+   * The hosts `selection` reaches, from the sandbox and from your server, what it requires
+   * included: the `hosts` of `resolve()`, without resolving anything — what a sandbox's network
+   * policy is built from before the sandbox, or the agent, exists.
+   */
+  hosts(selection: readonly string[], options?: SelectOptions): PluginHosts;
 }
 
 /** Where an entry comes from. */
@@ -141,6 +149,7 @@ export function createCatalog(sources: CatalogSources): Catalog {
         ids: expand(selection, options),
         plugins: selected(selection, options).map(fingerprintable),
       }),
+    hosts: (selection, options) => pluginHosts(selected(selection, options)),
   };
 }
 

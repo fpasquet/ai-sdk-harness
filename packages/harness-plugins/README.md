@@ -82,6 +82,9 @@ export const acme = definePlugin({
 
   // Files written in the sandbox, in ${PLUGIN_ROOT}: the hook's script.
   files: [{ path: 'guard.sh', content: '#!/bin/sh\n…', executable: true }],
+
+  // The hosts it reaches that nothing above shows: the hook's script calls the Acme API.
+  network: { hosts: ['api.acme.dev'] },
 });
 ```
 
@@ -127,7 +130,7 @@ await agent.stream({ session, prompt });
 await close(); // closes the MCP clients, once the agent is done
 ```
 
-- `resolvePlugins()` builds the tools written as configuration, resolves the secrets and connects the MCP servers. A plugin with none of these can go straight to `withPlugins()`.
+- `resolvePlugins()` builds the tools written as configuration, resolves the secrets and connects the MCP servers. A plugin with none of these can go straight to `withPlugins()`. Its `hosts` are those the plugins reach, from the sandbox and from your server: see [Network](#network).
 - `withPlugins()` adds the tools and skills to the agent, and writes the rules, hooks, subagents and files in each session. What the runtime cannot take — hooks and subagents on Codex — is left out with a warning (`onUnsupported` to change that).
 - `/<skill>` calls a skill as `/<command>` calls a command; `listSlashCommands(plugins)` lists both, for a prompt's completion.
 
@@ -372,6 +375,7 @@ const agent = new HarnessAgent(withPlugins({ harness: createClaudeCode() }, plug
 ```
 
 - `catalog.describe()` is what a marketplace page shows of every plugin and item — never code, prompts or secrets: safe for a browser.
+- `catalog.hosts(selection)` gives the hosts the selection reaches from the sandbox and from your server, what it requires included, as `catalog.resolve()` does: see [Network](#network).
 - `catalog.fingerprint(selection)` changes when what the selection resolves to is edited: key your built agents by it.
 - `catalog.explain(selection)` gives each id the selection comes to, whether it was chosen, and the ids that require it: what a back office shows as "required by".
 - `catalog.deselect(selection, id)` takes an id out of a selection — an item of a plugin chosen whole leaves the plugin's other items chosen — and tells what still brings it, in `requiredBy`: refuse the change while anything does. `removed` lists what the change takes away, what the plugin required besides its items included.
@@ -400,7 +404,7 @@ deselect(description, selection, 'tool:npm-latest'); // catalog.deselect(selecti
 
 A plugin can `requires` too, at its top: what it uses outside itself — an item on its own, an item of another plugin, a whole plugin —, by the same ids. Selecting the plugin (`plugin:<name>`) selects them, and what they require in turn; each is delivered as the item it is, never copied into the plugin, so the plugin follows the edits of an item published on its own. Selecting one item of the plugin brings only what that item requires. A plugin cannot require itself nor one of its own items, which come with it: in its `requires`, `<kind>:<name>` always names an item on its own, where an item's `requires` looks within its plugin first.
 
-This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) brings a skill, and the `npm-latest` tool above, as it is published:
+This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) brings a skill, and the `npm-latest` tool above, as it is published. Its skill installs packages in the sandbox, so it declares the npm registry in `network.hosts` ([Network](#network)):
 
 ```json
 {
@@ -413,7 +417,8 @@ This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/
       "content": "# Upgrading a dependency\n\n1. Look the package up with the npm-latest tool: its latest version and its license.\n2. Install that exact version, pinned in package.json.\n3. Run the tests, or the project, and say what changed."
     }
   ],
-  "requires": ["tool:npm-latest"]
+  "requires": ["tool:npm-latest"],
+  "network": { "hosts": ["registry.npmjs.org"] }
 }
 ```
 
@@ -455,6 +460,47 @@ A `sandbox-command` receives `INPUT`, the input as JSON, and `INPUT_<KEY>` for e
 - A hook's `command` runs in the sandbox with the event as JSON on its standard input; for `PreToolUse`, exit status `2` blocks the call. It guards against mistakes, not against a hostile agent: the sandbox stays the security boundary.
 - Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; hooks, subagents and rules go to `.claude/`. All of it is kept out of Git.
 - `${PLUGIN_ROOT}` is not an environment variable: in a hook's `command`, or the `command`, `args` and `env` of an MCP server run in the sandbox, the package replaces it with that directory of the plugin, `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it included.
+
+### Network
+
+A sandbox whose network policy lets only some hosts through (`{ mode: 'custom', allowedHosts }`) needs to know those the plugins reach from it. `hosts`, beside the `plugins` that `resolvePlugins()` and `catalog.resolve()` return, lists them by where they are reached from, each list unique and sorted:
+
+| Read from       | `hosts.sandbox`                                                                                                                                                                           | `hosts.server`                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| URLs            | each `http` MCP server with `runIn: 'sandbox'`                                                                                                                                            | each `http` tool — its `{key}` placeholders never reach the host — and each `http` MCP server your server connects to |
+| Commands        | the registry each `stdio` MCP server with `runIn: 'sandbox'` downloads its package from, when a package launcher starts it                                                                | the registry each `stdio` MCP server your server starts downloads its package from                                    |
+| `network.hosts` | of a plugin, or an item on its own, with anything in the sandbox: a skill, a rule, a command, a hook, a subagent, a file, a `sandbox-command` tool, an MCP server with `runIn: 'sandbox'` | of one whose parts all run on your server: tools of code, `http` or `registered` ones, MCP servers it connects to     |
+
+A package launcher downloads from a registry: `npx`, `pnpx`, `bunx`, `npm exec`, `pnpm dlx` and `bun x` from `registry.npmjs.org`, `yarn dlx` from `registry.yarnpkg.com`, `uvx`, `uv tool run` and `pipx run` from `pypi.org` and `files.pythonhosted.org`. Any other command downloads nothing the package knows of, and a registry set in a project's own configuration (`.npmrc`, a mirror) is not read.
+
+`network.hosts` declares what a definition does not show, such as the API a stdio server started with `npx` calls, or the web service a hook's command posts to. A plugin declares its hosts once, for all its parts: they are the sandbox's as soon as one of them runs there, since what your server reaches it reaches with a URL the definition already shows.
+
+```json
+{
+  "kind": "mcp-server",
+  "name": "acme-docs",
+  "description": "The Acme documentation, from a server the runtime starts in the sandbox.",
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "@acme/docs-mcp"],
+  "runIn": "sandbox",
+  "network": { "hosts": ["api.acme.dev"] }
+}
+```
+
+```ts
+// Before the sandbox exists: catalog.hosts() resolves nothing.
+const hosts = catalog.hosts(['mcp-server:acme-docs']);
+// { sandbox: ['api.acme.dev', 'registry.npmjs.org'], server: [] }: npx downloads from npm
+const defaults = ['api.anthropic.com', 'registry.npmjs.org']; // what the runtime itself needs
+const sandbox = await createSbxNetworkSandboxSession({
+  networkPolicy: { mode: 'custom', allowedHosts: [...defaults, ...hosts.sandbox] },
+});
+```
+
+- A host is a host name (`api.github.com`) or `*.<domain>` for its subdomains (`*.githubusercontent.com`), as `allowedHosts` writes them: no scheme, path nor port. `definePlugin()` and `defineItem()` refuse anything else.
+- In a catalog, what a selection requires counts, and a plugin's `network.hosts` as soon as one of its items is selected: with that item's side.
+- `catalog.hosts(selection)` gives the `hosts` of `catalog.resolve(selection)` without resolving anything, and `pluginHosts(plugins)` those of plugins you hold, before they are resolved.
 
 ## Limitations
 

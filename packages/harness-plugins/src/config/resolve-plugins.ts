@@ -8,12 +8,14 @@ import type {
   SecretValue,
 } from '../definitions/plugin.js';
 import type { McpToolSource } from '../mcp/mcp-tools-plugin.js';
+import type { PluginHosts } from './plugin-hosts.js';
 
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
 import { mcpToolsPlugin } from '../mcp/mcp-tools-plugin.js';
 import { connectWithAiSdk } from './connect-mcp-server.js';
 import { definePlugin } from './define.js';
 import { httpTool } from './http-tool.js';
+import { pluginHosts } from './plugin-hosts.js';
 import { isToolDefinition } from './plugin-schema.js';
 import { sandboxCommandTool } from './sandbox-command-tool.js';
 
@@ -57,6 +59,12 @@ export interface ResolvePluginsOptions extends ResolveOptions {
 /** Plugins resolved, and the MCP clients opened for them. */
 export interface ResolvedPlugins {
   plugins: Plugin[];
+  /**
+   * The hosts the plugins reach, read before they were resolved: `sandbox`, what the sandbox's
+   * network policy must let through (`allowedHosts`), and `server`, what your server reaches — see
+   * {@link pluginHosts}.
+   */
+  hosts: PluginHosts;
   /** Closes every MCP client opened for the plugins: call it once the agent built on them is done. */
   close: () => Promise<void>;
 }
@@ -114,7 +122,7 @@ export async function resolveChecked(
     checkServerNames(plugins);
     const resolved: Plugin[] = [];
     for (const plugin of plugins) resolved.push(await resolvePlugin(plugin, options, clients));
-    return { plugins: resolved, close };
+    return { plugins: resolved, hosts: pluginHosts(plugins), close };
   } catch (error) {
     await close();
     throw error;
