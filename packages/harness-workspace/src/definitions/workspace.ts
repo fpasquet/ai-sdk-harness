@@ -259,6 +259,17 @@ export interface Workspace<SESSION extends WorkspaceSession = WorkspaceSession> 
    * makes sure the checkouts are still there when the session resumes. `withWorkspace()` sets it.
    */
   onSession(input: WorkspaceSessionInput): Promise<void>;
+  /**
+   * The hosts the sandbox reaches to fetch the workspace's repositories, each once, in the order
+   * of the repositories: add them to the `allowedHosts` of a sandbox whose network policy is
+   * closed, or its checkouts fail. Hostnames only, as a network policy takes them: it allows a
+   * host on every port.
+   *
+   * When `repositories` is a function, they are those of session `sessionId`, asked of it as a
+   * start does: pass the session, or the promise rejects with a `TypeError`. Otherwise `session` is
+   * not needed.
+   */
+  hosts(session?: { sessionId: string; abortSignal?: AbortSignal }): Promise<string[]>;
   /** The checkouts of session `sessionId`, while it is live and checked out. */
   session(sessionId: string): SESSION | undefined;
   /**

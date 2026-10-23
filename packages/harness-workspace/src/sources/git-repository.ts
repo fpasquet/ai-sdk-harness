@@ -56,7 +56,8 @@ export interface GitRepositoryOptions {
 
 /**
  * A repository a Git server serves, over HTTPS: fetched in the sandbox at each new session, the
- * commits it already has not fetched again.
+ * commits it already has not fetched again. Its `hosts`, the host of `url`, are what the network
+ * policy of a closed sandbox must allow.
  *
  * Its credential stays on your server, but a process of the sandbox that learns the placeholder
  * while a fetch runs can reach the repository's host with it for as long as the session's sandbox
@@ -75,6 +76,7 @@ export function gitRepository(options: GitRepositoryOptions): WorkspaceSource {
   }
   return {
     name: options.name ?? repositoryName(url.pathname),
+    hosts: hostsOf(url),
     fetch: async (context) => {
       const credentials =
         typeof options.credentials === 'function'
@@ -111,6 +113,16 @@ function parseUrl(location: string): URL {
     );
   }
   return url;
+}
+
+/**
+ * The host the sandbox fetches `url` from, as a network policy names it: its hostname alone, an
+ * IPv6 address without its brackets; none for a `file:` URL. A network policy allows a host on
+ * every port: a port of the URL is left out.
+ */
+function hostsOf(url: URL): readonly string[] {
+  if (url.protocol === 'file:' || url.hostname === '') return [];
+  return [url.hostname.replace(/^\[(.*)\]$/, '$1')];
 }
 
 /**

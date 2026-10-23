@@ -53,6 +53,8 @@ export function hostRepository(options: HostRepositoryOptions): WorkspaceSource 
   }
   return {
     name: options.name ?? repositoryName(path),
+    // The bundles are written into the sandbox: it reaches no host for them.
+    hosts: [],
     fetch: async ({ sandbox, repository, ref, abortSignal }) => {
       const commit = await hostGit(path, [
         'rev-parse',

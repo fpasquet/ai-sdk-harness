@@ -210,6 +210,46 @@ const sessions = createSessionManager({
 
 The repositories a function gives are checked as fixed ones are, when the session starts: a session whose repositories cannot be checked out side by side, or whose function throws, does not start. Give sessions on different repositories a sandbox each (`sandboxPerSession()`): in a shared sandbox, two sources of the same `name` would be kept in the same bare repository.
 
+### A sandbox with a closed network
+
+A sandbox whose network policy allows only some hosts (`mode: 'custom'` and `allowedHosts`) must allow those it fetches the repositories from, or their checkouts fail. `workspace.hosts()` names them, for its `allowedHosts`:
+
+```ts
+import { createSbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
+
+const workspace = createWorkspace({
+  source: gitRepository({ url: 'https://github.com/acme/widgets.git' }),
+});
+
+await createSbxNetworkSandboxSession({
+  workspace: '/srv/agents',
+  ports,
+  networkPolicy: {
+    mode: 'custom',
+    // ['api.anthropic.com', 'registry.npmjs.org', 'github.com']
+    allowedHosts: ['api.anthropic.com', 'registry.npmjs.org', ...(await workspace.hosts())],
+  },
+});
+```
+
+With [repositories chosen per session](#repositories-chosen-per-session), they are those of a session: `hosts({ sessionId })` asks the function for them, as a start does, and fits the `create()` of `sandboxPerSession()`:
+
+```ts
+sandboxPerSession({
+  create: async (sessionId, { abortSignal }) =>
+    createSbxNetworkSandboxSession({
+      ...settings,
+      networkPolicy: {
+        mode: 'custom',
+        allowedHosts: [...hosts, ...(await workspace.hosts({ sessionId, abortSignal }))],
+      },
+    }),
+  resume,
+});
+```
+
+Each source says it too, in its `hosts`: the host of its URL for `gitRepository()` — `['github.com']` —, none for `hostRepository()` and `sandboxRepository()`, whose commits reach the sandbox without it reaching any host. A host is a hostname, as `allowedHosts` takes it: no scheme, no path, and no port, since a network policy allows a host on every port. A brokered credential needs no host of its own: it goes in the requests to the repository's. A `WorkspaceSource` of your own without `hosts` counts as needing none.
+
 ### Reading what the agent changed
 
 `workspace.session(id)` is the checkout of a live session — `undefined` once it is suspended or closed:
@@ -303,7 +343,7 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 | `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
 | `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
-A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles()`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
+A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles()`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
 
 ### Errors
 

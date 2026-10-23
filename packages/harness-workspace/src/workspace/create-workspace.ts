@@ -66,14 +66,17 @@ export function createWorkspace(options: MultiRepositoryWorkspaceOptions): Works
 export function createWorkspace(options: WorkspaceOptions): Workspace;
 export function createWorkspace(options: WorkspaceOptions): Workspace {
   const setup = commands(options.setup);
-  return new GitWorkspace({
-    repositories: repositoriesOf(options, setup),
-    setup: options.repositories === undefined ? [] : setup,
-    setupEnv: options.setupEnv,
-    setupTimeoutMs: options.setupTimeoutMs ?? 600_000,
-    branch: checkedBranch(options.branch ?? ((sessionId) => `session/${sessionKey(sessionId)}`)),
-    committer: options.committer ?? DEFAULT_COMMITTER,
-  });
+  return new GitWorkspace(
+    {
+      repositories: repositoriesOf(options, setup),
+      setup: options.repositories === undefined ? [] : setup,
+      setupEnv: options.setupEnv,
+      setupTimeoutMs: options.setupTimeoutMs ?? 600_000,
+      branch: checkedBranch(options.branch ?? ((sessionId) => `session/${sessionKey(sessionId)}`)),
+      committer: options.committer ?? DEFAULT_COMMITTER,
+    },
+    typeof options.repositories === 'function',
+  );
 }
 
 /**
@@ -184,7 +187,22 @@ class GitWorkspace implements Workspace {
   /** Session id → its latest slot. */
   private readonly live = new Map<string, WorkspaceSlot>();
 
-  constructor(private readonly settings: SlotSettings) {}
+  constructor(
+    private readonly settings: SlotSettings,
+    /** `repositories` is a function: they are a session's. */
+    private readonly perSession: boolean,
+  ) {}
+
+  hosts = async (session?: { sessionId: string; abortSignal?: AbortSignal }): Promise<string[]> => {
+    if (session === undefined && this.perSession) {
+      throw new TypeError(
+        "The workspace's repositories are given per session: pass the session to hosts({ sessionId }).",
+      );
+    }
+    // Fixed repositories do not read the session.
+    const repositories = await this.settings.repositories(session ?? { sessionId: '' });
+    return [...new Set(repositories.flatMap(({ source }) => source.hosts ?? []))];
+  };
 
   sandboxes = (inner: SessionSandboxes): SessionSandboxes => {
     const shutdown =
