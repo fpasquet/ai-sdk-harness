@@ -136,11 +136,12 @@ export async function openSandbox(
 type Opened = { resumed: boolean; session: ExampleSandbox };
 
 /**
- * What the example's sandboxes reach, and nothing else: GitHub, npm, Yarn and PyPI, where the
- * agents clone and install, the hosts Claude Code and Codex call, and `hosts`.
+ * What the example's sandboxes reach, and nothing else: the trusted hosts of the whole ecosystem,
+ * where the agents clone and install, the hosts Claude Code and Codex install from and call, and
+ * `hosts`.
  */
 function exampleHosts(hosts: readonly string[]): string[] {
-  return allowedHosts(trustedHosts(), ...HARNESS_IDS.map(harnessHosts), hosts);
+  return allowedHosts(trustedHosts(), ...HARNESS_IDS.map((id) => harnessHosts(id)), hosts);
 }
 
 /**
