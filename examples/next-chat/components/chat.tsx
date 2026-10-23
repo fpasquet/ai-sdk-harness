@@ -36,6 +36,7 @@ import {
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
+import { BlockedHostsPanel } from '@/components/blocked-hosts-panel';
 import { ChangesPanel } from '@/components/changes-panel';
 import { everything, MarketplacePicker, SelectionCount } from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
@@ -303,6 +304,7 @@ function Chat({
       {repository !== undefined && (
         <ChangesPanel id={id} repository={repository} session={session} />
       )}
+      {sandbox === 'sbx' && <BlockedHostsPanel session={session} />}
       <ConversationView className="flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (

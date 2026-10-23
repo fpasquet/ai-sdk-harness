@@ -1,5 +1,6 @@
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 import type { CloudRunAuth } from 'ai-sdk-sandbox-cloud-run';
+import type { SbxBlockedRequest, SbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
 
 import {
   CloudRunSandboxNotFoundError,
@@ -127,19 +128,46 @@ export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox>
 
 type Opened = { resumed: boolean; session: ExampleSandbox };
 
+/**
+ * The Docker Sandbox the conversations share, once opened, and when: kept on globalThis so that
+ * `next dev` reloading this module still finds it.
+ */
+const opened = globalThis as {
+  __aiSdkSbxExample?: { session: SbxNetworkSandboxSession; at: Date };
+};
+
 async function openSbx(template: TemplateOf): Promise<Opened> {
   const settings = { sandboxId: SANDBOX_ID, ports: [BRIDGE_PORT], binary: process.env.SBX_BIN };
+  let session: SbxNetworkSandboxSession | undefined;
   try {
-    return { resumed: true, session: await resumeSbxNetworkSandboxSession(settings) };
+    session = await resumeSbxNetworkSandboxSession(settings);
   } catch (error) {
     if (!(error instanceof SbxSandboxNotFoundError)) throw error;
   }
-  const session = await createSbxNetworkSandboxSession({
+  const resumed = session !== undefined;
+  session ??= await createSbxNetworkSandboxSession({
     ...settings,
     setup: SBX_SETUP,
     template: await template(),
   });
-  return { resumed: false, session };
+  opened.__aiSdkSbxExample = { session, at: new Date() };
+  return { resumed, session };
+}
+
+/**
+ * The hosts the Docker Sandboxes proxy refused to the shared sandbox since the example opened it:
+ * what its network policy, the machine's here, does not allow. Undefined until a conversation
+ * opened a local Docker Sandbox; the other sandboxes do not report them.
+ */
+export async function blockedHosts(): Promise<
+  undefined | { sandboxId: string; blocked: SbxBlockedRequest[] }
+> {
+  const sbx = opened.__aiSdkSbxExample;
+  if (SANDBOX !== 'sbx' || sbx?.session.blockedRequests === undefined) return undefined;
+  return {
+    sandboxId: sbx.session.id,
+    blocked: await sbx.session.blockedRequests({ since: sbx.at }),
+  };
 }
 
 /**

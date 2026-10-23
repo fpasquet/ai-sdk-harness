@@ -6,6 +6,18 @@ import { fileURLToPath } from 'node:url';
 /** Path of the fake `sbx` executable, to pass as the `binary` option. */
 export const FAKE_SBX = fileURLToPath(new URL('./fake-sbx.mjs', import.meta.url));
 
+/** An entry of `sbx policy log --json`. */
+export interface PolicyLogEntry {
+  sandbox_id: string;
+  host: string;
+  proxy_type: string;
+  rule?: string;
+  reason?: string;
+  count: number;
+  first_seen: string;
+  last_seen: string;
+}
+
 export interface FakeSbxState {
   sandboxes: Record<string, { root: string; status: string; template: null | string }>;
   secrets: {
@@ -29,6 +41,8 @@ export interface FakeSbxState {
     protocol: string;
     resources: string[];
   }[];
+  /** What `sbx policy log` prints: what the proxy let through and refused, sandbox by sandbox. */
+  policyLog?: { allowed: PolicyLogEntry[]; blocked: PolicyLogEntry[] };
   failOn: string[];
   /** Listings as `sbx` before 0.48 printed them: `{ sandboxes }`, `{ images }`. */
   before048?: boolean;

@@ -6,6 +6,7 @@ export {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
 } from './lifecycle/create-session.js';
+export type { SbxBlockedRequest, SbxBlockedRequestsOptions } from './network/blocked-requests.js';
 export { SBX_SANDBOX_PROVIDER_ID } from './provider-id.js';
 export type {
   SbxConnectionSettings,
