@@ -155,7 +155,8 @@ function createExampleSessions(): SessionManager<Conversation> {
       : sharedSandbox({
           // The first creation installs both Claude Code and Codex in the sandbox, then saves it
           // as a template (a few minutes); every later one starts from that template in seconds.
-          open: () => openSandbox(harnessTemplate),
+          // With `EXAMPLE_REPOSITORY`, the sandbox's network lets its checkouts be fetched.
+          open: async () => openSandbox(harnessTemplate, (await state.workspace?.hosts()) ?? []),
           ports: SESSION_PORTS,
           stopWhenUnused: SANDBOX === 'cloud-run',
         });

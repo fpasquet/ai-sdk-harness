@@ -12,6 +12,7 @@ import {
 } from 'ai-sdk-sandbox-microsandbox';
 import {
   createSrtNetworkSandboxSession,
+  DEFAULT_ALLOWED_DOMAINS,
   resumeSrtNetworkSandboxSession,
   SrtSandboxNotFoundError,
 } from 'ai-sdk-sandbox-runtime';
@@ -112,15 +113,20 @@ type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
 /**
  * Reattaches to the example's sandbox, or creates it from `template()`. A previous run of the
  * example may have left its bridges behind, holding their ports: whatever runs in a resumed sandbox
- * is stopped.
+ * is stopped. `repositoryHosts`, the `hosts()` of the workspace, are the hosts its checkouts are
+ * fetched from: a Cloud Run or an srt sandbox, which reach the hosts they list and nothing else,
+ * list them too. A Docker Sandbox keeps the machine's policy, which lets them through.
  */
-export async function openSandbox(template: TemplateOf): Promise<ExampleSandbox> {
+export async function openSandbox(
+  template: TemplateOf,
+  repositoryHosts: readonly string[],
+): Promise<ExampleSandbox> {
   if (SANDBOX === 'microsandbox') {
     throw new Error(
       'A microsandbox is opened per conversation: see createConversationMicrosandbox.',
     );
   }
-  const sandbox = await OPENERS[SANDBOX](template);
+  const sandbox = await OPENERS[SANDBOX](template, repositoryHosts);
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -185,10 +191,13 @@ export function resumeConversationMicrosandbox(
 
 /**
  * A Cloud Run sandbox, through the sandbox service at `CLOUD_RUN_SANDBOX_URL`, called as the gcloud
- * account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise. Its network only reaches the model APIs
- * and the npm registry, where the bridges install their dependencies.
+ * account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise. Its network only reaches the model APIs,
+ * the npm registry, where the bridges install their dependencies, and the repository's host.
  */
-async function openCloudRun(template: TemplateOf): Promise<Opened> {
+async function openCloudRun(
+  template: TemplateOf,
+  repositoryHosts: readonly string[],
+): Promise<Opened> {
   const url = process.env.CLOUD_RUN_SANDBOX_URL;
   if (url === undefined || url === '') {
     throw new ExampleConfigurationError(
@@ -206,7 +215,8 @@ async function openCloudRun(template: TemplateOf): Promise<Opened> {
     auth: auth as CloudRunAuth,
     sandboxId: SANDBOX_ID,
     ports: [BRIDGE_PORT],
-    allowedHosts: ['registry.npmjs.org'],
+    // The service does not keep them while the sandbox is suspended: a resume passes them again.
+    allowedHosts: ['registry.npmjs.org', ...repositoryHosts],
   };
   try {
     return { resumed: true, session: await resumeCloudRunNetworkSandboxSession(settings) };
@@ -224,12 +234,14 @@ async function openCloudRun(template: TemplateOf): Promise<Opened> {
 /**
  * A sandbox on this machine, behind srt. It needs `bwrap`, `socat` and `rg` on Linux (`rg` on
  * macOS): `SRT_SOCAT` and `SRT_RIPGREP` name binaries off the `PATH`, `SRT_ALLOW_ALL_UNIX_SOCKETS=1`
- * runs without srt's seccomp filter where Ubuntu refuses it (see the README of the package).
+ * runs without srt's seccomp filter where Ubuntu refuses it (see the README of the package). Its
+ * network reaches the model APIs, the npm registry and the repository's host only.
  */
-async function openSrt(template: TemplateOf): Promise<Opened> {
+async function openSrt(template: TemplateOf, repositoryHosts: readonly string[]): Promise<Opened> {
   const settings = {
     sandboxId: SANDBOX_ID,
     ports: [BRIDGE_PORT],
+    allowedDomains: [...DEFAULT_ALLOWED_DOMAINS, ...repositoryHosts],
     runtime: {
       socatPath: process.env.SRT_SOCAT,
       ripgrepPath: process.env.SRT_RIPGREP,
@@ -248,7 +260,7 @@ async function openSrt(template: TemplateOf): Promise<Opened> {
 /** How each sandbox shared between the conversations opens; a microsandbox is one per conversation. */
 const OPENERS: Record<
   Exclude<SandboxId, 'microsandbox'>,
-  (template: TemplateOf) => Promise<Opened>
+  (template: TemplateOf, repositoryHosts: readonly string[]) => Promise<Opened>
 > = {
   sbx: openSbx,
   'cloud-run': openCloudRun,

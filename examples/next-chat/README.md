@@ -54,7 +54,7 @@ CLOUD_RUN_SANDBOX_URL=<the URL printed above>
 # CLOUD_RUN_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
 ```
 
-The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs and the npm registry, nothing else.
+The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs, the npm registry and the host of [a repository](#a-repository), nothing else.
 
 After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends a conversation: its harness session is stopped with its state. Once no conversation holds the sandbox, the sandbox is saved to a snapshot: nothing runs, nothing is billed. The next message brings the sandbox back, and the agent picks the conversation up where it was:
 
@@ -94,7 +94,7 @@ EXAMPLE_SANDBOX=srt
 # SRT_ALLOW_ALL_UNIX_SOCKETS=1   # where Ubuntu refuses srt's seccomp filter: the error says so
 ```
 
-The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs and the npm registry only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
+The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs, the npm registry and the host of [a repository](#a-repository) only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
 
 ## Conversations
 
@@ -163,7 +163,7 @@ EXAMPLE_REPOSITORY=/home/me/code/widgets pnpm example:dev
 
 **What it shows:** the agent added a function and a test file in its checkout of `widgets`, on the branch `session/<id>`. The bar above the conversation lists what it changed since the checkout started, and opens on the patch.
 
-**What the package does:** `workspace.sandboxes()` gives each conversation a checkout in its sandbox — a worktree of a copy of the repository the conversations of the sandbox share —, kept when the conversation is suspended and removed when it is deleted; `withWorkspace()` makes the checkout in the conversation's working directory before the agent starts, the plugins' files written after it and kept out of its changes. `app/api/sessions/[id]/changes/` reads `changedFiles()` and `changes()` after each turn. `EXAMPLE_REPOSITORY_REF` picks a branch, `EXAMPLE_REPOSITORY_TOKEN` is the token of a private repository, brokered by the sandbox rather than handed to it, and `EXAMPLE_REPOSITORY_SETUP` a command run in each new checkout, `pnpm install` for instance.
+**What the package does:** `workspace.sandboxes()` gives each conversation a checkout in its sandbox — a worktree of a copy of the repository the conversations of the sandbox share —, kept when the conversation is suspended and removed when it is deleted; `withWorkspace()` makes the checkout in the conversation's working directory before the agent starts, the plugins' files written after it and kept out of its changes. `app/api/sessions/[id]/changes/` reads `changedFiles()` and `changes()` after each turn. `EXAMPLE_REPOSITORY_REF` picks a branch, `EXAMPLE_REPOSITORY_TOKEN` is the token of a private repository, brokered by the sandbox rather than handed to it, and `EXAMPLE_REPOSITORY_SETUP` a command run in each new checkout, `pnpm install` for instance. A Cloud Run or an srt sandbox reaches the hosts it lists and nothing else: `lib/sandbox.ts` lists `workspace.hosts()` with them, the host of an `https:` repository (`github.com`), so that its checkouts can be fetched; a repository on this machine needs none.
 
 ## A marketplace
 
