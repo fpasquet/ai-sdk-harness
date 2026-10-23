@@ -226,14 +226,22 @@ A `sandbox-command` that reads `$INPUT_SERVICE` without a `service` property, or
 
 ### The network of the sandbox
 
-A Cloud Run sandbox and an srt sandbox let only the hosts they list through. The example lists, beside their own, the hosts the marketplace reaches from the sandbox: `catalog.hosts()` reads them from the definitions, without resolving anything, before the sandbox is opened (`marketplaceSandboxHosts()` in `lib/plugins.ts`, `openSandbox()` in `lib/sandbox.ts`).
+A Docker Sandbox, a Cloud Run sandbox and an srt sandbox let only the hosts they list through. The example builds the list with [`ai-sdk-harness-network`](../../packages/harness-network): the trusted hosts of GitHub, npm, Yarn and PyPI, where the agents clone and install, the hosts Claude Code and Codex call, the repository's host (`workspace.hosts()`), and the hosts the marketplace reaches from the sandbox, which `catalog.hosts()` reads from the definitions, without resolving anything, before the sandbox is opened (`exampleHosts()` and `openSandbox()` in `lib/sandbox.ts`, `marketplaceSandboxHosts()` in `lib/plugins.ts`).
 
 ```ts
 const { sandbox } = catalog.hosts(catalog.entries().map(({ id }) => id)); // ['registry.npmjs.org']
-await createCloudRunNetworkSandboxSession({ allowedHosts: ['registry.npmjs.org', ...sandbox] });
+await createSbxNetworkSandboxSession({
+  networkPolicy: networkPolicy(
+    trustedHosts(),
+    harnessHosts('claude-code'),
+    harnessHosts('codex'),
+    await workspace.hosts(),
+    sandbox,
+  ),
+});
 ```
 
-The conversations share the sandbox whatever each one picks, so it lets through the hosts of the whole marketplace; a sandbox per conversation would take `catalog.hosts(selection).sandbox` of its own pick. The `upgrades` plugin declares the npm registry in `network.hosts`, since its skill installs packages; `catalog.hosts()` reads the npm registry of `tool:npm-latest` too, in `server`: the server makes that request, not the sandbox. A Docker Sandbox and a microsandbox keep the network policy their package gives them.
+The conversations share the sandbox whatever each one picks, so it lets through the hosts of the whole marketplace; a sandbox per conversation would take `catalog.hosts(selection).sandbox` of its own pick. The `upgrades` plugin declares the npm registry in `network.hosts`, since its skill installs packages; `catalog.hosts()` reads the npm registry of `tool:npm-latest` too, in `server`: the server makes that request, not the sandbox. The Docker Sandbox found again on a start gets the policy again (`setNetworkPolicy()`), so an edit of the marketplace reaches it. A microsandbox keeps the network policy its package gives it.
 
 ### Try it
 

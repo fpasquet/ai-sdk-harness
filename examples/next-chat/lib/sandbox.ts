@@ -2,6 +2,7 @@ import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxTemplate } from '@
 import type { CloudRunAuth } from 'ai-sdk-sandbox-cloud-run';
 import type { SbxBlockedRequest, SbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
 
+import { allowedHosts, harnessHosts, trustedHosts } from 'ai-sdk-harness-network';
 import {
   CloudRunSandboxNotFoundError,
   createCloudRunNetworkSandboxSession,
@@ -13,7 +14,6 @@ import {
 } from 'ai-sdk-sandbox-microsandbox';
 import {
   createSrtNetworkSandboxSession,
-  DEFAULT_ALLOWED_DOMAINS,
   resumeSrtNetworkSandboxSession,
   SrtSandboxNotFoundError,
 } from 'ai-sdk-sandbox-runtime';
@@ -25,6 +25,7 @@ import {
 
 import type { SandboxId } from '@/lib/sandboxes';
 
+import { HARNESS_IDS } from '@/lib/harnesses';
 import { sandboxIdOf } from '@/lib/sandboxes';
 
 /** A setting of the example is missing or wrong: its message says which, and what to do. */
@@ -115,9 +116,8 @@ type TemplateOf = () => Promise<HarnessV1SandboxTemplate | undefined>;
  * Reattaches to the example's sandbox, or creates it from `template()`. A previous run of the
  * example may have left its bridges behind, holding their ports: whatever runs in a resumed sandbox
  * is stopped. `hosts` are what the sandbox reaches beside its harnesses: the hosts its checkouts are
- * fetched from (the workspace's `hosts()`), and those the marketplace's plugins reach from it. A
- * Cloud Run or an srt sandbox, which reach the hosts they list and nothing else, list them too. A
- * Docker Sandbox keeps the machine's policy, which lets them through.
+ * fetched from (the workspace's `hosts()`), and those the marketplace's plugins reach from it. Its
+ * network lets them through, with those of {@link exampleHosts}, and nothing else.
  */
 export async function openSandbox(
   template: TemplateOf,
@@ -136,6 +136,14 @@ export async function openSandbox(
 type Opened = { resumed: boolean; session: ExampleSandbox };
 
 /**
+ * What the example's sandboxes reach, and nothing else: GitHub, npm, Yarn and PyPI, where the
+ * agents clone and install, the hosts Claude Code and Codex call, and `hosts`.
+ */
+function exampleHosts(hosts: readonly string[]): string[] {
+  return allowedHosts(trustedHosts(), ...HARNESS_IDS.map(harnessHosts), hosts);
+}
+
+/**
  * The Docker Sandbox the conversations share, once opened, and when: kept on globalThis so that
  * `next dev` reloading this module still finds it.
  */
@@ -143,17 +151,25 @@ const opened = globalThis as {
   __aiSdkSbxExample?: { session: SbxNetworkSandboxSession; at: Date };
 };
 
-async function openSbx(template: TemplateOf): Promise<Opened> {
+/**
+ * A Docker Sandbox on this machine, closed to all but {@link exampleHosts}: within the machine's
+ * own policy, which keeps this host and its private networks out of reach whatever it lists.
+ */
+async function openSbx(template: TemplateOf, hosts: readonly string[]): Promise<Opened> {
   const settings = { sandboxId: SANDBOX_ID, ports: [BRIDGE_PORT], binary: process.env.SBX_BIN };
+  const networkPolicy = { mode: 'custom', allowedHosts: exampleHosts(hosts) } as const;
   let session: SbxNetworkSandboxSession | undefined;
   try {
     session = await resumeSbxNetworkSandboxSession(settings);
+    // Set again on every resume: an edit of the marketplace reaches the sandbox found again.
+    await session.setNetworkPolicy?.(networkPolicy);
   } catch (error) {
     if (!(error instanceof SbxSandboxNotFoundError)) throw error;
   }
   const resumed = session !== undefined;
   session ??= await createSbxNetworkSandboxSession({
     ...settings,
+    networkPolicy,
     setup: SBX_SETUP,
     template: await template(),
   });
@@ -163,7 +179,7 @@ async function openSbx(template: TemplateOf): Promise<Opened> {
 
 /**
  * The hosts the Docker Sandboxes proxy refused to the shared sandbox since the example opened it:
- * what its network policy, the machine's here, does not allow. Undefined until a conversation
+ * what its network policy, {@link exampleHosts}, does not allow. Undefined until a conversation
  * opened a local Docker Sandbox; the other sandboxes do not report them.
  */
 export async function blockedHosts(): Promise<
@@ -220,9 +236,8 @@ export function resumeConversationMicrosandbox(
 
 /**
  * A Cloud Run sandbox, through the sandbox service at `CLOUD_RUN_SANDBOX_URL`, called as the gcloud
- * account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise. Its network only reaches the model APIs,
- * the npm registry, where the bridges install their dependencies, the repository's host and the
- * hosts the marketplace's plugins reach from it.
+ * account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise. Its network only reaches
+ * {@link exampleHosts}, on top of the service's own.
  */
 async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Promise<Opened> {
   const url = process.env.CLOUD_RUN_SANDBOX_URL;
@@ -243,7 +258,7 @@ async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Pro
     sandboxId: SANDBOX_ID,
     ports: [BRIDGE_PORT],
     // The service does not keep them while the sandbox is suspended: a resume passes them again.
-    allowedHosts: [...new Set(['registry.npmjs.org', ...hosts])],
+    allowedHosts: exampleHosts(hosts),
   };
   try {
     return { resumed: true, session: await resumeCloudRunNetworkSandboxSession(settings) };
@@ -262,14 +277,13 @@ async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Pro
  * A sandbox on this machine, behind srt. It needs `bwrap`, `socat` and `rg` on Linux (`rg` on
  * macOS): `SRT_SOCAT` and `SRT_RIPGREP` name binaries off the `PATH`, `SRT_ALLOW_ALL_UNIX_SOCKETS=1`
  * runs without srt's seccomp filter where Ubuntu refuses it (see the README of the package). Its
- * network reaches the model APIs, the npm registry, the repository's host and the hosts of the
- * marketplace's plugins only.
+ * network reaches {@link exampleHosts} only.
  */
 async function openSrt(template: TemplateOf, hosts: readonly string[]): Promise<Opened> {
   const settings = {
     sandboxId: SANDBOX_ID,
     ports: [BRIDGE_PORT],
-    allowedDomains: [...new Set([...DEFAULT_ALLOWED_DOMAINS, ...hosts])],
+    allowedDomains: exampleHosts(hosts),
     runtime: {
       socatPath: process.env.SRT_SOCAT,
       ripgrepPath: process.env.SRT_RIPGREP,
