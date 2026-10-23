@@ -17,7 +17,7 @@ import {
   ModelSelectorTrigger,
 } from '@/components/ai-elements/model-selector';
 import { Button } from '@/components/ui/button';
-import { HARNESSES, modelGroupsOf, modelLabelOf } from '@/lib/harnesses';
+import { HARNESSES, modelGroupsOf, modelNameOf } from '@/lib/harnesses';
 
 /**
  * The model of a conversation, picked among those its harness offers: the suggested ones, then,
@@ -41,16 +41,12 @@ export function ModelPicker({
     () => modelGroupsOf(harness, openRouterModels),
     [harness, openRouterModels],
   );
-  // Its name in the catalog, OpenRouter's for a model that is not suggested.
-  const label =
-    groups.flatMap(({ models }) => models).find(({ id }) => id === model)?.label ??
-    modelLabelOf(harness, model);
 
   return (
     <ModelSelector onOpenChange={setOpen} open={open}>
       <ModelSelectorTrigger asChild>
         <Button aria-label="Model" disabled={disabled} size="sm" variant="outline">
-          <span className="max-w-48 truncate">{label}</span>
+          <span className="max-w-48 truncate">{modelNameOf(harness, model, openRouterModels)}</span>
           <ChevronsUpDownIcon className="text-muted-foreground" />
         </Button>
       </ModelSelectorTrigger>

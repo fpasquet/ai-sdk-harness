@@ -10,7 +10,7 @@ Open a tool call to see what the agent ran in the microVM, and what came back:
 
 ![A bash tool call of the agent, with the command it ran and its output](../../docs/public/screenshots/next-chat/tool.png)
 
-Pick the coding agent, its model and what it takes from the **marketplace** before the first message. Every official harness adapter is there, one card each; those whose credential the server does not have are greyed out, with the variables to set:
+A new conversation is set up in two steps before its first message. First its coding agent, picked in a gallery where every official harness adapter has a card: those whose credential the server does not have are greyed out, with the variables to set. Then, with the agent and its model shown on top, what it takes from the **marketplace**, and the prompt:
 
 | Coding agent   | Runs on                | Suggested models                       | Where it runs                                     |
 | -------------- | ---------------------- | -------------------------------------- | ------------------------------------------------- |
@@ -25,7 +25,7 @@ Pick the coding agent, its model and what it takes from the **marketplace** befo
 | GitHub Copilot | a Copilot subscription | GPT-5.5, Claude Sonnet 5.5             | its CLI, over ACP in the sandbox                  |
 | Cursor         | a Cursor account       | Auto, GPT-5.6 Luna                     | its CLI, over ACP in the sandbox                  |
 
-The model picker of the header lists the suggested models first. For the agents that go through OpenRouter, it also offers, searchable, every model of [OpenRouter's catalog](https://openrouter.ai/models) that can call tools, read by the server once an hour (`lib/models.ts`): Grok Build keeps to xAI's models, and Pi runs those of its own catalog, generated from OpenRouter's.
+The model picker of the second step lists the suggested models first. For the agents that go through OpenRouter, it also offers, searchable, every model of [OpenRouter's catalog](https://openrouter.ai/models) that can call tools, read by the server once an hour (`lib/models.ts`): Grok Build keeps to xAI's models, and Pi runs those of its own catalog, generated from OpenRouter's.
 
 They all share the one sandbox, and the conversations of different agents run side by side. What sets them apart shows on their cards: the approval policy is offered to the agents that can ask before their own commands and edits (Claude Code, OpenCode, Pi, Cline, fx), and Deep Agents forgets the conversation once it is suspended, since its memory lives in its bridge; the files stay.
 

@@ -192,6 +192,18 @@ async function capture(page: Page, name: string): Promise<void> {
 /** The prompt: a Tiptap editor, not a textarea. */
 const promptOf = (page: Page) => page.getByRole('textbox', { name: 'Message to the agent' });
 
+/** Picks `agent` in the gallery of a new conversation: its marketplace and its prompt then show. */
+async function pickAgent(page: Page, agent: string): Promise<void> {
+  await page.getByRole('button', { name: new RegExp(`^${agent}`) }).click();
+  await promptOf(page).waitFor();
+}
+
+/** Starts a new conversation with `agent`. */
+async function startChat(page: Page, agent = 'Claude Code'): Promise<void> {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await pickAgent(page, agent);
+}
+
 /** Sends the prompt, without waiting for the answer. */
 async function say(page: Page, prompt: string): Promise<void> {
   await promptOf(page).fill(prompt);
@@ -242,8 +254,7 @@ async function openToolCall(page: Page, name: RegExp): Promise<void> {
 async function captureUseCases(page: Page): Promise<void> {
   for (const { name, prompt, tool } of USE_CASES) {
     if (ONLY !== undefined && !ONLY.includes(name)) continue;
-    await page.getByRole('button', { name: /new chat/i }).click();
-    await page.waitForTimeout(500);
+    await startChat(page);
     await converse(page, prompt);
     if (tool !== undefined) await openToolCall(page, tool);
     await capture(page, name);
@@ -258,9 +269,10 @@ async function captureMarketplace(page: Page): Promise<void> {
   // The conversation sticks to its bottom: each part is brought into view first.
   const show = (part: Locator) =>
     part.evaluate((element) => element.scrollIntoView({ block: 'start' }));
-  await show(page.getByRole('heading', { name: /is ready$/ }));
+  await show(page.getByRole('heading', { name: 'Pick a coding agent' }));
   await capture(page, 'harnesses');
-  await show(page.getByRole('region', { name: 'Marketplace' }));
+  // The second step opens on its top: the agent picked, then the marketplace.
+  await pickAgent(page, 'Claude Code');
   await capture(page, 'empty');
   await page.getByRole('button', { name: 'What upgrades holds' }).click();
   await page.getByRole('dialog').waitFor();
@@ -310,16 +322,14 @@ const conversation = (page: Page, title: RegExp) =>
  * was, after a suspension.
  */
 async function captureSessions(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /new chat/i }).click();
   // Back to Claude Code: the Codex conversation left it picked.
-  await page.getByRole('combobox', { name: 'Coding agent' }).click();
-  await page.getByRole('option', { name: 'Claude Code' }).click();
+  await startChat(page);
   await say(
     page,
     'Write count.sh that prints the numbers 1 to 6, one every two seconds, run it, then say in one sentence what it printed.',
   );
   await page.waitForTimeout(3000);
-  await page.getByRole('button', { name: /new chat/i }).click();
+  await startChat(page);
   await say(
     page,
     'Write date.js that prints the date in ISO 8601, run it with node, and give its output.',
@@ -342,7 +352,7 @@ async function captureSessions(page: Page): Promise<void> {
 
 /** The workspace: what the agent changed in its checkout of the repository, the patch open. */
 async function captureWorkspace(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /new chat/i }).click();
+  await startChat(page);
   await converse(
     page,
     'In math.js, add a subtract(a, b) function below add, write math.test.js that checks both with node:assert, and run it with node. Do not commit. Answer in one sentence.',
@@ -367,9 +377,7 @@ async function captureBlockedHosts(page: Page): Promise<void> {
 
 /** Starts a new conversation with Claude Code, under the approval policy of the example. */
 async function newGuardedChat(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /new chat/i }).click();
-  await page.getByRole('combobox', { name: 'Coding agent' }).click();
-  await page.getByRole('option', { name: 'Claude Code' }).click();
+  await startChat(page);
   const toggle = page.getByRole('button', { name: /acts freely|approval policy/i });
   await toggle.waitFor();
   if (/acts freely/i.test(await toggle.innerText())) await toggle.click();
@@ -422,14 +430,6 @@ async function captureApprovals(page: Page): Promise<void> {
   await settled(page);
 }
 
-/** Starts a new conversation with Codex, picked in the harness selector. */
-async function switchToCodex(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /new chat/i }).click();
-  await page.getByRole('combobox', { name: 'Coding agent' }).click();
-  await page.getByRole('option', { name: 'Codex' }).click();
-  await page.waitForTimeout(500);
-}
-
 async function shoot(browser: Browser): Promise<void> {
   const page = await browser.newPage({
     viewport: { width: WIDTH, height: HEIGHT },
@@ -455,7 +455,7 @@ async function shootPage(page: Page): Promise<void> {
     await captureUseCases(page);
     if (ONLY.includes('sessions')) {
       // The conversation the sessions suspend and resume.
-      await page.getByRole('button', { name: /new chat/i }).click();
+      await startChat(page);
       await converse(page, PROMPT);
       await captureSessions(page);
     }
@@ -472,7 +472,7 @@ async function shootPage(page: Page): Promise<void> {
   await openTool(page);
   await capture(page, 'tool');
   await captureUseCases(page);
-  await switchToCodex(page);
+  await startChat(page, 'Codex');
   await converse(page, CODEX_PROMPT);
   await capture(page, 'codex');
   await captureSessions(page);

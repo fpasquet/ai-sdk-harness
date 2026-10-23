@@ -249,6 +249,21 @@ export function modelGroupsOf(
   ];
 }
 
+/**
+ * How a conversation's model reads: its label when suggested, its name in `catalog` when the
+ * harness takes it from OpenRouter's, its id otherwise.
+ */
+export function modelNameOf(
+  harness: HarnessId,
+  model: string,
+  catalog: readonly OpenRouterModel[],
+): string {
+  const option = modelGroupsOf(harness, catalog)
+    .flatMap(({ models }) => models)
+    .find(({ id }) => id === model);
+  return option?.label ?? modelLabelOf(harness, model);
+}
+
 /** How a conversation's model reads: its label when suggested, its OpenRouter id otherwise. */
 export function modelLabelOf(harness: HarnessId, model: string): string {
   const suggested = HARNESSES[harness].models.find(({ id }) => id === model);
