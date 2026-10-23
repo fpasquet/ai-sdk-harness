@@ -20,7 +20,7 @@
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
  * among them takes the screenshots of the sessions too, `approvals` those of the approvals,
  * `marketplace` the empty chat and the details of a plugin, `plugin-check` the pages that check
- * a plugin and an item, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
+ * a plugin and an item, `blocked-hosts` the hosts the Docker Sandbox refused, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
  * other screenshots do without.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
@@ -342,6 +342,20 @@ async function captureWorkspace(page: Page): Promise<void> {
   await capture(page, 'workspace');
 }
 
+/**
+ * A host the network policy of the Docker Sandbox refuses: the agent calls one no rule allows, and
+ * the panel above the conversation lists it, open.
+ */
+async function captureBlockedHosts(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /new chat/i }).click();
+  await converse(
+    page,
+    'Run `curl -sS -m 10 https://example.com` once with the Bash tool, do not retry it, and say in one sentence what happened.',
+  );
+  await page.getByRole('button', { name: /network policy refused/ }).click();
+  await capture(page, 'blocked-hosts');
+}
+
 /** Starts a new conversation with Claude Code, under the approval policy of the example. */
 async function newGuardedChat(page: Page): Promise<void> {
   await page.getByRole('button', { name: /new chat/i }).click();
@@ -439,6 +453,7 @@ async function shootPage(page: Page): Promise<void> {
     if (ONLY.includes('approvals')) await captureApprovals(page);
     if (ONLY.includes('workspace')) await captureWorkspace(page);
     if (ONLY.includes('plugin-check')) await capturePluginCheck(page);
+    if (ONLY.includes('blocked-hosts')) await captureBlockedHosts(page);
     return;
   }
   await captureMarketplace(page);
@@ -454,6 +469,7 @@ async function shootPage(page: Page): Promise<void> {
   await captureSessions(page);
   await captureApprovals(page);
   await capturePluginCheck(page);
+  await captureBlockedHosts(page);
 }
 
 async function main(): Promise<void> {

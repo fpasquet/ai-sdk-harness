@@ -271,6 +271,10 @@ const blocked = (await sandboxSession.blockedRequests?.({ since: policyChangedAt
 - **The log is kept by sandbox name, and outlives the sandbox**: a new sandbox of the same name inherits it, and a host stays listed once allowed. Pass `since`, the time of the last change of policy for instance, to leave older refusals out.
 - **Local sandboxes only**: absent in the cloud, like `setNetworkPolicy`.
 
+![The Next.js example: the hosts the network policy refused to its Docker Sandbox, above the conversation that called one](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/blocked-hosts.png)
+
+The example lists them above the conversation. Besides the host the agent called, Claude Code sends its telemetry (`http-intake.logs.us5.datadoghq.com`): refusing it does not stop a turn.
+
 A host no rule allows also waits for an answer in `sbx policy approval ls`, which the package leaves alone: it prints a table only, and never lists a host a rule denies, so neither what `deny-all` refuses nor the denies of a `custom` policy.
 
 ## Ports
