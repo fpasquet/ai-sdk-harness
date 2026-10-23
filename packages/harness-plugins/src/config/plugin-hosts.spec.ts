@@ -2,10 +2,12 @@ import { tool } from '@ai-sdk/provider-utils';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+import type { Plugin } from '../definitions/plugin.js';
+
 import { pluginHosts } from './plugin-hosts.js';
 
 describe('pluginHosts', () => {
-  it('reads the host of each http tool and MCP server, and adds the declared ones', () => {
+  it('reads the hosts of http tools and MCP servers, and the declared ones, by where they are reached', () => {
     expect(
       pluginHosts([
         {
@@ -35,21 +37,46 @@ describe('pluginHosts', () => {
         },
         { name: 'none', description: '' },
       ]),
-    ).toEqual([
-      '*.githubusercontent.com',
-      'api.github.com',
-      'api.search.dev',
-      'localhost',
-      'mcp.github.com',
-    ]);
+    ).toEqual({
+      sandbox: ['*.githubusercontent.com', 'api.github.com', 'mcp.github.com'],
+      server: ['api.github.com', 'api.search.dev', 'localhost'],
+    });
+  });
+
+  it('gives declared hosts to the sandbox when any part of the plugin runs there', () => {
+    const hosts = { hosts: ['api.acme.dev'] };
+    const of = (plugin: Omit<Plugin, 'description' | 'name'>) =>
+      pluginHosts([{ name: 'acme', description: '', ...plugin, network: hosts }]);
+    const inSandbox = { sandbox: ['api.acme.dev'], server: [] };
+    const onServer = { sandbox: [], server: ['api.acme.dev'] };
+    expect(of({})).toEqual(inSandbox);
+    expect(of({ hooks: [{ event: 'Stop', command: 'curl https://api.acme.dev' }] })).toEqual(
+      inSandbox,
+    );
+    expect(of({ files: [{ path: 'a.sh', content: '' }] })).toEqual(inSandbox);
+    expect(
+      of({ tools: { count: { type: 'sandbox-command', description: 'd', command: 'wc' } } }),
+    ).toEqual(inSandbox);
+    expect(
+      of({ mcpServers: { docs: { type: 'stdio', command: 'npx', runIn: 'sandbox' } } }),
+    ).toEqual(inSandbox);
+    expect(of({ mcpServers: { docs: { type: 'stdio', command: 'npx' } } })).toEqual(onServer);
+    expect(
+      of({
+        tools: {
+          create: { type: 'registered', ref: 'tickets.create' },
+          code: tool({ inputSchema: z.object({}), execute: () => 'done' }),
+        },
+      }),
+    ).toEqual(onServer);
   });
 
   it('gives none for plugins that reach nothing', () => {
-    expect(pluginHosts([])).toEqual([]);
+    expect(pluginHosts([])).toEqual({ sandbox: [], server: [] });
     expect(
       pluginHosts([
         { name: 'kit', description: '', skills: [{ name: 's', description: '', content: 'c' }] },
       ]),
-    ).toEqual([]);
+    ).toEqual({ sandbox: [], server: [] });
   });
 });

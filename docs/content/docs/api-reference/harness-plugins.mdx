@@ -139,7 +139,9 @@ What `catalog.resolve()` and `resolvePlugins()` take at runtime.
 
 ## `pluginHosts(plugins)`
 
-The hosts plugins reach, unique and sorted, read before they are resolved: the host of each `http` tool and `http` MCP server, and each plugin's `network.hosts`. What `hosts` of `resolvePlugins()` and `catalog.resolve()` gives.
+The hosts plugins reach, read before they are resolved: from the sandbox, what its network policy must let through, and from your server. What `hosts` of `resolvePlugins()` and `catalog.resolve()` gives, and `catalog.hosts(selection)` without resolving anything.
+
+<AutoTypeTable path="packages/harness-plugins/src/config/plugin-hosts.ts" name="PluginHosts" />
 
 ### `Item`
 

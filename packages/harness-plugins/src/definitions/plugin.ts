@@ -254,7 +254,8 @@ export interface PluginFile {
 /**
  * What a plugin, or an item on its own, reaches on the network besides what its definition shows:
  * the host of an `http` tool or MCP server is read from its URL, but not the API a stdio MCP server
- * started with `npx` calls, nor the web service a hook's command posts to.
+ * started with `npx` calls, nor the web service a hook's command posts to. Its hosts are the
+ * sandbox's when any part of the plugin runs there, your server's when all of them run on it.
  */
 export interface PluginNetwork {
   /**
@@ -303,7 +304,8 @@ export interface Plugin {
   /**
    * The hosts it reaches that its definition does not show: counted, with those of its `http`
    * tools and MCP servers, in the `hosts` of what it resolves to — in a catalog, as soon as one of
-   * its items is selected.
+   * its items is selected —, the sandbox's when any of its parts runs there, your server's
+   * otherwise.
    */
   network?: PluginNetwork;
 }

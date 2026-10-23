@@ -323,17 +323,29 @@ describe('createCatalog', () => {
         },
       ],
     });
-    const hostsOf = async (selection: string[]): Promise<string[]> =>
-      (await network.resolve(selection)).hosts;
-    expect(await hostsOf(['command:find'])).toEqual(['api.search.dev']);
-    expect(await hostsOf(['plugin:github'])).toEqual([
-      '*.githubusercontent.com',
-      'api.github.com',
-      'hooks.example.com',
-    ]);
+    const hostsOf = async (selection: string[]) => (await network.resolve(selection)).hosts;
+    expect(await hostsOf(['command:find'])).toEqual({ sandbox: ['api.search.dev'], server: [] });
+    expect(await hostsOf(['plugin:github'])).toEqual({
+      sandbox: ['*.githubusercontent.com', 'hooks.example.com'],
+      server: ['api.github.com'],
+    });
     // An item of a plugin chosen alone: the plugin's declared hosts, not its other items'.
-    expect(await hostsOf(['github/skill:triage'])).toEqual(['*.githubusercontent.com']);
-    expect(await hostsOf([])).toEqual([]);
+    expect(await hostsOf(['github/skill:triage'])).toEqual({
+      sandbox: ['*.githubusercontent.com'],
+      server: [],
+    });
+    // Its http tool alone runs on your server: the plugin's declared hosts go with it.
+    expect(await hostsOf(['github/tool:issue'])).toEqual({
+      sandbox: [],
+      server: ['*.githubusercontent.com', 'api.github.com'],
+    });
+    expect(await hostsOf([])).toEqual({ sandbox: [], server: [] });
+    // The same, before anything is resolved.
+    expect(network.hosts(['plugin:github'])).toEqual(await hostsOf(['plugin:github']));
+    expect(network.hosts(['gone', 'command:find'], { ignoreUnknown: true })).toEqual({
+      sandbox: ['api.search.dev'],
+      server: [],
+    });
   });
 
   it('refuses to resolve a secret without resolveSecret', async () => {

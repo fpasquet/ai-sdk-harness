@@ -8,6 +8,7 @@ import type {
   SecretValue,
 } from '../definitions/plugin.js';
 import type { McpToolSource } from '../mcp/mcp-tools-plugin.js';
+import type { PluginHosts } from './plugin-hosts.js';
 
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
 import { mcpToolsPlugin } from '../mcp/mcp-tools-plugin.js';
@@ -59,12 +60,11 @@ export interface ResolvePluginsOptions extends ResolveOptions {
 export interface ResolvedPlugins {
   plugins: Plugin[];
   /**
-   * The hosts the plugins reach, unique and sorted: the host of each `http` tool and `http` MCP
-   * server, and the `network.hosts` of each plugin and item — what {@link pluginHosts} reads of
-   * them before they are resolved. What a network policy that lets only some hosts through
-   * (`allowedHosts`) needs to know of them.
+   * The hosts the plugins reach, read before they were resolved: `sandbox`, what the sandbox's
+   * network policy must let through (`allowedHosts`), and `server`, what your server reaches — see
+   * {@link pluginHosts}.
    */
-  hosts: string[];
+  hosts: PluginHosts;
   /** Closes every MCP client opened for the plugins: call it once the agent built on them is done. */
   close: () => Promise<void>;
 }
