@@ -126,8 +126,8 @@ The agent should introspect the workspace before editing; only the non-obvious r
 
 - Lists of hosts and the functions that check and merge them, nothing else: no runtime dependency, no `node:` import in `src/` (`eslint.config.mjs`), so a form in the browser checks hosts as a server does. The notation is the one `allowedHosts` of `@ai-sdk/harness` takes, which `isAllowedHost()` holds once for every package.
 - The folders are layered: `errors/` and `presets/` are leaves, `hosts/` imports `errors/` only (`eslint.config.mjs`).
-- A preset names each host it relies on, the domain beside its `*.` wildcard: whether `*.example.com` covers `example.com` differs from one sandbox to another. `HARNESS_HOSTS` stands in for what the `@ai-sdk/harness-*` packages do not publish yet.
-- `test/*.e2e-spec.ts` reach each preset's services from a Docker Sandbox closed to all else, and run a Claude Code and a Codex turn with the npm registry and their own hosts only; not part of CI. Run them when a preset changes.
+- A preset names each host it relies on, the domain beside its `*.` wildcard: whether `*.example.com` covers `example.com` differs from one sandbox to another. `HARNESS_NETWORK` and `PROVIDER_HOSTS` stand in for what the `@ai-sdk/harness-*` and `@ai-sdk/<provider>` packages do not publish yet: read from each adapter (the packages it installs, the hosts its credentials are brokered to) and each provider package (its default `baseURL`).
+- `test/*.e2e-spec.ts` fetch from each trusted service, redirects followed, in a Docker Sandbox closed to all but `trustedHosts()`, and check the proxy refused nothing (`blockedRequests()`); they run a Claude Code and a Codex turn with `harnessHosts()` alone. A new service comes with its sample URLs there. Not part of CI: run them when a preset changes.
 
 ---
 

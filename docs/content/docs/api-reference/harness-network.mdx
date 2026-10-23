@@ -12,10 +12,26 @@ Returns `{ mode: 'custom', allowedHosts }`, the hosts of `lists` checked, in low
   name="AllowedHostsPolicy"
 />
 
-## `trustedHosts(...services)`
+## `trustedHosts(...names)`
 
-The hosts of `TRUSTED_HOSTS` for each service named, every service without any. A `TrustedService` is `'github'`, `'npm'`, `'yarn'` or `'pypi'`.
+The hosts of `TRUSTED_HOSTS` for each service named (`TrustedService`), or for the services of each group of `TRUSTED_GROUPS` (`TrustedGroup`); every service without any.
 
-## `harnessHosts(harnessId)`
+## `harnessHosts(harnessId, options?)`
 
-The hosts of `HARNESS_HOSTS` for `'claude-code'` or `'codex'`, none for another harness.
+What `HARNESS_NETWORK` holds for the harness: where it installs from, its service, and the API of its provider.
+
+<AutoTypeTable
+  path="packages/harness-network/src/presets/harness-hosts.ts"
+  name="HarnessHostsOptions"
+/>
+
+<AutoTypeTable path="packages/harness-network/src/presets/harness-hosts.ts" name="HarnessNetwork" />
+
+## `providerHosts(provider, location?)`
+
+The hosts of a provider's API: those of `PROVIDER_HOSTS`, or of Vertex AI, Bedrock and Azure where their models run.
+
+<AutoTypeTable
+  path="packages/harness-network/src/presets/provider-hosts.ts"
+  name="ProviderLocation"
+/>

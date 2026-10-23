@@ -1,7 +1,7 @@
 {
   "name": "ai-sdk-harness-network",
   "version": "0.0.0",
-  "description": "The hosts an AI SDK harness agent's sandbox may reach: trusted lists for GitHub, npm, Yarn and PyPI, the hosts of Claude Code and Codex, and a closed network policy built from them.",
+  "description": "The hosts an AI SDK harness agent's sandbox may reach: trusted lists for the forges, registries, toolchains and container registries of the whole ecosystem, the hosts of each harness and model provider, and a closed network policy built from them.",
   "keywords": [
     "ai",
     "ai-sdk",
@@ -12,6 +12,9 @@
     "network-policy",
     "allowlist",
     "egress",
+    "github-copilot",
+    "cursor",
+    "opencode",
     "claude-code",
     "codex",
     "coding-agent"
