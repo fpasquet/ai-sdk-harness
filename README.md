@@ -22,6 +22,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 | [`ai-sdk-harness-sessions`](packages/harness-sessions)         | The lifecycle of a harness agent's sessions: suspended when idle, resumed on the next message and after a restart, several in one sandbox          | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-sessions)](https://www.npmjs.com/package/ai-sdk-harness-sessions)         |
 | [`ai-sdk-harness-workspace`](packages/harness-workspace)       | A Git checkout of its own for each session, side by side in one sandbox, and what the agent changed back as a patch, credentials kept out          | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-workspace)](https://www.npmjs.com/package/ai-sdk-harness-workspace)       |
 | [`ai-sdk-harness-approval`](packages/harness-approval)         | A person in the loop: an approval policy for the agent's commands and edits, "always allow" for a session, and the agent's questions answered      | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-approval)](https://www.npmjs.com/package/ai-sdk-harness-approval)         |
+| [`ai-sdk-harness-network`](packages/harness-network)           | The hosts a sandbox may reach: GitHub, npm, Yarn, PyPI and each harness's own, checked and merged into a closed network policy                     | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-network)](https://www.npmjs.com/package/ai-sdk-harness-network)           |
 
 ```ts
 import { HarnessAgent } from '@ai-sdk/harness/agent';
@@ -52,6 +53,7 @@ packages/
   harness-sessions/   ai-sdk-harness-sessions, published to npm
   harness-workspace/  ai-sdk-harness-workspace, published to npm
   harness-approval/   ai-sdk-harness-approval, published to npm
+  harness-network/    ai-sdk-harness-network, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   next-chat/          a Next.js useChat page talking to Claude Code in a Docker Sandbox, a microsandbox or a Cloud Run sandbox

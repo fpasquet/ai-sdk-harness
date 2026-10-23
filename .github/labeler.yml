@@ -64,3 +64,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - 'packages/harness-approval/**'
+
+'package: harness-network':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/harness-network/**'

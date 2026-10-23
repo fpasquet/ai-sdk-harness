@@ -1,0 +1,21 @@
+---
+title: ai-sdk-harness-network
+description: The presets of hosts and the network policy built from them, generated from the source.
+---
+
+## `networkPolicy(...lists)`
+
+Returns `{ mode: 'custom', allowedHosts }`, the hosts of `lists` checked, in lower case, each once and sorted: the `networkPolicy` of a sandbox, or of `setNetworkPolicy()`. `allowedHosts(...lists)` returns the same list alone, and both throw an `InvalidHostError` for a host `isAllowedHost()` refuses.
+
+<AutoTypeTable
+  path="packages/harness-network/src/hosts/allowed-hosts.ts"
+  name="AllowedHostsPolicy"
+/>
+
+## `trustedHosts(...services)`
+
+The hosts of `TRUSTED_HOSTS` for each service named, every service without any. A `TrustedService` is `'github'`, `'npm'`, `'yarn'` or `'pypi'`.
+
+## `harnessHosts(harnessId)`
+
+The hosts of `HARNESS_HOSTS` for `'claude-code'` or `'codex'`, none for another harness.

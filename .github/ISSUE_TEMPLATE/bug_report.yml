@@ -15,6 +15,7 @@ body:
         - 'ai-sdk-harness-sessions'
         - 'ai-sdk-harness-workspace'
         - 'ai-sdk-harness-approval'
+        - 'ai-sdk-harness-network'
         - 'example-next-chat'
         - 'Documentation'
         - 'Other'
