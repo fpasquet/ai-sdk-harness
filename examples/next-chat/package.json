@@ -34,6 +34,7 @@
     "@tiptap/suggestion": "^3.31.4",
     "ai": "^7.0.142",
     "ai-sdk-harness-approval": "workspace:*",
+    "ai-sdk-harness-network": "workspace:*",
     "ai-sdk-harness-plugins": "workspace:*",
     "ai-sdk-harness-sessions": "workspace:*",
     "ai-sdk-harness-workspace": "workspace:*",

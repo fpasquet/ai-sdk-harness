@@ -1,0 +1,37 @@
+---
+title: ai-sdk-harness-network
+description: The presets of hosts and the network policy built from them, generated from the source.
+---
+
+## `networkPolicy(...lists)`
+
+Returns `{ mode: 'custom', allowedHosts }`, the hosts of `lists` checked, in lower case, each once and sorted: the `networkPolicy` of a sandbox, or of `setNetworkPolicy()`. `allowedHosts(...lists)` returns the same list alone, and both throw an `InvalidHostError` for a host `isAllowedHost()` refuses.
+
+<AutoTypeTable
+  path="packages/harness-network/src/hosts/allowed-hosts.ts"
+  name="AllowedHostsPolicy"
+/>
+
+## `trustedHosts(...names)`
+
+The hosts of `TRUSTED_HOSTS` for each service named (`TrustedService`), or for the services of each group of `TRUSTED_GROUPS` (`TrustedGroup`); every service without any.
+
+## `harnessHosts(harnessId, options?)`
+
+What `HARNESS_NETWORK` holds for the harness: where it installs from, its service, and the API of its provider.
+
+<AutoTypeTable
+  path="packages/harness-network/src/presets/harness-hosts.ts"
+  name="HarnessHostsOptions"
+/>
+
+<AutoTypeTable path="packages/harness-network/src/presets/harness-hosts.ts" name="HarnessNetwork" />
+
+## `providerHosts(provider, location?)`
+
+The hosts of a provider's API: those of `PROVIDER_HOSTS`, or of Vertex AI, Bedrock and Azure where their models run.
+
+<AutoTypeTable
+  path="packages/harness-network/src/presets/provider-hosts.ts"
+  name="ProviderLocation"
+/>
