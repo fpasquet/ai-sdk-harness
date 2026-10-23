@@ -111,6 +111,12 @@ The package is used two ways: give an agent **[whole plugins](#using-plugins)**,
 pnpm add ai-sdk-harness-plugins @ai-sdk/harness @ai-sdk/harness-claude-code zod
 ```
 
+Add `@ai-sdk/mcp` when your server connects to MCP servers itself — an `http` or `stdio` server without `runIn: 'sandbox'` — and you pass no `connectMcpServer` ([MCP servers](#mcp-servers)). It is an optional peer dependency: an application whose MCP servers all run in the sandbox does not need it.
+
+```bash
+pnpm add @ai-sdk/mcp
+```
+
 ## Using plugins
 
 ```ts
@@ -448,7 +454,9 @@ A `sandbox-command` receives `INPUT`, the input as JSON, and `INPUT_<KEY>` for e
 
 ### MCP servers
 
-`{ type: 'http', url, headers? }` or `{ type: 'stdio', command, args?, env? }`, plus `allowedTools?`. Your server connects to each with `@ai-sdk/mcp`, and its tools reach the agent named `<server>_<tool>`; two servers of one name are refused.
+`{ type: 'http', url, headers? }` or `{ type: 'stdio', command, args?, env? }`, plus `allowedTools?`. Your server connects to each with `@ai-sdk/mcp`, which you install beside the package, and its tools reach the agent named `<server>_<tool>`; two servers of one name are refused. Without `@ai-sdk/mcp`, `resolvePlugins()` says to install it or to pass `connectMcpServer`.
+
+The package imports `@ai-sdk/mcp` itself, at run time, out of a bundler's sight: an application without it still builds. In Next.js, list `@ai-sdk/mcp` in `serverExternalPackages`, since its stdio transport starts processes with `cross-spawn`, which a bundle breaks. A build that copies only the files it traces, such as `output: 'standalone'` with Turbopack, may leave `@ai-sdk/mcp` out: pass your own `connectMcpServer` with `createMCPClient`, as below, for the bundler to see the import.
 
 - `connectMcpServer` replaces the connection, for an authentication of your own such as OAuth: `resolvePlugins(plugins, { connectMcpServer: (server, { plugin, name }) => createMCPClient(…) })`.
 - `runIn: 'sandbox'` lets the runtime start the server in the sandbox instead, from the plugin's files, as a Claude Code plugin's stdio servers do. It may hold no secret, and goes to the harness adapter: `createClaudeCode({ ...pluginHarnessSettings('claude-code', plugins) })`.
