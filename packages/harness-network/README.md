@@ -138,6 +138,7 @@ try {
 ## Limitations
 
 - The hosts of each harness belong with its adapter (`@ai-sdk/harness-claude-code`, `@ai-sdk/harness-codex`), which does not publish them yet: `HARNESS_HOSTS` stands in for them, and follows the runtimes as they change.
+- Claude Code also sends telemetry to Datadog (`http-intake.logs.us5.datadoghq.com`), which the presets leave out: refused, it does not stop a turn. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` in the runtime's environment turns it off.
 - A registry set in a project's own configuration (`.npmrc`, a mirror, a private index) is not known: add its host.
 - A wildcard's reach depends on the sandbox: list a domain beside its `*.` wildcard when you need both.
 
