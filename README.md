@@ -56,7 +56,7 @@ packages/
   harness-network/    ai-sdk-harness-network, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
-  next-chat/          a Next.js useChat page talking to Claude Code in a Docker Sandbox, a microsandbox or a Cloud Run sandbox
+  next-chat/          a Next.js useChat page talking to every official harness, Claude Code, Codex, OpenCode and others, in a Docker Sandbox, a microsandbox, a Cloud Run sandbox or behind srt
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```

@@ -251,7 +251,7 @@ A `sandbox-command` that reads `$INPUT_SERVICE` without a `service` property, or
 
 ### The network of the sandbox
 
-A Docker Sandbox, a Cloud Run sandbox and an srt sandbox let only the hosts they list through. The example builds the list with [`ai-sdk-harness-network`](../../packages/harness-network): the trusted hosts of the forges, package registries, toolchains, container registries and Linux archives, where the agents clone and install, the hosts Claude Code and Codex install from and call, the repository's host (`workspace.hosts()`), and the hosts the marketplace reaches from the sandbox, which `catalog.hosts()` reads from the definitions, without resolving anything, before the sandbox is opened (`exampleHosts()` and `openSandbox()` in `lib/sandbox.ts`, `marketplaceSandboxHosts()` in `lib/plugins.ts`).
+A Docker Sandbox, a Cloud Run sandbox and an srt sandbox let only the hosts they list through. The example builds the list with [`ai-sdk-harness-network`](../../packages/harness-network): the trusted hosts of the forges, package registries, toolchains, container registries and Linux archives, where the agents clone and install, the hosts each coding agent installs from and calls (`harnessHosts()`, OpenRouter's in place of their own provider for those that go through it), the repository's host (`workspace.hosts()`), and the hosts the marketplace reaches from the sandbox, which `catalog.hosts()` reads from the definitions, without resolving anything, before the sandbox is opened (`exampleHosts()` and `openSandbox()` in `lib/sandbox.ts`, `marketplaceSandboxHosts()` in `lib/plugins.ts`).
 
 ```ts
 const { sandbox } = catalog.hosts(catalog.entries().map(({ id }) => id)); // ['registry.npmjs.org']

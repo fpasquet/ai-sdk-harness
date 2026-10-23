@@ -366,7 +366,7 @@ async function captureWorkspace(page: Page): Promise<void> {
  * the panel above the conversation lists it, open.
  */
 async function captureBlockedHosts(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /new chat/i }).click();
+  await startChat(page);
   await converse(
     page,
     'Run `curl -sS -m 10 https://example.com` once with the Bash tool, do not retry it, and say in one sentence what happened.',
