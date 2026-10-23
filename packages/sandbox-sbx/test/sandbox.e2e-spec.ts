@@ -124,6 +124,20 @@ describe('the network of a Docker Sandbox', () => {
     expect(await status('https://github.com')).toBe('403');
   });
 
+  it('tells which hosts the proxy refused to it', async () => {
+    const since = new Date(Date.now() - 1000);
+    await status('https://github.com');
+
+    const blocked = (await fenced.blockedRequests?.({ since })) ?? [];
+
+    const github = blocked.find(({ host }) => host === 'github.com');
+    expect(github?.port).toBe(443);
+    expect(github?.reason).toMatch(/rule/);
+    expect(github?.lastSeen.getTime()).toBeGreaterThanOrEqual(since.getTime());
+    // Allowed by the sandbox's policy.
+    expect(blocked.map(({ host }) => host)).not.toContain('example.com');
+  });
+
   it('never reaches the metadata server, this host or a private network', async () => {
     for (const url of [
       'http://169.254.169.254/',

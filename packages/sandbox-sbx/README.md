@@ -257,6 +257,22 @@ The policy becomes rules of the Docker Sandboxes policy scoped to the sandbox, w
 
 It applies before `setup`, so list what `setup` downloads from. `denyNetwork` adds deny rules at creation (`sbx create --deny-network`), on top of any policy. In the cloud, the account's policy and `allowNetwork` decide, and `setNetworkPolicy` is absent.
 
+When the agent calls a host the policy does not allow, the proxy refuses it with a `403`, and only the sandbox sees it. `blockedRequests()` lists the hosts the proxy refused to the sandbox, the last refused first, from `sbx policy log`: what to tell a person, who may then allow one with the next `setNetworkPolicy()`.
+
+```ts
+const policyChangedAt = new Date();
+await sandboxSession.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['api.anthropic.com'] });
+// … the agent runs …
+const blocked = (await sandboxSession.blockedRequests?.({ since: policyChangedAt })) ?? [];
+// [{ host: 'registry.npmjs.org', port: 443, reason: 'Denied by local rule', count: 2, firstSeen, lastSeen }]
+```
+
+- **One entry per host and port**, with how many requests the proxy refused and when it first and last did. A name lookup the proxy's DNS refused has no `port`; reverse lookups, and the same name tried under the sandbox's search domain, are left out.
+- **The log is kept by sandbox name, and outlives the sandbox**: a new sandbox of the same name inherits it, and a host stays listed once allowed. Pass `since`, the time of the last change of policy for instance, to leave older refusals out.
+- **Local sandboxes only**: absent in the cloud, like `setNetworkPolicy`.
+
+A host no rule allows also waits for an answer in `sbx policy approval ls`, which the package leaves alone: it prints a table only, and never lists a host a rule denies, so neither what `deny-all` refuses nor the denies of a `custom` policy.
+
 ## Ports
 
 `ports` lists the ports inside the sandbox the harness may reach. Each one is published the first time `getPortEndpoint()` asks for it, on this host's loopback (`127.0.0.1:<free port>`) or, for a cloud sandbox, at the public `https://` URL the control plane assigns, and unpublished by `release()`, `stop()` or `setPorts()`. A port outside the list is refused with `HarnessCapabilityUnsupportedError`.
@@ -323,7 +339,7 @@ A view starts its own processes, publishes its own ports and registers its own c
 
 - `SbxSandboxNotFoundError`: `resumeSbxNetworkSandboxSession()` found no sandbox of that name. Carries `sandboxId`.
 - `SbxError`: an `sbx` command exited with a non-zero status. Carries `args`, `exitCode` and `stderr`.
-- `SbxTimeoutError` (an `SbxError`): a control command of `sbx` — listing, publishing a port, stopping or removing the sandbox, the package's own short commands in it — did not finish within `commandTimeoutMs`, and was stopped. Creating the sandbox, its `setup`, file reads and writes and the commands the agent runs have no deadline: they end with their `abortSignal`. Carries `timeoutMs`. A listing (`sbx ls`, `template ls`, `policy ls`, `secret ls`) is first tried twice more, 2 then 5 seconds later, as it is when `sbx` answers that the Docker sign-in service is unavailable: a `sandboxd` that cannot refresh its Docker session for a moment delays a session instead of failing it.
+- `SbxTimeoutError` (an `SbxError`): a control command of `sbx` — listing, publishing a port, stopping or removing the sandbox, the package's own short commands in it — did not finish within `commandTimeoutMs`, and was stopped. Creating the sandbox, its `setup`, file reads and writes and the commands the agent runs have no deadline: they end with their `abortSignal`. Carries `timeoutMs`. A listing (`sbx ls`, `template ls`, `policy ls`, `policy log`, `secret ls`) is first tried twice more, 2 then 5 seconds later, as it is when `sbx` answers that the Docker sign-in service is unavailable: a `sandboxd` that cannot refresh its Docker session for a moment delays a session instead of failing it.
 - `SbxNotSignedInError` (an `SbxError`): `sbx` is signed out of Docker, or its sign-in expired. Run `sbx login`, then try again. For 30 seconds after, the other commands of the same sandbox fail with it at once rather than run `sbx` again, which would only fail, or hang: a cleanup after the failure does not hold the caller for minutes.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a credential the proxy cannot broker.
 

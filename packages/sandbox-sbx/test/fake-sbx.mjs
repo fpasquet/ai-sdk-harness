@@ -89,6 +89,28 @@ function execOptions(rest) {
   return { workdir, env, rest };
 }
 
+/** `sbx policy allow|deny network`: a rule of the machine's policy, or scoped to a sandbox. */
+function addRule(verb) {
+  const scope = flag('--sandbox');
+  state.rules.push({
+    id: `rule-${state.rules.length + 1}-${verb}`,
+    scope: scope === undefined ? 'global' : `sandbox:${scope}`,
+    decision: verb,
+    resource_type: 'network',
+    protocol: flag('--protocol') ?? 'tcp',
+    resources: args.at(-1).split(','),
+  });
+}
+
+/** `sbx policy log`, as 0.48 prints it: one entry per sandbox, host and decision, an exact name. */
+function printPolicyLog() {
+  const name = args[2]?.startsWith('-') ? undefined : args[2];
+  const of = (entries = []) =>
+    entries.filter((entry) => name === undefined || entry.sandbox_id === name);
+  const { allowed, blocked } = state.policyLog ?? {};
+  process.stdout.write(JSON.stringify({ allowed: of(allowed), blocked: of(blocked) }));
+}
+
 const commands = {
   ttl() {
     if (!cloud) fail('ttl is cloud-only');
@@ -206,16 +228,10 @@ const commands = {
     const [, verb] = args;
     if (verb === 'ls') {
       process.stdout.write(JSON.stringify({ rules: state.rules }));
+    } else if (verb === 'log') {
+      printPolicyLog();
     } else if (verb === 'allow' || verb === 'deny') {
-      const scope = flag('--sandbox');
-      state.rules.push({
-        id: `rule-${state.rules.length + 1}-${verb}`,
-        scope: scope === undefined ? 'global' : `sandbox:${scope}`,
-        decision: verb,
-        resource_type: 'network',
-        protocol: flag('--protocol') ?? 'tcp',
-        resources: args.at(-1).split(','),
-      });
+      addRule(verb);
     } else if (verb === 'rm') {
       if (!args.includes('--force'))
         fail('stdin is not a terminal; use --force to skip confirmation');

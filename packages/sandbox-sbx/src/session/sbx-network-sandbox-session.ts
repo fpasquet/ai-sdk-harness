@@ -8,10 +8,12 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
+import type { SbxBlockedRequest, SbxBlockedRequestsOptions } from '../network/blocked-requests.js';
 import type { CredentialBroker, SecretHolders } from '../network/credential-broker.js';
 import type { PortPublisher, PublishedPort } from '../network/port-publisher.js';
 import type { SbxSandboxHandle } from './sbx-sandbox-session.js';
 
+import { blockedRequests } from '../network/blocked-requests.js';
 import { headerBroker, placeholderBroker } from '../network/credential-broker.js';
 import { applyNetworkPolicy } from '../network/network-policy.js';
 import { cloudPorts, endpointUrl, loopbackPorts } from '../network/port-publisher.js';
@@ -69,6 +71,14 @@ export class SbxNetworkSandboxSession
    */
   readonly setNetworkPolicy?: (policy: HarnessV1NetworkPolicy) => Promise<void>;
 
+  /**
+   * The hosts the Docker Sandboxes proxy refused to the sandbox, the last refused first, from
+   * `sbx policy log`: what to tell a person who may then allow them. The log is kept by sandbox
+   * name and outlives the sandbox, so pass `since` to leave older refusals out. Local sandboxes
+   * only, like {@link setNetworkPolicy}.
+   */
+  readonly blockedRequests?: (options?: SbxBlockedRequestsOptions) => Promise<SbxBlockedRequest[]>;
+
   private exposed: readonly number[];
   private readonly broker: CredentialBroker;
   private readonly publisher: PortPublisher;
@@ -92,6 +102,7 @@ export class SbxNetworkSandboxSession
       : loopbackPorts(handle.cli, handle.name);
     if (!this.cloud) {
       this.setNetworkPolicy = (policy) => applyNetworkPolicy(handle.cli, handle.name, policy);
+      this.blockedRequests = (options) => blockedRequests(handle.cli, handle.name, options);
     }
     if (credentials.brokerCredentials) {
       this.addRequestTransformations = (transformations) => this.broker.add(transformations);
