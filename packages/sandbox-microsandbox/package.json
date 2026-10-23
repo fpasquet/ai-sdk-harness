@@ -60,8 +60,8 @@
     "@ai-sdk/provider-utils": "^5.0.0"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "^1.0.147",
-    "@ai-sdk/provider-utils": "^5.0.58",
+    "@ai-sdk/harness": "^1.0.153",
+    "@ai-sdk/provider-utils": "^5.0.61",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
     "@repo/prettier-config": "workspace:*",
