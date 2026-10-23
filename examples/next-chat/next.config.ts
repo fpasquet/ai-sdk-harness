@@ -8,7 +8,16 @@ const config: NextConfig = {
   serverExternalPackages: [
     '@ai-sdk/harness',
     '@ai-sdk/harness-claude-code',
+    '@ai-sdk/harness-cline',
     '@ai-sdk/harness-codex',
+    '@ai-sdk/harness-cursor',
+    '@ai-sdk/harness-deepagents',
+    '@ai-sdk/harness-github-copilot',
+    '@ai-sdk/harness-grok-build',
+    '@ai-sdk/harness-opencode',
+    // Pi, Cline and fx run in this process: fx on libfx, a native addon.
+    '@ai-sdk/harness-fx',
+    '@ai-sdk/harness-pi',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',
     // A native addon, loaded from its platform package at runtime.

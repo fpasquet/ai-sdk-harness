@@ -6,6 +6,7 @@ import { ChevronDownIcon, ShieldAlertIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { Conversation } from '@/lib/conversations';
+import type { SandboxId } from '@/lib/sandboxes';
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -15,12 +16,16 @@ interface BlockedHosts {
   blocked: { host: string; port?: number; reason: string; count: number; lastSeen: string }[];
 }
 
-/** The hosts the sandbox was refused, read again each time the conversation's session changes. */
+/**
+ * The hosts the sandbox was refused, read again each time the conversation's session changes: a
+ * local Docker Sandbox only reports them.
+ */
 function useBlockedHosts(
+  sandbox: SandboxId,
   session: SessionSummary<Conversation> | undefined,
 ): BlockedHosts | undefined {
   const [hosts, setHosts] = useState<BlockedHosts>();
-  const opened = session !== undefined;
+  const opened = sandbox === 'sbx' && session !== undefined;
   useEffect(() => {
     if (!opened) return;
     const controller = new AbortController();
@@ -38,11 +43,13 @@ function useBlockedHosts(
  * `blockedRequests()` of `ai-sdk-sandbox-sbx`, and how to allow one. Hidden while there is none.
  */
 export function BlockedHostsPanel({
+  sandbox,
   session,
 }: {
+  sandbox: SandboxId;
   session: SessionSummary<Conversation> | undefined;
 }) {
-  const hosts = useBlockedHosts(session);
+  const hosts = useBlockedHosts(sandbox, session);
   if (hosts === undefined || hosts.blocked.length === 0) return null;
   const { blocked, sandboxId } = hosts;
   return (

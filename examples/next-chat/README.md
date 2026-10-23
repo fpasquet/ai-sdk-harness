@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with **Claude Code** or **Codex**, running in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md): a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
+A chat with the coding agents of the [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-adapters): **Claude Code**, **Codex**, **OpenCode**, **Pi**, **Cline**, **Deep Agents**, **Grok Build**, **fx**, **GitHub Copilot** and **Cursor**. They run in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md). The app is a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -10,7 +10,22 @@ Open a tool call to see what the agent ran in the microVM, and what came back:
 
 ![A bash tool call of the agent, with the command it ran and its output](../../docs/public/screenshots/next-chat/tool.png)
 
-Pick the coding agent, its model and what it takes from the **marketplace** before the first message: Claude Code (Haiku 4.5, Sonnet 5.5, Opus 5.5) or Codex (GPT-5.5, GPT-5.6 Luna, GPT-6 Luna). Both run in the same sandbox.
+Pick the coding agent, its model and what it takes from the **marketplace** before the first message. Every official harness adapter is there, one card each; those whose credential the server does not have are greyed out, with the variables to set:
+
+| Coding agent   | Runs on                | Models                                 | Where it runs                                     |
+| -------------- | ---------------------- | -------------------------------------- | ------------------------------------------------- |
+| Claude Code    | a Claude subscription  | Claude Haiku 4.5, Sonnet 5.5, Opus 5.5 | its CLI, behind a bridge in the sandbox           |
+| Codex          | a ChatGPT subscription | GPT-5.5, GPT-5.6 Luna, GPT-6 Luna      | its CLI, behind a bridge in the sandbox           |
+| OpenCode       | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | its server, behind a bridge in the sandbox        |
+| Pi             | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | the Next.js server, its tools in the sandbox      |
+| Cline          | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | the Next.js server, its tools in the sandbox      |
+| Deep Agents    | OpenRouter             | Claude Haiku 5.5, Kimi K3, GLM 5.3     | a LangGraph agent, behind a bridge in the sandbox |
+| Grok Build     | OpenRouter             | Grok Build 0.1, Grok 4.7               | its CLI, over ACP in the sandbox                  |
+| fx             | a ChatGPT subscription | GPT-5.5, GPT-5.6 Luna, GPT-6 Luna      | the Next.js server, its tools in the sandbox      |
+| GitHub Copilot | a Copilot subscription | GPT-5.5, Claude Sonnet 5.5             | its CLI, over ACP in the sandbox                  |
+| Cursor         | a Cursor account       | Auto, GPT-5.6 Luna                     | its CLI, over ACP in the sandbox                  |
+
+They all share the one sandbox, and the conversations of different agents run side by side. What sets them apart shows on their cards: the approval policy is offered to the agents that can ask before their own commands and edits (Claude Code, OpenCode, Pi, Cline, fx), and Deep Agents forgets the conversation once it is suspended, since its memory lives in its bridge; the files stay.
 
 ![Codex answering in the example, after editing and running a file in the sandbox](../../docs/public/screenshots/next-chat/codex.png)
 
@@ -24,9 +39,15 @@ cp examples/next-chat/.env.example examples/next-chat/.env.local   # then set th
 pnpm example:dev                                                   # http://localhost:3000
 ```
 
-Claude Code takes `CLAUDE_CODE_OAUTH_TOKEN` (the long-lived token `claude setup-token` prints for a Claude subscription) or `ANTHROPIC_API_KEY`; Codex takes `OPENAI_API_KEY`. Without them, each harness falls back to the login of its own CLI on your machine (`claude`, `codex`), if it finds one. With a ChatGPT login, Codex asks for a `ChatGPT-Account-ID` header a local sandbox proxy cannot add: it is left out with a warning, and Codex works without it.
+Every credential is an environment variable, read by the server (`lib/harness-adapters.ts`); none is typed in the page:
 
-The very first message takes a few minutes: the sandbox is created, Claude Code and Codex are installed in it, then it is saved as a template image. Every later start reuses both and answers in seconds.
+- **Claude Code** takes `CLAUDE_CODE_OAUTH_TOKEN`, the long-lived token `claude setup-token` prints for a Claude subscription, or `ANTHROPIC_API_KEY`; without them, the login of the `claude` CLI on your machine.
+- **Codex** and **fx** take the login of the `codex` CLI on your machine, a ChatGPT subscription (`codex login`, in `~/.codex` or `CODEX_HOME`); Codex also takes `OPENAI_API_KEY`. With a ChatGPT login, Codex asks for a `ChatGPT-Account-ID` header a local sandbox proxy cannot add: it is left out with a warning, and Codex works without it.
+- **OpenCode**, **Pi**, **Cline**, **Deep Agents** and **Grok Build** take `OPENROUTER_API_KEY`: their models are [OpenRouter](https://openrouter.ai)'s. Each is pointed at it the way its adapter allows, never through AI Gateway: OpenCode's and Pi's OpenRouter providers, Cline's `openrouter` provider, OpenRouter's Anthropic-compatible API for Deep Agents, Grok Build's API base URLs.
+- **GitHub Copilot** takes `COPILOT_GITHUB_TOKEN` (or `GH_TOKEN`, `GITHUB_TOKEN`), a token of a Copilot subscription with the _Copilot Requests_ permission.
+- **Cursor** takes `CURSOR_API_KEY`; the model provider is the one of your Cursor account.
+
+The very first message takes a few minutes: the sandbox is created, Claude Code and Codex are installed in it, then it is saved as a template image. Every later start reuses both and answers in seconds. OpenCode, Deep Agents, Grok Build, GitHub Copilot and Cursor install themselves in the sandbox the first time a conversation runs them; Pi, Cline and fx run in the Next.js server, and use the sandbox for their files and commands only.
 
 ## Run it in a microsandbox
 
@@ -118,7 +139,7 @@ Every conversation is a session of [`ai-sdk-harness-sessions`](../../packages/ha
 
 ![Claude Code waiting for the approval of a shell command: the conversation needs you](../../docs/public/screenshots/next-chat/approval.png)
 
-The policy is offered for Claude Code only: the Codex harness adapter runs Codex with approvals turned off ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). And a Claude Code conversation that was suspended, or that outlived a restart of the server, does not take the answers to its approvals once resumed ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)): the policy answers what it can, and an approval asked again is left to you.
+The policy is offered to the agents whose adapter can ask before their own commands and edits: Claude Code, OpenCode, Pi, Cline and fx. The Codex harness adapter runs Codex with approvals turned off ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)), and those of Grok Build, GitHub Copilot and Cursor take no approval requests yet; Deep Agents' cannot answer them yet. And a Claude Code conversation that was suspended, or that outlived a restart of the server, does not take the answers to its approvals once resumed ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)): the policy answers what it can, and an approval asked again is left to you.
 
 ### The agent's questions
 

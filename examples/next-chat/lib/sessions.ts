@@ -2,8 +2,6 @@ import type { Plugin } from 'ai-sdk-harness-plugins';
 import type { SessionManager, SessionSummary } from 'ai-sdk-harness-sessions';
 import type { SingleRepositoryWorkspaceSession, Workspace } from 'ai-sdk-harness-workspace';
 
-import { createClaudeCode } from '@ai-sdk/harness-claude-code';
-import { createCodex } from '@ai-sdk/harness-codex';
 import { createHarnessSandboxTemplate, HarnessAgent } from '@ai-sdk/harness/agent';
 import { withPlugins } from 'ai-sdk-harness-plugins';
 import { createSessionManager, sandboxPerSession, sharedSandbox } from 'ai-sdk-harness-sessions';
@@ -14,6 +12,8 @@ import type { Conversation } from '@/lib/conversations';
 import type { HarnessId } from '@/lib/harnesses';
 
 import { APPROVAL_POLICY } from '@/lib/approval';
+import { adapterOf } from '@/lib/harness-adapters';
+import { TEMPLATE_HARNESSES } from '@/lib/harnesses';
 import { marketplaceSandboxHosts, resolveSelection } from '@/lib/plugins';
 import {
   createConversationMicrosandbox,
@@ -28,20 +28,11 @@ import { createFileSessionStore } from '@/lib/session-store';
 import { createExampleWorkspace } from '@/lib/workspace';
 
 /**
- * The two harnesses, each authenticated from the environment: Claude Code from
- * `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, Codex from `OPENAI_API_KEY`. Without them,
- * each falls back to the login of its own CLI on this machine, when it finds one.
- */
-const HARNESS_ADAPTERS = {
-  'claude-code': createClaudeCode(),
-  codex: createCodex(),
-};
-
-/**
  * The ports the bridges of the conversations listen on in the sandbox: 4001 to 4004.
  *
- * Claude Code and Codex run behind a bridge, a process the harness starts in the sandbox, which
- * listens on a port the server reaches over a WebSocket. Two sessions cannot share a port: each
+ * Claude Code, Codex and the other runtimes installed in the sandbox run behind a bridge, a
+ * process the harness starts there, which listens on a port the server reaches over a WebSocket
+ * (Pi, Cline and fx run in this server, and leave theirs unused). Two sessions cannot share a port: each
  * conversation works in a view of the sandbox (`fork()`) with a port of its own, the same microVM
  * and files, and a working directory of its own.
  *
@@ -104,7 +95,7 @@ function agentFor(
   const key = `${harness}:${model}:${askFirst}:${fingerprint}`;
   let agent = state.agents.get(key);
   if (agent === undefined) {
-    const adapter = HARNESS_ADAPTERS[harness as HarnessId];
+    const adapter = adapterOf(harness as HarnessId);
     const settings = {
       id: `example-${harness}`,
       harness: adapter,
@@ -141,7 +132,7 @@ export function sessions(): SessionManager<Conversation> {
 
 /** Claude Code and Codex, installed once in the template every sandbox starts from. */
 const harnessTemplate = () =>
-  createHarnessSandboxTemplate({ harnesses: Object.values(HARNESS_ADAPTERS) });
+  createHarnessSandboxTemplate({ harnesses: TEMPLATE_HARNESSES.map(adapterOf) });
 
 function createExampleSessions(): SessionManager<Conversation> {
   const sandboxes =
@@ -155,6 +146,7 @@ function createExampleSessions(): SessionManager<Conversation> {
       : sharedSandbox({
           // The first creation installs both Claude Code and Codex in the sandbox, then saves it
           // as a template (a few minutes); every later one starts from that template in seconds.
+          // Another harness installs itself on the first conversation that runs it.
           // Its network lets its checkouts be fetched, with `EXAMPLE_REPOSITORY`, and lets through
           // what the marketplace's plugins reach from it.
           open: async () => {

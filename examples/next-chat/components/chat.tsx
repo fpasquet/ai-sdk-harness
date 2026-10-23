@@ -38,6 +38,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { BlockedHostsPanel } from '@/components/blocked-hosts-panel';
 import { ChangesPanel } from '@/components/changes-panel';
+import { HarnessGallery } from '@/components/harness-gallery';
 import { everything, MarketplacePicker, SelectionCount } from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
 import {
@@ -58,7 +59,14 @@ import {
 } from '@/components/ui/select';
 import { POLICY_SUMMARY } from '@/lib/approval';
 import { STATUS_LABELS } from '@/lib/conversations';
-import { defaultModel, HARNESS_IDS, HARNESSES, type HarnessId } from '@/lib/harnesses';
+import {
+  defaultModel,
+  HARNESS_IDS,
+  type HarnessAvailability,
+  HARNESSES,
+  type HarnessId,
+  TEMPLATE_HARNESSES,
+} from '@/lib/harnesses';
 import { SANDBOXES, type SandboxId } from '@/lib/sandboxes';
 import { cn } from '@/lib/utils';
 
@@ -70,6 +78,14 @@ const SUGGESTIONS = [
 
 /** What a new conversation picks before its first message, and keeps afterwards. */
 type Agent = Omit<Conversation, 'title'>;
+
+/** `agent` running `harness` instead, on its first model; the approval policy kept if it can ask. */
+const withHarness = (agent: Agent, harness: HarnessId): Agent => ({
+  ...agent,
+  harness,
+  model: defaultModel(harness),
+  askFirst: agent.askFirst && HARNESSES[harness].asksFirst,
+});
 
 /** A conversation open in this tab: a new one has no session on the server yet. */
 interface Opened {
@@ -104,11 +120,14 @@ function useNow(): number {
  * follows the sessions as the server changes them, through server-sent events.
  */
 export function ChatApp({
+  availability,
   initialSessions,
   marketplace,
   repository,
   sandbox,
 }: {
+  /** Which harnesses the server has a credential for: the others are greyed out. */
+  availability: HarnessAvailability;
   initialSessions: SessionSummary<Conversation>[];
   marketplace: CatalogDescription;
   /** The repository each conversation works on a checkout of, with `EXAMPLE_REPOSITORY`. */
@@ -119,11 +138,15 @@ export function ChatApp({
   const [first] = useState(nanoid);
   const [opened, setOpened] = useState<Opened[]>([{ id: first, fresh: true }]);
   const [active, setActive] = useState(first);
-  const [draft, setDraft] = useState<Agent>({
-    harness: 'claude-code',
-    model: defaultModel('claude-code'),
-    selection: everything(marketplace),
-    askFirst: false,
+  const [draft, setDraft] = useState<Agent>(() => {
+    // The first harness the server can run, Claude Code when none can.
+    const harness = HARNESS_IDS.find((id) => availability[id]) ?? 'claude-code';
+    return {
+      harness,
+      model: defaultModel(harness),
+      selection: everything(marketplace),
+      askFirst: false,
+    };
   });
   const now = useNow();
   const byId = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
@@ -171,6 +194,7 @@ export function ChatApp({
       <div className="flex min-w-0 flex-1 flex-col">
         {opened.map(({ id, fresh }) => (
           <ChatPanel
+            availability={availability}
             draft={draft}
             fresh={fresh}
             hidden={id !== active}
@@ -211,6 +235,7 @@ function ChatPanel(props: Omit<ChatProps, 'initialMessages'> & { fresh: boolean 
 }
 
 interface ChatProps {
+  availability: HarnessAvailability;
   /** What a new conversation picks: the agent it runs, its model, its plugins. */
   draft: Agent;
   hidden: boolean;
@@ -226,6 +251,7 @@ interface ChatProps {
 }
 
 function Chat({
+  availability,
   draft,
   hidden,
   id,
@@ -294,6 +320,7 @@ function Chat({
     <div className={cn('flex min-h-0 flex-1 flex-col', hidden && 'hidden')}>
       <ChatHeader
         agent={agent}
+        availability={availability}
         busy={busy}
         locked={locked}
         onDraftChange={onDraftChange}
@@ -304,14 +331,18 @@ function Chat({
       {repository !== undefined && (
         <ChangesPanel id={id} repository={repository} session={session} />
       )}
-      {sandbox === 'sbx' && <BlockedHostsPanel session={session} />}
+      <BlockedHostsPanel sandbox={sandbox} session={session} />
       <ConversationView className="flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (
             <ConversationEmptyState className="justify-start gap-6 pt-12">
               <BoxIcon className="size-10 text-muted-foreground" />
               <div className="space-y-1">
-                <h3 className="text-sm font-medium">{harness.label} is ready</h3>
+                <h3 className="text-sm font-medium">
+                  {availability[agent.harness]
+                    ? `${harness.label} is ready`
+                    : 'No coding agent has its credential yet'}
+                </h3>
                 <p className="text-sm text-muted-foreground">
                   A HarnessAgent from the AI SDK, {where.description}. Pick an agent, a model and
                   what it takes from the marketplace, then ask it to write and run some code, or
@@ -319,6 +350,11 @@ function Chat({
                   another one while this one works.
                 </p>
               </div>
+              <HarnessGallery
+                availability={availability}
+                harness={agent.harness}
+                onPick={(picked) => onDraftChange(withHarness(agent, picked))}
+              />
               <MarketplacePicker
                 harness={agent.harness}
                 marketplace={marketplace}
@@ -339,6 +375,7 @@ function Chat({
           <SessionNotes
             busy={busy}
             error={error}
+            harness={agent.harness}
             session={session}
             submitted={status === 'submitted'}
           />
@@ -347,6 +384,7 @@ function Chat({
       </ConversationView>
       <Composer
         agent={agent}
+        available={availability[agent.harness]}
         empty={messages.length === 0}
         locked={locked}
         marketplace={marketplace}
@@ -364,6 +402,7 @@ function Chat({
 /** The conversation's title and status, and the agent it runs. */
 function ChatHeader({
   agent,
+  availability,
   busy,
   locked,
   onDraftChange,
@@ -372,6 +411,7 @@ function ChatHeader({
   session,
 }: {
   agent: Agent;
+  availability: HarnessAvailability;
   busy: boolean;
   locked: boolean;
   onDraftChange: (agent: Agent) => void;
@@ -400,8 +440,9 @@ function ChatHeader({
       <div className="flex items-center gap-2">
         <AgentPicker
           agent={agent}
+          availability={availability}
           locked={locked}
-          onChange={(next) => onDraftChange({ ...agent, ...next })}
+          onChange={onDraftChange}
         />
         <SelectionCount count={agent.selection.length} />
         <Button className="md:hidden" disabled={busy} onClick={onNewChat} size="sm" variant="ghost">
@@ -412,32 +453,44 @@ function ChatHeader({
   );
 }
 
+/** What a conversation's first message waits for, or its next one once it was suspended. */
+function startNote(harness: HarnessId, suspended: boolean): string {
+  if (suspended) return 'Resuming the session where it was…';
+  const { label, runsIn } = HARNESSES[harness];
+  const installs = runsIn === 'sandbox' && !TEMPLATE_HARNESSES.includes(harness);
+  return `Opening the session. The very first message also installs Claude Code and Codex in the sandbox${installs ? `, and the first conversation with ${label} installs it` : ''}.`;
+}
+
+/** What the next message of a suspended conversation does. */
+function resumeNote(harness: HarnessId): string {
+  const { label, resumes } = HARNESSES[harness];
+  return resumes
+    ? 'The next message resumes it where it was.'
+    : `The next message starts ${label} again: the files stay, but it does not remember the conversation.`;
+}
+
 /** What the session is doing when the conversation alone does not say it. */
 function SessionNotes({
   busy,
   error,
+  harness,
   session,
   submitted,
 }: {
   busy: boolean;
   error: Error | undefined;
+  harness: HarnessId;
   session: SessionSummary<Conversation> | undefined;
   submitted: boolean;
 }) {
   const suspended = session?.status === 'suspended';
   return (
     <>
-      {submitted && (
-        <Shimmer className="text-sm">
-          {suspended
-            ? 'Resuming the session where it was…'
-            : 'Opening the session. The very first message also installs Claude Code and Codex in the sandbox.'}
-        </Shimmer>
-      )}
+      {submitted && <Shimmer className="text-sm">{startNote(harness, suspended)}</Shimmer>}
       {!busy && suspended && (
         <p className="text-xs text-muted-foreground">
           Suspended{session.error ? ` (${session.error})` : ''}: its harness session is stopped and
-          its port freed. The next message resumes it where it was.
+          its port freed. {resumeNote(harness)}
         </p>
       )}
       {error && (
@@ -449,9 +502,21 @@ function SessionNotes({
   );
 }
 
+/** What the prompt says while empty. */
+function placeholderOf(
+  harness: HarnessId,
+  { blocked, waiting }: { blocked: boolean; waiting: boolean },
+) {
+  const { credentials, label } = HARNESSES[harness];
+  if (waiting) return 'The agent waits for your answer, above.';
+  if (blocked) return `${label} needs ${credentials}: see .env.example.`;
+  return `Ask ${label} to write and run some code, or type / for a command or a skill…`;
+}
+
 /** The prompt, with the suggestions of a new conversation. */
 function Composer({
   agent,
+  available,
   empty,
   locked,
   marketplace,
@@ -463,6 +528,8 @@ function Composer({
   waiting,
 }: {
   agent: Agent;
+  /** Whether the server has the harness's credential: a new conversation cannot start without. */
+  available: boolean;
   empty: boolean;
   locked: boolean;
   marketplace: CatalogDescription;
@@ -477,6 +544,8 @@ function Composer({
   const [input, setInput] = useState('');
   const editor = useRef<PromptEditorHandle>(null);
   const busy = status === 'submitted' || status === 'streaming';
+  // A new conversation on a harness the server has no credential for cannot start.
+  const blocked = !locked && !available;
   const harness = HARNESSES[agent.harness];
   const commands = useMemo(
     () => slashCommandsOf(marketplace, agent.selection),
@@ -489,7 +558,7 @@ function Composer({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-      {empty && (
+      {empty && !blocked && (
         <Suggestions className="mb-3">
           {SUGGESTIONS.map((suggestion) => (
             <Suggestion key={suggestion} onClick={send} suggestion={suggestion} />
@@ -501,14 +570,10 @@ function Composer({
         <PromptInputBody>
           <PromptEditor
             commands={commands}
-            disabled={busy || waiting}
+            disabled={busy || waiting || blocked}
             onChange={setInput}
             onSubmit={send}
-            placeholder={
-              waiting
-                ? 'The agent waits for your answer, above.'
-                : `Ask ${harness.label} to write and run some code, or type / for a command or a skill…`
-            }
+            placeholder={placeholderOf(agent.harness, { blocked, waiting })}
             ref={editor}
           />
         </PromptInputBody>
@@ -637,12 +702,14 @@ function ChatMessage({
  */
 function AgentPicker({
   agent,
+  availability,
   locked,
   onChange,
 }: {
   agent: Agent;
+  availability: HarnessAvailability;
   locked: boolean;
-  onChange: (agent: Partial<Agent>) => void;
+  onChange: (agent: Agent) => void;
 }) {
   const { models } = HARNESSES[agent.harness];
   const modelLabel = models.find(({ id }) => id === agent.model)?.label ?? agent.model;
@@ -651,13 +718,7 @@ function AgentPicker({
     <>
       <Select
         disabled={locked}
-        onValueChange={(harness: HarnessId) =>
-          onChange({
-            harness,
-            model: defaultModel(harness),
-            askFirst: agent.askFirst && HARNESSES[harness].asksFirst,
-          })
-        }
+        onValueChange={(harness: HarnessId) => onChange(withHarness(agent, harness))}
         value={agent.harness}
       >
         <SelectTrigger aria-label="Coding agent" size="sm">
@@ -665,7 +726,7 @@ function AgentPicker({
         </SelectTrigger>
         <SelectContent>
           {HARNESS_IDS.map((harnessId) => (
-            <SelectItem key={harnessId} value={harnessId}>
+            <SelectItem disabled={!availability[harnessId]} key={harnessId} value={harnessId}>
               {HARNESSES[harnessId].label}
             </SelectItem>
           ))}
@@ -675,7 +736,7 @@ function AgentPicker({
       <Select
         disabled={locked}
         key={agent.harness}
-        onValueChange={(model: string) => onChange({ harness: agent.harness, model })}
+        onValueChange={(model: string) => onChange({ ...agent, model })}
         value={agent.model}
       >
         <SelectTrigger aria-label="Model" size="sm">

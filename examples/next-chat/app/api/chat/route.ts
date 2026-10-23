@@ -5,9 +5,11 @@ import { expandCommand, InvalidPluginError } from 'ai-sdk-harness-plugins';
 import type { Conversation } from '@/lib/conversations';
 
 import { titleOf } from '@/lib/conversations';
+import { harnessAvailability } from '@/lib/harness-adapters';
 import { HARNESSES, isKnown } from '@/lib/harnesses';
 import { errorResponse } from '@/lib/http';
 import { resolveSelection } from '@/lib/plugins';
+import { ExampleConfigurationError } from '@/lib/sandbox';
 import { sessions } from '@/lib/sessions';
 
 // A turn reads files, runs commands and edits code: give it time.
@@ -69,7 +71,8 @@ async function reply(
 
 /**
  * Opens the session of a new conversation, with the agent it picked; `undefined` when the coding
- * agent or the model is not one of the example's.
+ * agent or the model is not one of the example's. A coding agent without its credential is
+ * refused, with the variables to set.
  */
 async function open(
   id: string,
@@ -77,6 +80,10 @@ async function open(
   first: UIMessage | undefined,
 ): Promise<Conversation | undefined> {
   if (!isKnown(picked.harness, picked.model)) return undefined;
+  if (!harnessAvailability()[picked.harness]) {
+    const { credentials, label } = HARNESSES[picked.harness];
+    throw new ExampleConfigurationError(`${label} needs ${credentials}: see .env.example.`);
+  }
   const metadata: Conversation = {
     harness: picked.harness,
     model: picked.model as string,
