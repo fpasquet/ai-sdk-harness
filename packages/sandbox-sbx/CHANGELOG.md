@@ -1,5 +1,12 @@
 # ai-sdk-sandbox-sbx
 
+## 0.1.4
+
+### Patch Changes
+
+- 01d7c18: `blockedRequests({ since?, abortSignal? })` on a local `SbxNetworkSandboxSession` lists the hosts the Docker Sandboxes proxy refused to the sandbox, the last refused first, from `sbx policy log`: the host, the port, the proxy's reason, how many requests it refused and when it first and last did. An application can tell a person which host its network policy blocked, and let them allow it. The log is kept by sandbox name and outlives the sandbox: pass `since` to leave older refusals out. Absent on a cloud sandbox, like `setNetworkPolicy`.
+- 9924529: A listing of `sbx` (`ls`, `template ls`, `policy ls`, `secret ls`) that does not answer within `commandTimeoutMs`, or that `sbx` refuses because the Docker sign-in service is unavailable, is tried twice more, 2 then 5 seconds later. A `sandboxd` that cannot refresh its Docker session for a moment no longer fails the creation or the resumption of a sandbox.
+
 ## 0.1.3
 
 ### Patch Changes
