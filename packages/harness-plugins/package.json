@@ -84,7 +84,7 @@
     "ai-sdk-sandbox-sbx": "workspace:*",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
   },
   "author": {
     "name": "Fabien Pasquet",
