@@ -18,7 +18,7 @@ const isProxyManaged = (variable: string, value: string): boolean =>
 
 /** The sandboxes `sbx` knows of, by name and, for cloud ones, by `sbx_*` id too. */
 export async function listSandboxes(cli: SbxCli, abortSignal?: AbortSignal): Promise<Set<string>> {
-  const listed = JSON.parse(await cli.check(['ls', '--json'], { abortSignal })) as
+  const listed = JSON.parse(await cli.check(['ls', '--json'], { abortSignal, retry: true })) as
     { id?: string; name?: string }[] | { sandboxes?: { id?: string; name?: string }[] };
   const sandboxes = Array.isArray(listed) ? listed : (listed.sandboxes ?? []);
   return new Set(

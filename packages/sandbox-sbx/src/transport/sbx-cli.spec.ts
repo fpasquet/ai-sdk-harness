@@ -108,6 +108,60 @@ describe('SbxCli', () => {
     });
   });
 
+  describe('retry', () => {
+    it('asks again a listing that did not answer in time', async () => {
+      sbx.update((state) => {
+        state.hangOnce = ['ls --json'];
+      });
+      const bounded = new SbxCli(sbx.binary, false, { commandTimeoutMs: 300, retryDelaysMs: [10] });
+
+      const output = await bounded.check(['ls', '--json'], { retry: true });
+
+      expect(JSON.parse(output)).toMatchObject([{ name: 'box' }]);
+      expect(sbx.calls().filter((call) => call[0] === 'ls')).toHaveLength(2);
+    });
+
+    it('asks again a listing while the Docker sign-in service is unavailable', async () => {
+      sbx.update((state) => {
+        state.unavailableOnce = ['ls --json'];
+      });
+      const patient = new SbxCli(sbx.binary, false, { retryDelaysMs: [10] });
+
+      const output = await patient.check(['ls', '--json'], { retry: true });
+
+      expect(JSON.parse(output)).toMatchObject([{ name: 'box' }]);
+    });
+
+    it('gives up after its last try, and never retries a command that does not allow it', async () => {
+      sbx.update((state) => {
+        state.unavailableOnce = ['ls --json', 'ls --json', 'ports'];
+      });
+      const patient = new SbxCli(sbx.binary, false, { retryDelaysMs: [10] });
+
+      await expect(patient.check(['ls', '--json'], { retry: true })).rejects.toThrow(
+        /docker login service unavailable/,
+      );
+      await expect(patient.check(['ports', 'box', '--json'])).rejects.toBeInstanceOf(SbxError);
+      expect(sbx.calls().filter((call) => call[0] === 'ports')).toHaveLength(1);
+    });
+
+    it('stops waiting to retry once aborted', async () => {
+      sbx.update((state) => {
+        state.unavailableOnce = ['ls --json'];
+      });
+      const patient = new SbxCli(sbx.binary, false, { retryDelaysMs: [60_000] });
+      const controller = new AbortController();
+
+      const listing = patient.check(['ls', '--json'], {
+        retry: true,
+        abortSignal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 200);
+
+      await expect(listing).rejects.toThrow();
+    });
+  });
+
   describe('signed out', () => {
     it('says to sign in again when sbx is signed out', async () => {
       sbx.update((state) => {
