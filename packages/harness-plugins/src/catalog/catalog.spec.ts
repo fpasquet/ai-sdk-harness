@@ -324,7 +324,11 @@ describe('createCatalog', () => {
       ],
     });
     const hostsOf = async (selection: string[]) => (await network.resolve(selection)).hosts;
-    expect(await hostsOf(['command:find'])).toEqual({ sandbox: ['api.search.dev'], server: [] });
+    // The server it requires starts in the sandbox with npx: the npm registry with its own host.
+    expect(await hostsOf(['command:find'])).toEqual({
+      sandbox: ['api.search.dev', 'registry.npmjs.org'],
+      server: [],
+    });
     expect(await hostsOf(['plugin:github'])).toEqual({
       sandbox: ['*.githubusercontent.com', 'hooks.example.com'],
       server: ['api.github.com'],
@@ -343,7 +347,7 @@ describe('createCatalog', () => {
     // The same, before anything is resolved.
     expect(network.hosts(['plugin:github'])).toEqual(await hostsOf(['plugin:github']));
     expect(network.hosts(['gone', 'command:find'], { ignoreUnknown: true })).toEqual({
-      sandbox: ['api.search.dev'],
+      sandbox: ['api.search.dev', 'registry.npmjs.org'],
       server: [],
     });
   });

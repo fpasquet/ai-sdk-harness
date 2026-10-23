@@ -6,14 +6,16 @@ import { isToolDefinition } from './plugin-schema.js';
 export interface PluginHosts {
   /**
    * Reached from the sandbox: what its network policy must let through (`allowedHosts`). The
-   * host of each `http` MCP server with `runIn: 'sandbox'`, and the `network.hosts` of each plugin
+   * host of each `http` MCP server with `runIn: 'sandbox'`, the registry each `stdio` one with
+   * `runIn: 'sandbox'` downloads its package from, and the `network.hosts` of each plugin
    * — or item on its own — with anything in the sandbox: a skill, a rule, a command, a hook, a
    * subagent, a file, a `sandbox-command` tool, an MCP server with `runIn: 'sandbox'`.
    */
   sandbox: string[];
   /**
    * Reached from your server: the host of each `http` tool and of each `http` MCP server your
-   * server connects to, and the `network.hosts` of a plugin — or an item on its own — whose parts
+   * server connects to, the registry each `stdio` one it starts downloads its package from, and the
+   * `network.hosts` of a plugin — or an item on its own — whose parts
    * all run there: tools of code, `http` or `registered` ones, and MCP servers your server
    * connects to.
    */
@@ -23,8 +25,9 @@ export interface PluginHosts {
 /**
  * The hosts `plugins` reach, read before they are resolved, in lower case: from the sandbox, and
  * from your server. An `http` tool or MCP server gives the host of its URL — its `{key}`
- * placeholders sit after its origin —, and a plugin's `network.hosts` go with its parts: to the
- * sandbox when any of them runs there, to your server otherwise.
+ * placeholders sit after its origin —, a `stdio` MCP server started by a package launcher the
+ * registry it downloads from (`npx`, `uvx`…), and a plugin's `network.hosts` go
+ * with its parts: to the sandbox when any of them runs there, to your server otherwise.
  */
 export function pluginHosts(plugins: readonly Plugin[]): PluginHosts {
   const each = plugins.map(hostsOf);
@@ -39,9 +42,14 @@ function hostsOf(plugin: Plugin): PluginHosts {
   const tools = Object.values(plugin.tools ?? {}).flatMap((tool) =>
     isToolDefinition(tool) && tool.type === 'http' ? [hostOf(tool.url)] : [],
   );
-  const servers = Object.values(plugin.mcpServers ?? {}).filter((server) => server.type === 'http');
   const serversIn = (sandbox: boolean): string[] =>
-    servers.filter(({ runIn }) => (runIn === 'sandbox') === sandbox).map(({ url }) => hostOf(url));
+    Object.values(plugin.mcpServers ?? {})
+      .filter(({ runIn }) => (runIn === 'sandbox') === sandbox)
+      .flatMap((server) =>
+        server.type === 'http'
+          ? [hostOf(server.url)]
+          : launcherRegistries(server.command, server.args),
+      );
   const declared = (plugin.network?.hosts ?? []).map((host) => host.toLowerCase());
   const inside = inSandbox(plugin);
   return {
@@ -71,6 +79,34 @@ function inSandbox(plugin: Plugin): boolean {
     servers.some((server) => server.runIn === 'sandbox') ||
     tools.length + servers.length === 0
   );
+}
+
+const NPM = ['registry.npmjs.org'];
+const PYPI = ['pypi.org', 'files.pythonhosted.org'];
+
+/** The launchers that download the package they run, and the registry they download it from. */
+const LAUNCHERS: Record<string, readonly string[]> = { npx: NPM, pnpx: NPM, bunx: NPM, uvx: PYPI };
+
+/** The launchers that download it with a subcommand: `pnpm dlx`, `npm exec`, `pipx run`… */
+const SUBCOMMANDS: Record<string, Record<string, readonly string[]>> = {
+  npm: { exec: NPM, x: NPM },
+  pnpm: { dlx: NPM },
+  bun: { x: NPM },
+  yarn: { dlx: ['registry.yarnpkg.com'] },
+  pipx: { run: PYPI },
+  uv: { tool: PYPI },
+};
+
+/**
+ * The registry a `stdio` MCP server's command downloads its package from, when it starts it with a
+ * package launcher — `npx`, `pnpx`, `bunx`, `npm exec`, `pnpm dlx`, `bun x` from the npm registry,
+ * `yarn dlx` from Yarn's, `uvx`, `uv tool run`, `pipx run` from PyPI —, by its name or its path;
+ * none for any other command. The registry of a project's own configuration (`.npmrc`, a mirror)
+ * is not read: declare it in `network.hosts`.
+ */
+export function launcherRegistries(command: string, args: readonly string[] = []): string[] {
+  const name = (command.split(/[\\/]/).pop() ?? '').replace(/\.(?:cmd|exe)$/i, '').toLowerCase();
+  return [...(LAUNCHERS[name] ?? SUBCOMMANDS[name]?.[args[0] ?? ''] ?? [])];
 }
 
 /** Unique, sorted, without the empty host of a URL that names none. */

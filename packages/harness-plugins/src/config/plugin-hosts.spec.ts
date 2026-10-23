@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import type { Plugin } from '../definitions/plugin.js';
 
-import { pluginHosts } from './plugin-hosts.js';
+import { launcherRegistries, pluginHosts } from './plugin-hosts.js';
 
 describe('pluginHosts', () => {
   it('reads the hosts of http tools and MCP servers, and the declared ones, by where they are reached', () => {
@@ -39,7 +39,26 @@ describe('pluginHosts', () => {
       ]),
     ).toEqual({
       sandbox: ['*.githubusercontent.com', 'api.github.com', 'mcp.github.com'],
-      server: ['api.github.com', 'api.search.dev', 'localhost'],
+      server: ['api.github.com', 'api.search.dev', 'localhost', 'registry.npmjs.org'],
+    });
+  });
+
+  it('gives the registry a stdio MCP server downloads its package from, where it starts', () => {
+    expect(
+      pluginHosts([
+        {
+          name: 'tools',
+          description: '',
+          mcpServers: {
+            memory: { type: 'stdio', command: 'npx', args: ['-y', 'memory-mcp'], runIn: 'sandbox' },
+            time: { type: 'stdio', command: 'uvx', args: ['mcp-server-time'] },
+            local: { type: 'stdio', command: 'node', args: ['server.js'], runIn: 'sandbox' },
+          },
+        },
+      ]),
+    ).toEqual({
+      sandbox: ['registry.npmjs.org'],
+      server: ['files.pythonhosted.org', 'pypi.org'],
     });
   });
 
@@ -58,9 +77,9 @@ describe('pluginHosts', () => {
       of({ tools: { count: { type: 'sandbox-command', description: 'd', command: 'wc' } } }),
     ).toEqual(inSandbox);
     expect(
-      of({ mcpServers: { docs: { type: 'stdio', command: 'npx', runIn: 'sandbox' } } }),
+      of({ mcpServers: { docs: { type: 'stdio', command: 'docs-mcp', runIn: 'sandbox' } } }),
     ).toEqual(inSandbox);
-    expect(of({ mcpServers: { docs: { type: 'stdio', command: 'npx' } } })).toEqual(onServer);
+    expect(of({ mcpServers: { docs: { type: 'stdio', command: 'docs-mcp' } } })).toEqual(onServer);
     expect(
       of({
         tools: {
@@ -78,5 +97,34 @@ describe('pluginHosts', () => {
         { name: 'kit', description: '', skills: [{ name: 's', description: '', content: 'c' }] },
       ]),
     ).toEqual({ sandbox: [], server: [] });
+  });
+});
+
+describe('launcherRegistries', () => {
+  it.each([
+    ['npx', ['-y', 'pkg'], ['registry.npmjs.org']],
+    ['/usr/local/bin/npx', [], ['registry.npmjs.org']],
+    ['C:\\Program Files\\nodejs\\npx.cmd', [], ['registry.npmjs.org']],
+    ['pnpx', [], ['registry.npmjs.org']],
+    ['bunx', [], ['registry.npmjs.org']],
+    ['pnpm', ['dlx', 'pkg'], ['registry.npmjs.org']],
+    ['npm', ['exec', 'pkg'], ['registry.npmjs.org']],
+    ['bun', ['x', 'pkg'], ['registry.npmjs.org']],
+    ['yarn', ['dlx', 'pkg'], ['registry.yarnpkg.com']],
+    ['uvx', ['pkg'], ['pypi.org', 'files.pythonhosted.org']],
+    ['uv', ['tool', 'run', 'pkg'], ['pypi.org', 'files.pythonhosted.org']],
+    ['pipx', ['run', 'pkg'], ['pypi.org', 'files.pythonhosted.org']],
+  ])('%s %j downloads from %j', (command, args, registries) => {
+    expect(launcherRegistries(command, args)).toEqual(registries);
+  });
+
+  it.each([
+    ['node', ['server.js']],
+    ['pnpm', ['exec', 'tsx', 'server.ts']],
+    ['npm', ['run', 'mcp']],
+    ['python', ['-m', 'server']],
+    ['', []],
+  ])('%s %j downloads nothing', (command, args) => {
+    expect(launcherRegistries(command, args)).toEqual([]);
   });
 });

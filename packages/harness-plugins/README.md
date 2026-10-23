@@ -468,7 +468,10 @@ A sandbox whose network policy lets only some hosts through (`{ mode: 'custom', 
 | Read from       | `hosts.sandbox`                                                                                                                                                                           | `hosts.server`                                                                                                        |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | URLs            | each `http` MCP server with `runIn: 'sandbox'`                                                                                                                                            | each `http` tool — its `{key}` placeholders never reach the host — and each `http` MCP server your server connects to |
+| Commands        | the registry each `stdio` MCP server with `runIn: 'sandbox'` downloads its package from, when a package launcher starts it                                                                | the registry each `stdio` MCP server your server starts downloads its package from                                    |
 | `network.hosts` | of a plugin, or an item on its own, with anything in the sandbox: a skill, a rule, a command, a hook, a subagent, a file, a `sandbox-command` tool, an MCP server with `runIn: 'sandbox'` | of one whose parts all run on your server: tools of code, `http` or `registered` ones, MCP servers it connects to     |
+
+A package launcher downloads from a registry: `npx`, `pnpx`, `bunx`, `npm exec`, `pnpm dlx` and `bun x` from `registry.npmjs.org`, `yarn dlx` from `registry.yarnpkg.com`, `uvx`, `uv tool run` and `pipx run` from `pypi.org` and `files.pythonhosted.org`. Any other command downloads nothing the package knows of, and a registry set in a project's own configuration (`.npmrc`, a mirror) is not read.
 
 `network.hosts` declares what a definition does not show, such as the API a stdio server started with `npx` calls, or the web service a hook's command posts to. A plugin declares its hosts once, for all its parts: they are the sandbox's as soon as one of them runs there, since what your server reaches it reaches with a URL the definition already shows.
 
@@ -487,7 +490,8 @@ A sandbox whose network policy lets only some hosts through (`{ mode: 'custom', 
 
 ```ts
 // Before the sandbox exists: catalog.hosts() resolves nothing.
-const hosts = catalog.hosts(['mcp-server:acme-docs']); // { sandbox: ['api.acme.dev'], server: [] }
+const hosts = catalog.hosts(['mcp-server:acme-docs']);
+// { sandbox: ['api.acme.dev', 'registry.npmjs.org'], server: [] }: npx downloads from npm
 const defaults = ['api.anthropic.com', 'registry.npmjs.org']; // what the runtime itself needs
 const sandbox = await createSbxNetworkSandboxSession({
   networkPolicy: { mode: 'custom', allowedHosts: [...defaults, ...hosts.sandbox] },
