@@ -23,7 +23,7 @@
     "@ai-sdk/react": "^4.0.146",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
     "@tiptap/core": "^3.31.4",
-    "@tiptap/extension-document": "^3.31.4",
+    "@tiptap/extension-document": "^3.32.0",
     "@tiptap/extension-hard-break": "^3.31.4",
     "@tiptap/extension-mention": "^3.32.0",
     "@tiptap/extension-paragraph": "^3.32.0",
