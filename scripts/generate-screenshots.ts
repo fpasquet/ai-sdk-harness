@@ -27,7 +27,7 @@
  * CODEX_PROMPT. The conversations run in a throwaway sandbox, removed at the end; the template
  * image it starts from is kept.
  */
-import type { Browser, Page } from 'playwright-core';
+import type { Browser, Locator, Page } from 'playwright-core';
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -250,8 +250,17 @@ async function captureUseCases(page: Page): Promise<void> {
   }
 }
 
-/** The marketplace of a new conversation, then what a plugin holds: its items, and those linked. */
+/**
+ * The coding agents a new conversation picks from, its marketplace, then what a plugin holds: its
+ * items, and those linked.
+ */
 async function captureMarketplace(page: Page): Promise<void> {
+  // The conversation sticks to its bottom: each part is brought into view first.
+  const show = (part: Locator) =>
+    part.evaluate((element) => element.scrollIntoView({ block: 'start' }));
+  await show(page.getByRole('heading', { name: /is ready$/ }));
+  await capture(page, 'harnesses');
+  await show(page.getByRole('region', { name: 'Marketplace' }));
   await capture(page, 'empty');
   await page.getByRole('button', { name: 'What upgrades holds' }).click();
   await page.getByRole('dialog').waitFor();

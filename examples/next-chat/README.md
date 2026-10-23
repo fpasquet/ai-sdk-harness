@@ -27,6 +27,8 @@ Pick the coding agent, its model and what it takes from the **marketplace** befo
 
 They all share the one sandbox, and the conversations of different agents run side by side. What sets them apart shows on their cards: the approval policy is offered to the agents that can ask before their own commands and edits (Claude Code, OpenCode, Pi, Cline, fx), and Deep Agents forgets the conversation once it is suspended, since its memory lives in its bridge; the files stay.
 
+![The coding agents of a new conversation: Claude Code picked, those without a credential greyed out with the variables to set](../../docs/public/screenshots/next-chat/harnesses.png)
+
 ![Codex answering in the example, after editing and running a file in the sandbox](../../docs/public/screenshots/next-chat/codex.png)
 
 ## Run it
