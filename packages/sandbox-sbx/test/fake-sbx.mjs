@@ -6,6 +6,8 @@
 // FAKE_SBX_HOME points at its state. Every call is appended to `calls.jsonl` there, and a call
 // whose command line contains one of the state's `failOn` strings exits with 1, one that contains
 // a `hangOn` string never ends, and every call fails as a signed-out `sbx` does while `signedOut`.
+// `hangOnce` and `unavailableOnce` strings act once each, then are forgotten: the first matching
+// call never ends, or fails as `sbx` does while the Docker sign-in service is unavailable.
 import { spawn } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,6 +48,21 @@ if (state.signedOut)
   );
 if ((state.hangOn ?? []).some((pattern) => line.includes(pattern)))
   await new Promise(() => setInterval(() => {}, 60_000));
+/** Removes the first of `key`'s strings that `line` contains, and says whether there was one. */
+const once = (key) => {
+  const index = (state[key] ?? []).findIndex((pattern) => line.includes(pattern));
+  if (index === -1) return false;
+  state[key].splice(index, 1);
+  save(state);
+  return true;
+};
+if (once('hangOnce')) await new Promise(() => setInterval(() => {}, 60_000));
+if (once('unavailableOnce'))
+  fail(
+    'error: failed to list sandboxes: request failed: 503 Service Unavailable: code=503, ' +
+      'message=docker login service unavailable: cannot determine whether a refresh right now ' +
+      'would be safe to guard',
+  );
 
 /** The environment Docker Sandboxes gives a sandbox, credentials left to its proxy. */
 const SANDBOX_ENV = {

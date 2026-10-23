@@ -4,6 +4,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { Readable } from 'node:stream';
+import { setTimeout as wait } from 'node:timers/promises';
 
 import { SbxError } from '../errors/sbx-error.js';
 import { SbxNotSignedInError } from '../errors/sbx-not-signed-in-error.js';
@@ -33,6 +34,12 @@ export interface SbxCallOptions {
    * `abortSignal`. Every other command is stopped after the CLI's `commandTimeoutMs`.
    */
   unbounded?: boolean;
+  /**
+   * The command only reads (`ls`, `template ls`…) and may run again: past its deadline, or when
+   * `sbx` answers that the Docker sign-in service is unavailable, it is retried after a pause. A
+   * busy or briefly unreachable `sandboxd` then delays a session instead of failing it.
+   */
+  retry?: boolean;
 }
 
 /** How long a control command of `sbx` (`ls`, `ports`, `stop`, a probe…) may take by default. */
@@ -44,12 +51,21 @@ const SIGNED_OUT_HOLD_MS = 30_000;
  * Docker sign-in service's refusal. Read on the commands this package runs, never on an agent's.
  */
 const SIGNED_OUT = /^\s*try: sbx login\s*$|please sign in to Docker|no valid user session found/im;
+/**
+ * What `sandboxd` answers while it cannot refresh its Docker session for a moment (its host's
+ * keyring did not reply, the sign-in service is down): worth asking again, unlike a sign-out.
+ */
+const UNAVAILABLE = /docker login service unavailable|503 Service Unavailable/i;
+/** The pauses before each new try of a command that may run again: two more tries in all. */
+const RETRY_DELAYS_MS = [2_000, 5_000];
 
 export interface SbxCliOptions {
   /** See {@link COMMAND_TIMEOUT_MS}. */
   commandTimeoutMs?: number;
   /** See {@link SIGNED_OUT_HOLD_MS}. */
   signedOutHoldMs?: number;
+  /** See {@link RETRY_DELAYS_MS}. */
+  retryDelaysMs?: readonly number[];
 }
 
 const exitCodeOf = (code: null | number, signal: NodeJS.Signals | null): number =>
@@ -62,6 +78,7 @@ const exitCodeOf = (code: null | number, signal: NodeJS.Signals | null): number 
 export class SbxCli {
   readonly commandTimeoutMs: number;
   private readonly signedOutHoldMs: number;
+  private readonly retryDelaysMs: readonly number[];
   /** When `sbx` was last found signed out, and what it said: the next commands fail at once. */
   private signedOut: undefined | { at: number; stderr: string };
 
@@ -76,10 +93,12 @@ export class SbxCli {
     {
       commandTimeoutMs = COMMAND_TIMEOUT_MS,
       signedOutHoldMs = SIGNED_OUT_HOLD_MS,
+      retryDelaysMs = RETRY_DELAYS_MS,
     }: SbxCliOptions = {},
   ) {
     this.commandTimeoutMs = commandTimeoutMs;
     this.signedOutHoldMs = signedOutHoldMs;
+    this.retryDelaysMs = retryDelaysMs;
   }
 
   /**
@@ -112,7 +131,7 @@ export class SbxCli {
    */
   async run(args: readonly string[], options: SbxCallOptions = {}): Promise<SbxResult> {
     if (options.abortSignal?.aborted) throw abortReason(options.abortSignal);
-    const result = await this.collect(args, options);
+    const result = await this.attempt(args, options);
     if (result.exitCode !== 0 && SIGNED_OUT.test(result.stderr)) {
       this.signedOut = { at: Date.now(), stderr: result.stderr };
       throw new SbxNotSignedInError(args, result);
@@ -126,6 +145,23 @@ export class SbxCli {
     const result = await this.run(args, options);
     if (result.exitCode !== 0) throw new SbxError(args, result);
     return result.stdout.toString();
+  }
+
+  /**
+   * Runs `sbx` once, or, for a command that may run again, until it answers, at most once more for
+   * each of the retry delays.
+   */
+  private async attempt(args: readonly string[], options: SbxCallOptions): Promise<SbxResult> {
+    for (const delay of options.retry ? this.retryDelaysMs : []) {
+      try {
+        const result = await this.collect(args, options);
+        if (result.exitCode === 0 || !UNAVAILABLE.test(result.stderr)) return result;
+      } catch (error) {
+        if (!(error instanceof SbxTimeoutError)) throw error;
+      }
+      await wait(delay, undefined, { signal: options.abortSignal });
+    }
+    return this.collect(args, options);
   }
 
   /** Fails at once while `sbx` was found signed out a moment ago: it would only fail, or hang. */

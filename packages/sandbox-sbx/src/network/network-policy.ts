@@ -15,7 +15,7 @@ const BOTH = ['--protocol', 'tcp,udp'];
 
 /** The rules of the machine's policy, every sandbox's scoped ones included. */
 async function listRules(cli: SbxCli): Promise<PolicyRule[]> {
-  const listed = await cli.check(['policy', 'ls', '--type', 'network', '--json']);
+  const listed = await cli.check(['policy', 'ls', '--type', 'network', '--json'], { retry: true });
   return (JSON.parse(listed) as { rules?: PolicyRule[] }).rules ?? [];
 }
 

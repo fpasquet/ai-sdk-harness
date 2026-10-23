@@ -34,6 +34,10 @@ export interface FakeSbxState {
   before048?: boolean;
   /** Calls whose command line contains one of these never end. */
   hangOn?: string[];
+  /** The first call whose command line contains each of these never ends; later ones run. */
+  hangOnce?: string[];
+  /** The first call whose command line contains each of these fails as an unavailable `sbx` does. */
+  unavailableOnce?: string[];
   /** Every call fails as a signed-out `sbx` does. */
   signedOut?: boolean;
 }

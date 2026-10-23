@@ -67,7 +67,9 @@ export function placeholderBroker(cli: SbxCli, sandbox: string): CredentialBroke
       placeholders.clear();
     },
     clear: async () => {
-      const listed = await cli.check(['secret', 'ls', '--sandbox', sandbox, '--json']);
+      const listed = await cli.check(['secret', 'ls', '--sandbox', sandbox, '--json'], {
+        retry: true,
+      });
       const { custom_secrets: secrets = [] } = JSON.parse(listed) as {
         custom_secrets?: CustomSecret[];
       };

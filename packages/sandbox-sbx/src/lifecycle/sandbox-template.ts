@@ -85,8 +85,9 @@ async function imageExists(
   reference: string,
   abortSignal?: AbortSignal,
 ): Promise<boolean> {
-  const listed = JSON.parse(await cli.check(['template', 'ls', '--json'], { abortSignal })) as
-    TemplateImage[] | { images?: TemplateImage[] };
+  const listed = JSON.parse(
+    await cli.check(['template', 'ls', '--json'], { abortSignal, retry: true }),
+  ) as TemplateImage[] | { images?: TemplateImage[] };
   if (cli.cloud) return containsString(listed, reference);
   // `sbx` 0.48 lists the images themselves, earlier versions under `images`.
   const images = Array.isArray(listed) ? listed : (listed.images ?? []);
