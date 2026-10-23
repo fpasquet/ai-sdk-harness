@@ -26,6 +26,8 @@ import {
 import { WorkspaceError } from '../errors/workspace-error.js';
 import { WorkspaceLostError } from '../errors/workspace-lost-error.js';
 import { WorkspaceSetupError } from '../errors/workspace-setup-error.js';
+import { gitRepository } from '../sources/git-repository.js';
+import { hostRepository } from '../sources/host-repository.js';
 import { sandboxRepository } from '../sources/sandbox-repository.js';
 import { createWorkspace } from './create-workspace.js';
 import { withWorkspace } from './with-workspace.js';
@@ -353,6 +355,15 @@ describe('createWorkspace', () => {
     expect(committed).toBe('Harness agent <agent@ai-sdk-harness.invalid>');
   });
 
+  it('names the hosts the sandbox fetches the repository from', async () => {
+    const hosts = createWorkspace({
+      source: gitRepository({ url: 'https://github.com/acme/widgets.git' }),
+    }).hosts();
+
+    expect(await hosts).toEqual(['github.com']);
+    expect(await workspace.hosts({ sessionId: 'a' })).toEqual([]);
+  });
+
   it('refuses a branch name git would not take', async () => {
     const odd = createWorkspace({
       source: sandboxRepository({ path: source }),
@@ -520,6 +531,22 @@ describe('createWorkspace', () => {
       });
     });
 
+    it('names the hosts the sandbox fetches the repositories from, each once', async () => {
+      const hosts = createWorkspace({
+        repositories: {
+          api: { source: gitRepository({ url: 'https://github.com/acme/api.git' }) },
+          web: gitRepository({ url: 'https://github.com/acme/web.git' }),
+          billing: gitRepository({ url: 'https://git.example.com:8443/acme/billing.git' }),
+          docs: hostRepository({ path: source }),
+          'apps/web': sandboxRepository({ path: web }),
+          custom: { name: 'custom', fetch: () => Promise.resolve() },
+        },
+      }).hosts();
+
+      expect(await hosts).toEqual(['github.com', 'git.example.com']);
+      expect(await several.hosts()).toEqual([]);
+    });
+
     it('refuses repositories that cannot be checked out side by side', () => {
       const from = sandboxRepository({ path: source });
       const other = sandboxRepository({ path: web });
@@ -584,6 +611,23 @@ describe('createWorkspace', () => {
 
       expect(asked).toEqual(['b', 'b', 'b']);
       expect(await exists(directory)).toBe(false);
+    });
+
+    it("names the hosts of a session's repositories, and needs the session to", async () => {
+      const hosts = createWorkspace({
+        repositories: ({ sessionId }) => ({
+          api: gitRepository({ url: 'https://github.com/acme/api.git' }),
+          ...(sessionId !== 'a' && {
+            web: gitRepository({ url: 'https://gitlab.com/acme/web.git' }),
+          }),
+        }),
+      });
+
+      expect(await hosts.hosts({ sessionId: 'a' })).toEqual(['github.com']);
+      expect(await hosts.hosts({ sessionId: 'b' })).toEqual(['github.com', 'gitlab.com']);
+      await expect(hosts.hosts()).rejects.toThrow(/per session/);
+      await expect(perSession.hosts({ sessionId: 'b' })).resolves.toEqual([]);
+      expect(asked).toEqual(['b']);
     });
 
     it('fails the start of a session whose repositories cannot be checked out side by side', async () => {

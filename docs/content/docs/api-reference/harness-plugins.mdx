@@ -29,6 +29,12 @@ Checks a plugin, written in code or as JSON, and returns it as it is. Throws `In
 
 <AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginFile" />
 
+### `PluginNetwork`
+
+The hosts a plugin, or an item on its own, reaches that its definition does not show.
+
+<AutoTypeTable path="packages/harness-plugins/src/definitions/plugin.ts" name="PluginNetwork" />
+
 ## `lintPlugin(plugin)`
 
 What `definePlugin` accepts but is likely a mistake, by field: `lintItem(item)` for an item on its own.
@@ -130,6 +136,12 @@ What `catalog.resolve()` and `resolvePlugins()` take at runtime.
   path="packages/harness-plugins/src/config/resolve-plugins.ts"
   name="ResolvedPlugins"
 />
+
+## `pluginHosts(plugins)`
+
+The hosts plugins reach, read before they are resolved: from the sandbox, what its network policy must let through, and from your server. What `hosts` of `resolvePlugins()` and `catalog.resolve()` gives, and `catalog.hosts(selection)` without resolving anything.
+
+<AutoTypeTable path="packages/harness-plugins/src/config/plugin-hosts.ts" name="PluginHosts" />
 
 ### `Item`
 

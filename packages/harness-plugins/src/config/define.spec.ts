@@ -134,6 +134,38 @@ describe('definePlugin', () => {
       'mcpServers',
       'files',
       'requires',
+      'network',
+    ]);
+  });
+
+  it('refuses a host that is not a host name nor *.<domain>', () => {
+    const hosts = ['api.github.com', '*.GitHubUserContent.com', 'localhost', '10.0.0.1'];
+    const plugin = { ...manifest, network: { hosts } };
+    expect(definePlugin(plugin)).toBe(plugin);
+    const error = errorOf({
+      ...manifest,
+      network: {
+        hosts: [
+          'api.github.com',
+          'https://api.github.com',
+          'api.github.com:443',
+          'api.github.com/repos',
+          '*',
+          '*github.com',
+          'api.*.com',
+          '-api.github.com',
+          `${'a'.repeat(64)}.com`,
+        ],
+      },
+    });
+    const message =
+      'must be a host name, or *.<domain> for its subdomains: no scheme, path nor port';
+    expect(error.message).toBe(`Plugin "ticketing": network.hosts.1: ${message} (and 7 more).`);
+    expect(error.issues).toEqual(
+      [1, 2, 3, 4, 5, 6, 7, 8].map((index) => ({ path: ['network', 'hosts', index], message })),
+    );
+    expect(errorOf({ ...manifest, network: { hosts: ['a.dev'], ports: [443] } }).issues).toEqual([
+      { path: ['network'], message: 'Unrecognized key: "ports"' },
     ]);
   });
 
@@ -197,9 +229,26 @@ describe('defineItem', () => {
         command: 'node',
         env: { TOKEN: { secret: 'DOCS' } },
         runIn: 'host',
+        network: { hosts: ['api.docs.dev'] },
       },
     ];
     for (const item of valid) expect(defineItem(item)).toEqual(item);
+  });
+
+  it('checks the hosts an item declares, as those of a plugin', () => {
+    const hook = {
+      kind: 'hook',
+      name: 'notify',
+      event: 'Stop',
+      command: 'curl -fsS https://hooks.example.com/done',
+    };
+    const declared = { ...hook, network: { hosts: ['hooks.example.com'] } };
+    expect(defineItem(declared)).toBe(declared);
+    expect(() =>
+      defineItem({ ...hook, network: { hosts: ['https://hooks.example.com'] } }),
+    ).toThrow(
+      'Plugin "hook:notify": network.hosts.0: must be a host name, or *.<domain> for its subdomains: no scheme, path nor port.',
+    );
   });
 
   it('lists the mistakes of an item by field, against the schema of its kind', () => {
@@ -238,6 +287,7 @@ describe('defineItem', () => {
       'argumentHint',
       'prompt',
       'requires',
+      'network',
     ]);
     expect(itemJsonSchema('tool')).toHaveProperty('oneOf');
   });

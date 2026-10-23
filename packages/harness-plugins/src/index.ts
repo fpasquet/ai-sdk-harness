@@ -30,6 +30,8 @@ export type { Item, ItemKind } from './config/item-schema.js';
 export { lintItem, lintPlugin } from './config/lint-plugin.js';
 export type { PluginWarning, PluginWarningCode } from './config/lint-plugin.js';
 export { pluginFingerprint } from './config/plugin-fingerprint.js';
+export { pluginHosts } from './config/plugin-hosts.js';
+export type { PluginHosts } from './config/plugin-hosts.js';
 export { pluginSchema } from './config/plugin-schema.js';
 export { resolvePlugins } from './config/resolve-plugins.js';
 export type {
@@ -48,6 +50,7 @@ export type {
   PluginHook,
   PluginHookEvent,
   PluginMcpServer,
+  PluginNetwork,
   PluginRule,
   PluginSkill,
   PluginSubagent,

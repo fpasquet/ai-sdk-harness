@@ -43,6 +43,7 @@ export function sandboxRepository(options: SandboxRepositoryOptions): WorkspaceS
   const revision = checkRevision(options.ref ?? 'HEAD', '`ref`');
   return {
     name: options.name ?? repositoryName(path),
+    hosts: [],
     fetch: async ({ sandbox, repository, ref, abortSignal }) => {
       await fetchInto(sandbox, {
         repository,

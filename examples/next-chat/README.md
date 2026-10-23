@@ -54,7 +54,7 @@ CLOUD_RUN_SANDBOX_URL=<the URL printed above>
 # CLOUD_RUN_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
 ```
 
-The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs and the npm registry, nothing else.
+The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs, the npm registry and the host of [a repository](#a-repository), nothing else.
 
 After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends a conversation: its harness session is stopped with its state. Once no conversation holds the sandbox, the sandbox is saved to a snapshot: nothing runs, nothing is billed. The next message brings the sandbox back, and the agent picks the conversation up where it was:
 
@@ -94,7 +94,7 @@ EXAMPLE_SANDBOX=srt
 # SRT_ALLOW_ALL_UNIX_SOCKETS=1   # where Ubuntu refuses srt's seccomp filter: the error says so
 ```
 
-The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs and the npm registry only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
+The sandbox lives in `~/.ai-sdk-sandbox-runtime/ai-sdk-harness-example/`: the agents write there and nowhere else, read the rest of the machine but your home, and reach the model APIs, the npm registry and the host of [a repository](#a-repository) only. The first message installs Claude Code and Codex in it, in about a minute; every later start reuses them.
 
 ## Conversations
 
@@ -163,28 +163,28 @@ EXAMPLE_REPOSITORY=/home/me/code/widgets pnpm example:dev
 
 **What it shows:** the agent added a function and a test file in its checkout of `widgets`, on the branch `session/<id>`. The bar above the conversation lists what it changed since the checkout started, and opens on the patch.
 
-**What the package does:** `workspace.sandboxes()` gives each conversation a checkout in its sandbox — a worktree of a copy of the repository the conversations of the sandbox share —, kept when the conversation is suspended and removed when it is deleted; `withWorkspace()` makes the checkout in the conversation's working directory before the agent starts, the plugins' files written after it and kept out of its changes. `app/api/sessions/[id]/changes/` reads `changedFiles()` and `changes()` after each turn. `EXAMPLE_REPOSITORY_REF` picks a branch, `EXAMPLE_REPOSITORY_TOKEN` is the token of a private repository, brokered by the sandbox rather than handed to it, and `EXAMPLE_REPOSITORY_SETUP` a command run in each new checkout, `pnpm install` for instance.
+**What the package does:** `workspace.sandboxes()` gives each conversation a checkout in its sandbox — a worktree of a copy of the repository the conversations of the sandbox share —, kept when the conversation is suspended and removed when it is deleted; `withWorkspace()` makes the checkout in the conversation's working directory before the agent starts, the plugins' files written after it and kept out of its changes. `app/api/sessions/[id]/changes/` reads `changedFiles()` and `changes()` after each turn. `EXAMPLE_REPOSITORY_REF` picks a branch, `EXAMPLE_REPOSITORY_TOKEN` is the token of a private repository, brokered by the sandbox rather than handed to it, and `EXAMPLE_REPOSITORY_SETUP` a command run in each new checkout, `pnpm install` for instance. A Cloud Run or an srt sandbox reaches the hosts it lists and nothing else: `lib/sandbox.ts` lists `workspace.hosts()` with them, the host of an `https:` repository (`github.com`), so that its checkouts can be fetched; a repository on this machine needs none.
 
 ## A marketplace
 
 The agent runs with what the conversation picked before its first message, in a marketplace built with [`ai-sdk-harness-plugins`](../../packages/harness-plugins/README.md) (`lib/plugins.ts`). Plugins and items are configuration: written in code, read from a Claude Code plugin directory, or from JSON files under `marketplace/`:
 
-| In the marketplace         | Kept as                             | What it shows                                                                                                                                                |
-| -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `safety-guard`             | a plugin in code                    | A `PreToolUse` hook and the script it runs, shipped to the sandbox: a global npm install, or a command that would wipe the sandbox or force-push, is blocked |
-| `code-tour`                | a plugin in code                    | Slash commands, `/explain <path>` and `/tour`, expanded on the server, and the skill they rely on                                                            |
-| `sandbox-inspector`        | a plugin in code                    | A tool that runs on the server and reaches into the sandbox, `inspectSandbox`, and a `test-writer` subagent                                                  |
-| `commit-helper`            | a Claude Code plugin, read as it is | A `/commit-message` command and a skill (`plugins/commit-helper`)                                                                                            |
-| `library-docs`             | a whole plugin as data              | The [Context7](https://context7.com) MCP server, connected by the server, and a `/docs` command that requires it (`marketplace/plugins/library-docs.json`)   |
-| `upgrades`                 | a plugin as data, that requires     | An `/upgrade` skill, and the `tool:npm-latest` it requires, delivered as the item it is rather than copied (`marketplace/plugins/upgrades.json`)             |
-| `tool:npm-latest`          | an item on its own, as data         | An `http` tool: a request the server makes to the npm registry, with no code (`marketplace/items/npm-latest.json`)                                           |
-| `tool:http-check`          | an item on its own, as data         | A `sandbox-command` tool: a `curl` run in the sandbox, its input as `INPUT_PORT` and `INPUT_PATH` (`marketplace/items/http-check.json`)                      |
-| `command:npm`              | an item on its own, as data         | `/npm <package>`, which requires `tool:npm-latest`                                                                                                           |
-| `skill:code-review`        | an item on its own, as data         | A skill on how to review a change                                                                                                                            |
-| `subagent:reviewer`        | an item on its own, as data         | A subagent that reviews the working directory, which requires `skill:code-review`                                                                            |
-| `rule:dependency-versions` | an item on its own, as data         | A rule for `**/package.json` only: whenever the agent reads one, it checks that the dependencies are pinned                                                  |
-| `hook:protect-env`         | an item on its own, as data         | A `PreToolUse` hook and its script: the agent may not read `.env` files                                                                                      |
-| `mcp-server:deepwiki`      | an item on its own, as data         | The [DeepWiki](https://deepwiki.com) MCP server, connected by the server, two of its tools kept                                                              |
+| In the marketplace         | Kept as                             | What it shows                                                                                                                                                                                                  |
+| -------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `safety-guard`             | a plugin in code                    | A `PreToolUse` hook and the script it runs, shipped to the sandbox: a global npm install, or a command that would wipe the sandbox or force-push, is blocked                                                   |
+| `code-tour`                | a plugin in code                    | Slash commands, `/explain <path>` and `/tour`, expanded on the server, and the skill they rely on                                                                                                              |
+| `sandbox-inspector`        | a plugin in code                    | A tool that runs on the server and reaches into the sandbox, `inspectSandbox`, and a `test-writer` subagent                                                                                                    |
+| `commit-helper`            | a Claude Code plugin, read as it is | A `/commit-message` command and a skill (`plugins/commit-helper`)                                                                                                                                              |
+| `library-docs`             | a whole plugin as data              | The [Context7](https://context7.com) MCP server, connected by the server, and a `/docs` command that requires it (`marketplace/plugins/library-docs.json`)                                                     |
+| `upgrades`                 | a plugin as data, that requires     | An `/upgrade` skill, and the `tool:npm-latest` it requires, delivered as the item it is rather than copied; the npm registry its skill installs from, in `network.hosts` (`marketplace/plugins/upgrades.json`) |
+| `tool:npm-latest`          | an item on its own, as data         | An `http` tool: a request the server makes to the npm registry, with no code (`marketplace/items/npm-latest.json`)                                                                                             |
+| `tool:http-check`          | an item on its own, as data         | A `sandbox-command` tool: a `curl` run in the sandbox, its input as `INPUT_PORT` and `INPUT_PATH` (`marketplace/items/http-check.json`)                                                                        |
+| `command:npm`              | an item on its own, as data         | `/npm <package>`, which requires `tool:npm-latest`                                                                                                                                                             |
+| `skill:code-review`        | an item on its own, as data         | A skill on how to review a change                                                                                                                                                                              |
+| `subagent:reviewer`        | an item on its own, as data         | A subagent that reviews the working directory, which requires `skill:code-review`                                                                                                                              |
+| `rule:dependency-versions` | an item on its own, as data         | A rule for `**/package.json` only: whenever the agent reads one, it checks that the dependencies are pinned                                                                                                    |
+| `hook:protect-env`         | an item on its own, as data         | A `PreToolUse` hook and its script: the agent may not read `.env` files                                                                                                                                        |
+| `mcp-server:deepwiki`      | an item on its own, as data         | The [DeepWiki](https://deepwiki.com) MCP server, connected by the server, two of its tools kept                                                                                                                |
 
 Codex takes no hooks nor subagents: the cards say what each loses on it, and the server's log warns. It warns too of what `lintPlugin()` and `lintItem()` find as the marketplace is read — a property of a tool's input its command never reads, an argument a command's hint does not announce —: edit a JSON file of `marketplace/` and restart to see it. `library-docs` and `deepwiki` need the server to reach Context7 and DeepWiki: unpick them otherwise.
 
@@ -223,6 +223,17 @@ Codex takes no hooks nor subagents: the cards say what each loses on it, and the
 A `sandbox-command` that reads `$INPUT_SERVICE` without a `service` property, or an input schema that requires a property it does not declare, is refused. So is a plugin or an item whose `requires` names what the marketplace does not have — `tool:npm-audit`, `mcp-server:snyk` —, each at its `requires`: saved, it would stop the marketplace from being read at all.
 
 **What the package does:** `app/api/check/` checks the JSON on the server (`lib/plugin-check.ts`): `definePlugin()` on the plugin page, `defineItem()` on the item page, whose `InvalidPluginError` lists the mistakes by field; then `catalog.check()`, with the plugin or the item in place of the one of its name in the marketplace, for what it requires that the marketplace does not have; then, for what they accept, `lintPlugin()` or `lintItem()`, whose warnings carry a field, a code and a message. Nothing is saved, nothing is run.
+
+### The network of the sandbox
+
+A Cloud Run sandbox and an srt sandbox let only the hosts they list through. The example lists, beside their own, the hosts the marketplace reaches from the sandbox: `catalog.hosts()` reads them from the definitions, without resolving anything, before the sandbox is opened (`marketplaceSandboxHosts()` in `lib/plugins.ts`, `openSandbox()` in `lib/sandbox.ts`).
+
+```ts
+const { sandbox } = catalog.hosts(catalog.entries().map(({ id }) => id)); // ['registry.npmjs.org']
+await createCloudRunNetworkSandboxSession({ allowedHosts: ['registry.npmjs.org', ...sandbox] });
+```
+
+The conversations share the sandbox whatever each one picks, so it lets through the hosts of the whole marketplace; a sandbox per conversation would take `catalog.hosts(selection).sandbox` of its own pick. The `upgrades` plugin declares the npm registry in `network.hosts`, since its skill installs packages; `catalog.hosts()` reads the npm registry of `tool:npm-latest` too, in `server`: the server makes that request, not the sandbox. A Docker Sandbox and a microsandbox keep the network policy their package gives them.
 
 ### Try it
 

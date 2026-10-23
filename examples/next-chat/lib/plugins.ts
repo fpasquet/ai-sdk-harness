@@ -196,6 +196,17 @@ export async function describeMarketplace(): Promise<CatalogDescription> {
 }
 
 /**
+ * The hosts the marketplace's plugins and items reach from the sandbox, read from their definitions
+ * without resolving them: the conversations share a sandbox whatever each one selects, so its
+ * network lets through the hosts of every selection. A sandbox per selection would take
+ * `catalog.hosts(selection).sandbox` alone.
+ */
+export async function marketplaceSandboxHosts(): Promise<string[]> {
+  const catalog = await marketplace();
+  return catalog.hosts(catalog.entries().map(({ id }) => id)).sandbox;
+}
+
+/**
  * The plugins `selection` (catalog ids) resolves to, and its fingerprint: the same selection, and
  * the same stored data, give the same plugins, their MCP clients opened once. Throws
  * `InvalidPluginError` for an id the marketplace does not have.

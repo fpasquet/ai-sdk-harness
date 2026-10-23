@@ -12,6 +12,14 @@ export interface WorkspaceSource {
    */
   readonly name: string;
   /**
+   * The hosts the sandbox reaches to fetch the repository, as the `allowedHosts` of a network
+   * policy lists them: a hostname, without scheme, port or path. `['github.com']` for
+   * `gitRepository()` of a GitHub URL; none for `hostRepository()` and `sandboxRepository()`,
+   * whose commits reach the sandbox without it reaching any host. Left out, a source is taken to
+   * need none.
+   */
+  readonly hosts?: readonly string[];
+  /**
    * Brings the commit a new checkout starts from into the workspace's repository, and points
    * `context.ref` at it. Called each time a session starts afresh, never when it resumes.
    */

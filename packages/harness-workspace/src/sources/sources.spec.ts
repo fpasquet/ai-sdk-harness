@@ -101,6 +101,15 @@ describe('workspace sources', () => {
       expect(host.commands.some(({ command }) => command.includes('fetch'))).toBe(false);
     });
 
+    it('names the host it fetches from, as a network policy does', () => {
+      const hosts = (url: string) => gitRepository({ url }).hosts;
+
+      expect(hosts('https://github.com/acme/widgets.git')).toEqual(['github.com']);
+      expect(hosts('https://GIT.Example.com:8443/acme/widgets.git')).toEqual(['git.example.com']);
+      expect(hosts('http://[::1]:3000/widgets.git')).toEqual(['::1']);
+      expect(hosts(pathToFileURL(source).href)).toEqual([]);
+    });
+
     it('refuses what it cannot fetch safely', () => {
       expect(() => gitRepository({ url: 'ssh://git@example.com/a.git' })).toThrow(TypeError);
       expect(() => gitRepository({ url: 'https://user:secret@example.com/a.git' })).toThrow(
@@ -125,6 +134,7 @@ describe('workspace sources', () => {
       expect(await git(repository, 'rev-parse', 'refs/ai-sdk-harness/fetched/a')).toBe(
         await git(source, 'rev-parse', 'main'),
       );
+      expect(sandboxRepository({ path: source }).hosts).toEqual([]);
       expect(() => sandboxRepository({ path: 'relative' })).toThrow(TypeError);
     });
   });
@@ -155,6 +165,10 @@ describe('workspace sources', () => {
       expect(bundled.length).toBeGreaterThan(0);
       // The bundles are removed from the sandbox once fetched.
       expect((await readdir(repository)).filter((name) => name.endsWith('.bundle'))).toEqual([]);
+    });
+
+    it('needs no host: the sandbox reaches nothing for the bundles', () => {
+      expect(hostRepository({ path: source }).hosts).toEqual([]);
     });
 
     it('refuses what a bundle cannot carry', () => {
