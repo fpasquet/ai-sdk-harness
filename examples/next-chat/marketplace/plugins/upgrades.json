@@ -8,5 +8,6 @@
       "content": "# Upgrading a dependency\n\n1. Look the package up with the npm-latest tool: its latest version and its license.\n2. Install that exact version, pinned in package.json.\n3. Run the tests, or the project, and say what changed."
     }
   ],
-  "requires": ["tool:npm-latest"]
+  "requires": ["tool:npm-latest"],
+  "network": { "hosts": ["registry.npmjs.org"] }
 }
