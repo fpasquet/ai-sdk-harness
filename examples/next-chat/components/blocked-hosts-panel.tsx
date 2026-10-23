@@ -69,10 +69,8 @@ export function BlockedHostsPanel({
         </ul>
         <p className="text-xs text-muted-foreground">
           Allow one for this sandbox alone with{' '}
-          <code>
-            sbx policy allow network --sandbox {sandboxId} {blocked[0]?.host}
-          </code>
-          , then ask the agent again.
+          <code>sbx policy allow network --sandbox {sandboxId} &lt;host&gt;</code>, then ask the
+          agent again.
         </p>
       </CollapsibleContent>
     </Collapsible>
