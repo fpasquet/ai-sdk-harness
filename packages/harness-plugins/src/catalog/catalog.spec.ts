@@ -274,6 +274,68 @@ describe('createCatalog', () => {
     await close();
   });
 
+  it('gives the hosts a selection reaches, what it requires included', async () => {
+    const network = createCatalog({
+      plugins: [
+        {
+          name: 'github',
+          description: 'GitHub.',
+          tools: {
+            issue: {
+              type: 'http',
+              description: 'An issue',
+              inputSchema: {
+                type: 'object',
+                properties: { number: { type: 'string' } },
+                required: ['number'],
+              },
+              url: 'https://api.github.com/issues/{number}',
+            },
+          },
+          skills: [{ name: 'triage', description: 'Triage.', content: 'c' }],
+          network: { hosts: ['*.githubusercontent.com'] },
+          requires: ['hook:notify'],
+        },
+      ],
+      items: [
+        {
+          kind: 'mcp-server',
+          name: 'search',
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', 'search-mcp'],
+          runIn: 'sandbox',
+          network: { hosts: ['api.search.dev'] },
+        },
+        {
+          kind: 'command',
+          name: 'find',
+          description: 'Find',
+          prompt: 'Find $ARGUMENTS',
+          requires: ['mcp-server:search'],
+        },
+        {
+          kind: 'hook',
+          name: 'notify',
+          event: 'Stop',
+          command: 'curl -fsS https://hooks.example.com/done',
+          network: { hosts: ['hooks.example.com'] },
+        },
+      ],
+    });
+    const hostsOf = async (selection: string[]): Promise<string[]> =>
+      (await network.resolve(selection)).hosts;
+    expect(await hostsOf(['command:find'])).toEqual(['api.search.dev']);
+    expect(await hostsOf(['plugin:github'])).toEqual([
+      '*.githubusercontent.com',
+      'api.github.com',
+      'hooks.example.com',
+    ]);
+    // An item of a plugin chosen alone: the plugin's declared hosts, not its other items'.
+    expect(await hostsOf(['github/skill:triage'])).toEqual(['*.githubusercontent.com']);
+    expect(await hostsOf([])).toEqual([]);
+  });
+
   it('refuses to resolve a secret without resolveSecret', async () => {
     await expect(catalog.resolve(['tool:npm-latest'])).rejects.toThrow(
       'Plugin "tool-npm-latest": it refers to the secret "NPM_TOKEN", and no resolveSecret was given.',

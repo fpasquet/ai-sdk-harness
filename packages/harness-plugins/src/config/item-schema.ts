@@ -6,6 +6,7 @@ import type {
   PluginFile,
   PluginHook,
   PluginMcpServer,
+  PluginNetwork,
   PluginRule,
   PluginSkill,
   PluginSubagent,
@@ -20,6 +21,7 @@ import {
   files,
   hookFields,
   mcpServerFields,
+  network,
   NO_SECRET_IN_SANDBOX,
   noSecretInSandbox,
   ONE_HANDLER,
@@ -48,8 +50,9 @@ export type ItemKind = (typeof ITEM_KINDS)[number];
  * One item on its own, rather than in a plugin: a tool, a skill, a rule, a command, a hook, a subagent or
  * an MCP server. Each is what it would be in a {@link Plugin}, with its `kind` and its `name`; a
  * tool is a {@link ToolDefinition}, one whose logic is code being one your application registers.
+ * `network` lists the hosts it reaches that its definition does not show, as a plugin's does.
  */
-export type Item =
+export type Item = (
   | (PluginCommand & { kind: 'command' })
   | (PluginHook & {
       kind: 'hook';
@@ -61,7 +64,8 @@ export type Item =
   | (PluginRule & { kind: 'rule' })
   | (PluginSkill & { kind: 'skill' })
   | (PluginSubagent & { kind: 'subagent' })
-  | (ToolDefinition & { kind: 'tool'; name: string });
+  | (ToolDefinition & { kind: 'tool'; name: string })
+) & { network?: PluginNetwork };
 
 const kind = <KIND extends ItemKind>(value: KIND) => ({ kind: z.literal(value) });
 
@@ -69,27 +73,28 @@ const kind = <KIND extends ItemKind>(value: KIND) => ({ kind: z.literal(value) }
 export const itemSchemas = {
   tool: z.discriminatedUnion('type', [
     z
-      .strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'] })
+      .strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'], network })
       .superRefine(declaredRequired)
       .superRefine(declaredVariables),
     z
-      .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http })
+      .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http, network })
       .superRefine(declaredPlaceholders)
       .superRefine(declaredRequired),
-    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields.registered }),
+    z.strictObject({ ...kind('tool'), name: toolName, ...toolFields.registered, network }),
   ]),
-  skill: z.strictObject({ ...kind('skill'), ...skillFields }),
-  rule: z.strictObject({ ...kind('rule'), ...ruleFields }),
-  command: z.strictObject({ ...kind('command'), ...commandFields }),
+  skill: z.strictObject({ ...kind('skill'), ...skillFields, network }),
+  rule: z.strictObject({ ...kind('rule'), ...ruleFields, network }),
+  command: z.strictObject({ ...kind('command'), ...commandFields, network }),
   hook: z
     .strictObject({
       ...kind('hook'),
       ...hookFields,
       name: skillFields.name,
       files: files.optional(),
+      network,
     })
     .refine(oneHandler, ONE_HANDLER),
-  subagent: z.strictObject({ ...kind('subagent'), ...subagentFields }),
+  subagent: z.strictObject({ ...kind('subagent'), ...subagentFields, network }),
   'mcp-server': z
     .discriminatedUnion('type', [
       z.strictObject({
@@ -97,12 +102,14 @@ export const itemSchemas = {
         name: serverName,
         description: z.string().optional(),
         ...mcpServerFields.stdio,
+        network,
       }),
       z.strictObject({
         ...kind('mcp-server'),
         name: serverName,
         description: z.string().optional(),
         ...mcpServerFields.http,
+        network,
       }),
     ])
     .refine(noSecretInSandbox, NO_SECRET_IN_SANDBOX),
@@ -113,9 +120,16 @@ export const itemSchema = z.union(Object.values(itemSchemas));
 
 /**
  * The plugin an item on its own stands for once resolved: named after its kind and its name, with
- * the item as its only one — and the hook's files as its own, under its `${PLUGIN_ROOT}`.
+ * the item as its only one — and the hook's files as its own, under its `${PLUGIN_ROOT}`, and its
+ * `network` as the plugin's.
  */
-export function pluginOfItem(item: Item): Plugin {
+export function pluginOfItem({ network, ...item }: Item): Plugin {
+  const plugin = pluginOfBareItem(item);
+  return network === undefined ? plugin : { ...plugin, network };
+}
+
+/** {@link pluginOfItem}, for an item without its `network`. */
+function pluginOfBareItem(item: Item): Plugin {
   // Split rather than trimmed with a regular expression, which would run in quadratic time.
   const words = item.name
     .toLowerCase()

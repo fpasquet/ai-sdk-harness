@@ -21,4 +21,26 @@ describe('pluginOfItem', () => {
     expect(pluginOfItem({ kind: 'tool', name, type: 'registered', ref: 'x' }).name).toBe('tool-x');
     expect(performance.now() - started).toBeLessThan(1000);
   });
+
+  it('gives the plugin the hosts the item declares, never the item itself', () => {
+    const plugin = pluginOfItem({
+      kind: 'mcp-server',
+      name: 'search',
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'search-mcp'],
+      runIn: 'sandbox',
+      network: { hosts: ['api.search.dev'] },
+    });
+    expect(plugin.network).toEqual({ hosts: ['api.search.dev'] });
+    expect(plugin.mcpServers?.search).not.toHaveProperty('network');
+    const skill = pluginOfItem({
+      kind: 'skill',
+      name: 'style',
+      description: '',
+      content: 'c',
+      network: { hosts: ['style.dev'] },
+    });
+    expect(skill.skills).toEqual([{ name: 'style', description: '', content: 'c' }]);
+  });
 });

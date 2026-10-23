@@ -14,6 +14,7 @@ import { mcpToolsPlugin } from '../mcp/mcp-tools-plugin.js';
 import { connectWithAiSdk } from './connect-mcp-server.js';
 import { definePlugin } from './define.js';
 import { httpTool } from './http-tool.js';
+import { pluginHosts } from './plugin-hosts.js';
 import { isToolDefinition } from './plugin-schema.js';
 import { sandboxCommandTool } from './sandbox-command-tool.js';
 
@@ -57,6 +58,13 @@ export interface ResolvePluginsOptions extends ResolveOptions {
 /** Plugins resolved, and the MCP clients opened for them. */
 export interface ResolvedPlugins {
   plugins: Plugin[];
+  /**
+   * The hosts the plugins reach, unique and sorted: the host of each `http` tool and `http` MCP
+   * server, and the `network.hosts` of each plugin and item — what {@link pluginHosts} reads of
+   * them before they are resolved. What a network policy that lets only some hosts through
+   * (`allowedHosts`) needs to know of them.
+   */
+  hosts: string[];
   /** Closes every MCP client opened for the plugins: call it once the agent built on them is done. */
   close: () => Promise<void>;
 }
@@ -114,7 +122,7 @@ export async function resolveChecked(
     checkServerNames(plugins);
     const resolved: Plugin[] = [];
     for (const plugin of plugins) resolved.push(await resolvePlugin(plugin, options, clients));
-    return { plugins: resolved, close };
+    return { plugins: resolved, hosts: pluginHosts(plugins), close };
   } catch (error) {
     await close();
     throw error;

@@ -7,6 +7,7 @@ import type { InputSchema, PluginTool, ToolDefinition } from '../definitions/plu
 import {
   COMMAND_NAME,
   FILE_PATH,
+  HOST,
   PLUGIN_HOOK_EVENTS,
   PLUGIN_ROOT,
   SERVER_NAME,
@@ -29,6 +30,22 @@ const slug = z.string().regex(SLUG, 'must be a kebab-case slug');
 const secretValue = z.union([z.string(), z.strictObject({ secret: text })]);
 const secrets = z.record(z.string(), secretValue);
 const requires = z.array(text).optional();
+
+/** What a plugin, or an item on its own, reaches that its definition does not show. */
+export const network = z
+  .strictObject({
+    hosts: z.array(
+      z
+        .string()
+        .max(253)
+        .regex(
+          HOST,
+          'must be a host name, or *.<domain> for its subdomains: no scheme, path nor port',
+        ),
+    ),
+  })
+  .optional();
+
 const objectSchema = z
   .record(z.string(), z.unknown())
   .refine((schema) => schema.type === 'object', 'must be an object schema: { "type": "object" }');
@@ -259,6 +276,7 @@ const pluginFields = {
   mcpServers: z.record(serverName, mcpServerSchema).optional(),
   files: files.optional(),
   requires,
+  network,
 };
 
 /** A plugin, its tools AI SDK tools or definitions: what `definePlugin` checks. */

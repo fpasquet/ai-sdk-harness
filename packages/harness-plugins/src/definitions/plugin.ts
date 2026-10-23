@@ -252,6 +252,20 @@ export interface PluginFile {
 }
 
 /**
+ * What a plugin, or an item on its own, reaches on the network besides what its definition shows:
+ * the host of an `http` tool or MCP server is read from its URL, but not the API a stdio MCP server
+ * started with `npx` calls, nor the web service a hook's command posts to.
+ */
+export interface PluginNetwork {
+  /**
+   * Host names (`api.github.com`), or `*.<domain>` for every subdomain of it
+   * (`*.githubusercontent.com`), as `allowedHosts` of a sandbox's network policy writes them: no
+   * scheme, path nor port.
+   */
+  hosts: string[];
+}
+
+/**
  * A plugin: tools, skills, commands, hooks, subagents and MCP servers that go together. It is
  * configuration: written in code, or read from JSON — a file, a database —, checked alike by
  * `definePlugin`. Only a tool whose logic is code needs an implementation.
@@ -286,6 +300,12 @@ export interface Plugin {
    * `resolvePlugins()`, `withPlugins()` — it brings nothing.
    */
   requires?: string[];
+  /**
+   * The hosts it reaches that its definition does not show: counted, with those of its `http`
+   * tools and MCP servers, in the `hosts` of what it resolves to — in a catalog, as soon as one of
+   * its items is selected.
+   */
+  network?: PluginNetwork;
 }
 
 /** `${PLUGIN_ROOT}`, and `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it. */
@@ -295,6 +315,12 @@ export const PLUGIN_ROOT = /\$\{(?:CLAUDE_)?PLUGIN_ROOT\}/g;
 export const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const COMMAND_NAME = /^[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*$/;
 export const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
+/**
+ * A host name, or `*.<domain>` for its subdomains: labels of letters, digits and inner `-`, no
+ * scheme, path nor port.
+ */
+export const HOST =
+  /^(?:\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 /** Relative, and never out of its directory. */
 export const FILE_PATH = /^(?!\/)(?!(?:.*\/)?\.\.(?:\/|$)).+$/;
 
