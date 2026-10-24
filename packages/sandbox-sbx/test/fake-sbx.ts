@@ -38,11 +38,14 @@ export interface FakeSbxState {
     scope: string;
     decision: 'allow' | 'deny';
     resource_type: 'network';
-    protocol: string;
     resources: string[];
+    /** `net:connect:tcp`, `net:connect:udp`. */
+    actions: string[];
   }[];
   /** What `sbx policy log` prints: what the proxy let through and refused, sandbox by sandbox. */
   policyLog?: { allowed: PolicyLogEntry[]; blocked: PolicyLogEntry[] };
+  /** The number of the last rule added. */
+  nextRule?: number;
   failOn: string[];
   /** Listings as `sbx` before 0.48 printed them: `{ sandboxes }`, `{ images }`. */
   before048?: boolean;
@@ -79,7 +82,7 @@ const MACHINE_RULES: FakeSbxState['rules'] = [
     scope: 'global',
     decision: 'allow',
     resource_type: 'network',
-    protocol: 'tcp',
+    actions: ['net:connect:tcp'],
     resources: ['api.anthropic.com:443', '**.openai.com:443'],
   },
   {
@@ -87,7 +90,7 @@ const MACHINE_RULES: FakeSbxState['rules'] = [
     scope: 'global',
     decision: 'allow',
     resource_type: 'network',
-    protocol: 'tcp',
+    actions: ['net:connect:tcp'],
     resources: ['registry.npmjs.org:443', 'github.com:443', '**.github.com:443'],
   },
 ];

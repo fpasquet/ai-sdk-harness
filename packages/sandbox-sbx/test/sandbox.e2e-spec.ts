@@ -130,6 +130,13 @@ describe('the network of a Docker Sandbox', () => {
     expect(await status('https://github.com')).toBe('403');
   });
 
+  it('keeps reaching them once the same policy is applied again, as on a restart', async () => {
+    await fenced.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['example.com'] });
+
+    expect(await status('https://example.com')).toBe('200');
+    expect(await status('https://github.com')).toBe('403');
+  });
+
   it('tells which hosts the proxy refused to it', async () => {
     const since = new Date(Date.now() - 1000);
     await status('https://github.com');

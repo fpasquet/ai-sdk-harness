@@ -13,12 +13,16 @@ describe('the network policy of a Docker Sandbox', () => {
   });
   afterEach(() => sbx.dispose());
 
-  /** The rules scoped to `sandbox`: what each allows or denies. */
+  /** The rules scoped to `sandbox`: what each allows or denies, over which protocol. */
   const scoped = (sandbox: string) =>
     sbx
       .state()
       .rules.filter(({ scope }) => scope === `sandbox:${sandbox}`)
-      .map(({ decision, protocol, resources }) => ({ decision, protocol, resources }));
+      .flatMap(({ decision, resources, actions }) =>
+        resources.flatMap((resource) =>
+          actions.map((action) => `${decision} ${resource} ${action.replace('net:connect:', '')}`),
+        ),
+      );
 
   it('denies every host with deny-all, before the setup runs', async () => {
     await createSbxNetworkSandboxSession({
@@ -28,7 +32,7 @@ describe('the network policy of a Docker Sandbox', () => {
       setup: ['true'],
     });
 
-    expect(scoped('box')).toEqual([{ decision: 'deny', protocol: 'tcp,udp', resources: ['**'] }]);
+    expect(scoped('box')).toEqual(['deny ** tcp', 'deny ** udp']);
     const order = sbx.calls().map(([command]) => command);
     expect(order.indexOf('policy')).toBeLessThan(order.indexOf('exec'));
   });
@@ -44,15 +48,18 @@ describe('the network policy of a Docker Sandbox', () => {
     });
 
     expect(scoped('box')).toEqual([
-      { decision: 'allow', protocol: 'tcp', resources: ['api.anthropic.com', '**.github.com'] },
-      { decision: 'allow', protocol: 'tcp,udp', resources: ['203.0.113.0/24'] },
-      {
-        decision: 'deny',
-        protocol: 'tcp,udp',
-        // What the listed hosts cover, github.com included, or what covers them, is left alone:
-        // a deny would win over their allow.
-        resources: ['198.51.100.0/24', '**.openai.com:443', 'registry.npmjs.org:443'],
-      },
+      'allow api.anthropic.com tcp',
+      'allow **.github.com tcp',
+      'allow 203.0.113.0/24 tcp',
+      'allow 203.0.113.0/24 udp',
+      'deny 198.51.100.0/24 tcp',
+      'deny 198.51.100.0/24 udp',
+      // What the listed hosts cover, github.com included, or what covers them, is left alone: a
+      // deny would win over their allow.
+      'deny **.openai.com:443 tcp',
+      'deny **.openai.com:443 udp',
+      'deny registry.npmjs.org:443 tcp',
+      'deny registry.npmjs.org:443 udp',
     ]);
   });
 
@@ -64,7 +71,8 @@ describe('the network policy of a Docker Sandbox', () => {
     });
 
     await session.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['example.com'] });
-    expect(scoped('box').map(({ decision }) => decision)).toEqual(['allow', 'deny']);
+    expect(scoped('box')).toContain('allow example.com tcp');
+    expect(scoped('box')).not.toContain('deny ** tcp');
 
     await session.setNetworkPolicy?.({ mode: 'allow-all' });
     expect(scoped('box')).toEqual([]);
@@ -75,6 +83,24 @@ describe('the network policy of a Docker Sandbox', () => {
       'default-ai-services',
       'default-package-managers',
     ]);
+  });
+
+  it('keeps the rules a policy applied again still holds', async () => {
+    const policy = { mode: 'custom', allowedHosts: ['api.anthropic.com'] } as const;
+    const session = await createSbxNetworkSandboxSession({
+      binary: sbx.binary,
+      sandboxId: 'box',
+      networkPolicy: policy,
+    });
+    const applied = scoped('box');
+
+    // `sbx` adds no rule for a host it has one for: removing the previous ones would leave none.
+    await session.setNetworkPolicy?.(policy);
+    expect(scoped('box')).toEqual(applied);
+
+    await session.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['example.com'] });
+    expect(scoped('box')).toContain('allow example.com tcp');
+    expect(scoped('box')).not.toContain('allow api.anthropic.com tcp');
   });
 
   it('keeps the rules of a resumed sandbox, and of other sandboxes', async () => {
@@ -88,9 +114,9 @@ describe('the network policy of a Docker Sandbox', () => {
 
     await resumed.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['api.anthropic.com'] });
 
-    expect(scoped('other')).toHaveLength(1);
+    expect(scoped('other')).toEqual(['deny ** tcp', 'deny ** udp']);
     // The denies of a custom policy are the machine's allows, never another sandbox's rules.
-    expect(scoped('box').at(-1)?.resources).not.toContain('**');
+    expect(scoped('box')).not.toContain('deny ** tcp');
   });
 
   it('goes with its sandbox', async () => {
