@@ -1,5 +1,12 @@
 # ai-sdk-sandbox-runtime
 
+## 0.1.1
+
+### Patch Changes
+
+- abcb895: `run()` and `spawn()` run their command with bash, as `@ai-sdk/sandbox-vercel` does, or with sh in an image without bash: they ran it with sh, and a harness that writes bash failed there. Pi does, from its first command: `sh: 1: Syntax error: "(" unexpected`.
+- abcb895: A Next.js application built with Turbopack no longer warns about `ai-sdk-sandbox-runtime`. Next.js bundles a workspace dependency even when `serverExternalPackages` lists it, and Turbopack then reported that it could not resolve the package names this one finds at run time, and that copying the supervisor and starting srt would trace the whole project into the server output. These three calls now carry a `turbopackIgnore` comment; what they do is unchanged.
+
 ## 0.1.0
 
 ### Minor Changes

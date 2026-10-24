@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-sandbox-microsandbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "microsandbox sandbox sessions for AI SDK harness agents: Claude Code, Codex and friends in a local microVM booted from any OCI image.",
   "keywords": [
     "ai",
