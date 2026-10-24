@@ -17,11 +17,10 @@ function Tag({ children }: { children: string }) {
 
 /** What sets a harness apart in the example, in a few words. */
 function traitsOf(harness: HarnessId): string[] {
-  const { asksFirst, resumes, runsIn } = HARNESSES[harness];
+  const { asksFirst, runsIn } = HARNESSES[harness];
   return [
     runsIn === 'sandbox' ? 'Runs in the sandbox' : 'Runs on the server, tools in the sandbox',
     ...(asksFirst ? ['Approval policy'] : []),
-    ...(resumes ? [] : ['Forgets the conversation once suspended']),
   ];
 }
 

@@ -449,14 +449,6 @@ function startNote(harness: HarnessId, suspended: boolean): string {
   return `Opening the session. The very first message also installs Claude Code and Codex in the sandbox${installs ? `, and the first conversation with ${label} installs it` : ''}.`;
 }
 
-/** What the next message of a suspended conversation does. */
-function resumeNote(harness: HarnessId): string {
-  const { label, resumes } = HARNESSES[harness];
-  return resumes
-    ? 'The next message resumes it where it was.'
-    : `The next message starts ${label} again: the files stay, but it does not remember the conversation.`;
-}
-
 /** What the session is doing when the conversation alone does not say it. */
 function SessionNotes({
   busy,
@@ -478,7 +470,7 @@ function SessionNotes({
       {!busy && suspended && (
         <p className="text-xs text-muted-foreground">
           Suspended{session.error ? ` (${session.error})` : ''}: its harness session is stopped and
-          its port freed. {resumeNote(harness)}
+          its port freed. The next message resumes it where it was.
         </p>
       )}
       {error && (

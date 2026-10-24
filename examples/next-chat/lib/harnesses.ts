@@ -17,8 +17,6 @@ export const HARNESSES = {
     runsIn: 'sandbox',
     /** Whether it can ask before it edits a file or runs a command (`permissionMode`). */
     asksFirst: true,
-    /** Whether a suspended conversation picks up with what was said before. */
-    resumes: true,
     models: [
       { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
       { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
@@ -33,7 +31,6 @@ export const HARNESSES = {
     runsIn: 'sandbox',
     // Codex takes no approvals of its own tools: the harness runs it with `allow-all` only.
     asksFirst: false,
-    resumes: true,
     // The models of a ChatGPT subscription: it refuses `gpt-5.5`, which an API key runs.
     models: [
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
@@ -48,7 +45,6 @@ export const HARNESSES = {
     credentials: 'OPENROUTER_API_KEY',
     runsIn: 'sandbox',
     asksFirst: true,
-    resumes: true,
     // `openrouter/` picks OpenCode's OpenRouter provider; the rest is the OpenRouter model.
     openRouter: { prefix: 'openrouter/' },
     models: [
@@ -64,7 +60,6 @@ export const HARNESSES = {
     credentials: 'OPENROUTER_API_KEY',
     runsIn: 'server',
     asksFirst: true,
-    resumes: true,
     // Pi's `openrouter` provider. Pi only runs the models of its own catalog, generated from
     // OpenRouter's: a model added since then is refused, with a message that says so.
     openRouter: { prefix: 'openrouter/' },
@@ -81,7 +76,6 @@ export const HARNESSES = {
     credentials: 'OPENROUTER_API_KEY',
     runsIn: 'server',
     asksFirst: true,
-    resumes: true,
     openRouter: { prefix: '' },
     models: [
       { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
@@ -97,8 +91,6 @@ export const HARNESSES = {
     runsIn: 'sandbox',
     // The adapter cannot yet answer approvals of its built-in tools.
     asksFirst: false,
-    // Its conversation lives in the bridge's memory: a suspension forgets it, the files stay.
-    resumes: false,
     // Deep Agents speaks the Anthropic API: OpenRouter's Anthropic-compatible endpoint.
     openRouter: { prefix: '' },
     models: [
@@ -114,7 +106,6 @@ export const HARNESSES = {
     credentials: 'OPENROUTER_API_KEY',
     runsIn: 'sandbox',
     asksFirst: false,
-    resumes: true,
     // Grok Build runs xAI's models only.
     openRouter: { prefix: '', only: 'x-ai/' },
     models: [
@@ -129,7 +120,6 @@ export const HARNESSES = {
     credentials: 'the login of the codex CLI (CODEX_HOME)',
     runsIn: 'server',
     asksFirst: true,
-    resumes: true,
     // The models of a ChatGPT subscription: it refuses `gpt-5.5`, which an API key runs.
     models: [
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
@@ -144,7 +134,6 @@ export const HARNESSES = {
     credentials: 'COPILOT_GITHUB_TOKEN, GH_TOKEN or GITHUB_TOKEN',
     runsIn: 'sandbox',
     asksFirst: false,
-    resumes: true,
     models: [
       { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'claude-sonnet-5.5', label: 'Claude Sonnet 5.5' },
@@ -157,7 +146,6 @@ export const HARNESSES = {
     credentials: 'CURSOR_API_KEY',
     runsIn: 'sandbox',
     asksFirst: false,
-    resumes: true,
     // Cursor routes the models itself, as its account settings say.
     models: [
       { id: 'auto', label: 'Auto' },

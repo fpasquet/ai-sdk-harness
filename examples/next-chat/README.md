@@ -27,7 +27,7 @@ A new conversation is set up in two steps before its first message. First its co
 
 The model picker of the second step lists the suggested models first. For the agents that go through OpenRouter, it also offers, searchable, every model of [OpenRouter's catalog](https://openrouter.ai/models) that can call tools, read by the server once an hour (`lib/models.ts`): Grok Build keeps to xAI's models, and Pi runs those of its own catalog, generated from OpenRouter's.
 
-They all share the one sandbox, and the conversations of different agents run side by side. What sets them apart shows on their cards: the approval policy is offered to the agents that can ask before their own commands and edits (Claude Code, OpenCode, Pi, Cline, fx), and Deep Agents forgets the conversation once it is suspended, since its memory lives in its bridge; the files stay.
+They all share the one sandbox, and the conversations of different agents run side by side. What sets them apart shows on their cards: the approval policy is offered to the agents that can ask before their own commands and edits (Claude Code, OpenCode, Pi, Cline, fx).
 
 ![The coding agents of a new conversation: Claude Code picked, those without a credential greyed out with the variables to set](../../docs/public/screenshots/next-chat/harnesses.png)
 
