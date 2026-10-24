@@ -89,17 +89,39 @@ function execOptions(rest) {
   return { workdir, env, rest };
 }
 
-/** `sbx policy allow|deny network`: a rule of the machine's policy, or scoped to a sandbox. */
+/**
+ * `sbx policy allow|deny network`: rules of the machine's policy, or scoped to a sandbox. As `sbx`
+ * does, one rule per resource and protocol, and none for a resource and protocol a rule of the same
+ * scope and decision already has.
+ */
 function addRule(verb) {
-  const scope = flag('--sandbox');
-  state.rules.push({
-    id: `rule-${state.rules.length + 1}-${verb}`,
-    scope: scope === undefined ? 'global' : `sandbox:${scope}`,
-    decision: verb,
-    resource_type: 'network',
-    protocol: flag('--protocol') ?? 'tcp',
-    resources: args.at(-1).split(','),
-  });
+  const sandbox = flag('--sandbox');
+  const scope = sandbox === undefined ? 'global' : `sandbox:${sandbox}`;
+  for (const resource of args.at(-1).split(',')) {
+    for (const protocol of (flag('--protocol') ?? 'tcp').split(',')) {
+      const action = `net:connect:${protocol}`;
+      const covering = state.rules.find(
+        (rule) =>
+          rule.scope === scope &&
+          rule.decision === verb &&
+          rule.resources.includes(resource) &&
+          rule.actions.includes(action),
+      );
+      if (covering !== undefined) {
+        process.stdout.write(`Already covered (by rule "${covering.id}")\n`);
+        continue;
+      }
+      state.nextRule = (state.nextRule ?? 0) + 1;
+      state.rules.push({
+        id: `rule-${state.nextRule}-${verb}`,
+        scope,
+        decision: verb,
+        resource_type: 'network',
+        resources: [resource],
+        actions: [action],
+      });
+    }
+  }
 }
 
 /** `sbx policy log`, as 0.48 prints it: one entry per sandbox, host and decision, an exact name. */

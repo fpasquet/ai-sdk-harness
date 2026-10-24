@@ -8,7 +8,8 @@ const SRT = ['@anthropic-ai', 'sandbox-runtime', 'package.json'].join('/');
 /** `specifier` resolved from `base`, or `undefined` when it cannot be from there. */
 function resolveFrom(base: string, specifier: string): string | undefined {
   try {
-    return createRequire(base).resolve(specifier);
+    // A specifier read at run time, which a bundler would report it cannot resolve.
+    return createRequire(base).resolve(/* turbopackIgnore: true */ specifier);
   } catch {
     return undefined;
   }

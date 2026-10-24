@@ -4,6 +4,13 @@
  * as shell code it was not meant to be.
  */
 
+/**
+ * Runs the command `$1` with bash, as the AI SDK's Vercel sandbox does and the harnesses expect (Pi
+ * writes bash), or with sh in an image without bash.
+ */
+export const COMMAND =
+  'if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; fi; exec sh -c "$1"';
+
 /** The sandbox's working directory, where a `workspace` of the host is mounted. */
 export const WORKSPACE = '/workspace';
 

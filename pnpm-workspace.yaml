@@ -5,8 +5,10 @@ packages:
   - 'docs'
 
 allowBuilds:
+  '@google/genai': false
   '@parcel/watcher': true
   esbuild: true
+  protobufjs: false
   sharp: true
   unrs-resolver: true
   workerd: true

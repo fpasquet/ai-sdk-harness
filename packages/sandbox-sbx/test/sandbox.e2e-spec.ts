@@ -70,6 +70,12 @@ describe('a Docker Sandbox', () => {
     expect(stdout.trim()).toBe('s3cr3t');
   });
 
+  it('runs a command with bash, as the harnesses write it', async () => {
+    const { stdout } = await session.run({ command: 'words=(one two); echo "${words[1]}"' });
+
+    expect(stdout).toBe('two\n');
+  });
+
   it('serves an exposed port on the host loopback', async () => {
     const server = await session.spawn({
       command:
@@ -121,6 +127,13 @@ describe('the network of a Docker Sandbox', () => {
     expect(await status('https://example.com')).toBe('200');
     // Allowed by the machine's policy, not by the sandbox's.
     expect(await status('https://registry.npmjs.org')).toBe('403');
+    expect(await status('https://github.com')).toBe('403');
+  });
+
+  it('keeps reaching them once the same policy is applied again, as on a restart', async () => {
+    await fenced.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['example.com'] });
+
+    expect(await status('https://example.com')).toBe('200');
     expect(await status('https://github.com')).toBe('403');
   });
 

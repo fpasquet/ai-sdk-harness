@@ -4,6 +4,13 @@
  * parsed as shell code it was not meant to be.
  */
 
+/**
+ * Runs the command `$1` with bash, as the AI SDK's Vercel sandbox does and the harnesses expect (Pi
+ * writes bash), or with sh in an image without bash.
+ */
+export const COMMAND =
+  'if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; fi; exec sh -c "$1"';
+
 const KILL_TREE_FUNCTION =
   'kill_tree() { for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; }';
 

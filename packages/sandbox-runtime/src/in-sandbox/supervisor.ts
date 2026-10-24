@@ -32,6 +32,12 @@ interface Channel {
   kill?(): void;
 }
 
+/**
+ * Runs the command `$1` with bash, as the AI SDK's Vercel sandbox does and the harnesses expect (Pi
+ * writes bash), or with sh in an image without bash.
+ */
+const COMMAND = 'if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; fi; exec sh -c "$1"';
+
 const settings = JSON.parse(process.argv[2] ?? '{}') as SupervisorSettings;
 const channels = new Map<number, Channel>();
 const processes = new Set<ChildProcess>();
@@ -78,7 +84,7 @@ function run(channel: number, { command, cwd, env }: Extract<Request, { kind: 's
     close(channel, { exitCode: 2 });
     return;
   }
-  const child = spawn('/bin/sh', ['-c', command], {
+  const child = spawn('/bin/sh', ['-c', COMMAND, 'sh', command], {
     cwd,
     env: { ...process.env, HOME: settings.home, TMPDIR: settings.tmpdir, ...env },
     detached: true,

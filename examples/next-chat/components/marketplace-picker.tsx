@@ -64,10 +64,24 @@ function contentsOf(plugin: PluginDescription): string {
   ].join(' · ');
 }
 
+/**
+ * What a runtime `ai-sdk-harness-plugins` does not know of leaves out: it takes tools, skills,
+ * commands and rules. The description lists the runtimes it knows, Claude Code and Codex.
+ */
+const GENERIC_LEFT_OUT = { hooks: 'hook', subagents: 'subagent', mcpServers: 'mcp-server' };
+
+/** Whether the description of the marketplace says what `harness` takes. */
+const isDescribed = (harness: HarnessId) => harness === 'claude-code' || harness === 'codex';
+
 /** What the runtime of the conversation cannot take of a plugin, or of an item. */
 function leftOut(harness: HarnessId, plugin?: PluginDescription, item?: CatalogItemDescription) {
-  const features =
-    plugin?.unsupported[harness] ?? (item?.unsupportedOn.includes(harness) ? [item.kind] : []);
+  const features = isDescribed(harness)
+    ? (plugin?.unsupported[harness] ?? (item?.unsupportedOn.includes(harness) ? [item.kind] : []))
+    : plugin !== undefined
+      ? (Object.keys(GENERIC_LEFT_OUT) as (keyof typeof GENERIC_LEFT_OUT)[]).filter(
+          (feature) => plugin[feature].length > 0,
+        )
+      : Object.values(GENERIC_LEFT_OUT).filter((kind) => kind === item?.kind);
   return features.length > 0 ? `Left out on this agent: ${features.join(', ')}` : undefined;
 }
 

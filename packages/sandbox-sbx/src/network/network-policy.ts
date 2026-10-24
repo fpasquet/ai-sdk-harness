@@ -9,9 +9,17 @@ interface PolicyRule {
   decision?: string;
   resource_type?: string;
   resources?: string[];
+  /** What the rule allows or denies of its resources: `net:connect:tcp`, `net:connect:udp`. */
+  actions?: string[];
 }
 
-const BOTH = ['--protocol', 'tcp,udp'];
+type Protocol = 'tcp' | 'udp';
+
+const BOTH: readonly Protocol[] = ['tcp', 'udp'];
+
+/** What `rule` allows or denies, one entry per resource and protocol. */
+const entriesOf = ({ decision, resources = [], actions = [] }: PolicyRule): string[] =>
+  resources.flatMap((resource) => actions.map((action) => `${decision} ${resource} ${action}`));
 
 /** The rules of the machine's policy, every sandbox's scoped ones included. */
 async function listRules(cli: SbxCli): Promise<PolicyRule[]> {
@@ -52,8 +60,9 @@ const sbxPattern = (host: string): string => (host.startsWith('*.') ? `*${host}`
  *   allow, even a narrower one, so what the machine allows under a listed host's domain is left
  *   allowed rather than denied.
  *
- * The rules a previous call scoped to the sandbox are removed once the new ones are in place.
- * `sbx` removes them with the sandbox.
+ * The rules a previous call scoped to the sandbox are removed once the new ones are in place, but
+ * those the new policy holds too: `sbx` keeps one rule per host and protocol, and adds none for a
+ * host and protocol it already has a rule for. `sbx` removes them with the sandbox.
  */
 export async function applyNetworkPolicy(
   cli: SbxCli,
@@ -62,11 +71,19 @@ export async function applyNetworkPolicy(
 ): Promise<void> {
   const rules = await listRules(cli);
   const scope = `sandbox:${sandbox}`;
-  const previous = rules.filter((rule) => rule.scope === scope).map(({ id }) => id);
-  /** Adds one rule scoped to the sandbox, for every resource of `resources`. */
-  const add = async (decision: 'allow' | 'deny', resources: readonly string[], flags = BOTH) => {
+  const previous = rules.filter((rule) => rule.scope === scope);
+  const wanted = new Set<string>();
+  /** Adds the rules scoped to the sandbox for `resources`, over `protocols`. */
+  const add = async (
+    decision: 'allow' | 'deny',
+    resources: readonly string[],
+    protocols: readonly Protocol[] = BOTH,
+  ) => {
     if (resources.length === 0) return;
-    const sandboxScope = ['--sandbox', sandbox, ...flags];
+    for (const resource of resources)
+      for (const protocol of protocols)
+        wanted.add(`${decision} ${resource} net:connect:${protocol}`);
+    const sandboxScope = ['--sandbox', sandbox, '--protocol', protocols.join(',')];
     await cli.check(['policy', decision, 'network', ...sandboxScope, resources.join(',')]);
   };
 
@@ -82,11 +99,12 @@ export async function applyNetworkPolicy(
       .flatMap(({ resources = [] }) => resources)
       .filter((resource) => !hosts.some((host) => overlap(host, resource)));
     // Hosts over TCP, as `sbx` allows them by default; blocks over UDP too.
-    await add('allow', hosts, []);
+    await add('allow', hosts, ['tcp']);
     await add('allow', policy.allowedCIDRs ?? []);
     await add('deny', [...(policy.deniedCIDRs ?? []), ...new Set(allowedElsewhere)]);
   }
-  for (const id of previous) {
+  const replaced = previous.filter((rule) => !entriesOf(rule).every((entry) => wanted.has(entry)));
+  for (const { id } of replaced) {
     await cli.check(['policy', 'rm', 'network', '--sandbox', sandbox, '--id', id, '--force']);
   }
 }

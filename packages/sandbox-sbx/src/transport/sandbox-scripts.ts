@@ -7,11 +7,16 @@
 /** Where a spawned process leaves its pid, so it can be stopped from outside. */
 export const PROCESS_DIR = '/tmp/.ai-sdk-sbx-processes';
 
+/** The shell that runs a command of the sandbox: see {@link TRACKED}. */
+const SHELL = 'if command -v bash >/dev/null 2>&1; then bash -c "$1"; else sh -c "$1"; fi';
+
 /**
  * Runs `$1` under a shell whose pid is recorded in `$0` first. Killing the `sbx exec` client does
- * not reach the process inside the sandbox, so this pid is the only handle on it.
+ * not reach the process inside the sandbox, so this pid is the only handle on it. The command runs
+ * with bash, as the AI SDK's Vercel sandbox does and the harnesses expect (Pi writes bash), or with
+ * sh in an image without bash.
  */
-export const TRACKED = `mkdir -p ${PROCESS_DIR} && echo $$ > "$0" && sh -c "$1"; code=$?; rm -f "$0"; exit $code`;
+export const TRACKED = `mkdir -p ${PROCESS_DIR} && echo $$ > "$0" && { ${SHELL}; }; code=$?; rm -f "$0"; exit $code`;
 
 /** Stops the process recorded in `$0` and everything it started, children first. */
 export const KILL_TREE =

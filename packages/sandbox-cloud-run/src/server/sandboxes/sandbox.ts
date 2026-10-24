@@ -12,7 +12,7 @@ import { EgressLink } from '../egress/egress-link.js';
 import { EgressProxy } from '../egress/egress-proxy.js';
 import { hostsOf, relayRoute } from '../egress/relay-routes.js';
 import { HttpError } from '../http/http-error.js';
-import { KILL_ALL, KILL_TREE, PREPARE } from './sandbox-scripts.js';
+import { COMMAND, KILL_ALL, KILL_TREE, PREPARE } from './sandbox-scripts.js';
 
 /** What every sandbox is made with: the service's to give. */
 export interface SandboxSettings {
@@ -182,7 +182,10 @@ export class Sandbox implements EgressPolicy {
     const id = randomUUID();
     const pidFile = join(this.processDirectory, id);
     const directory = workingDirectory ?? this.settings.workingDirectory;
-    const child = this.spawn(['/bin/sh', '-c', command], env, { cwd: directory, pidFile });
+    const child = this.spawn(['/bin/sh', '-c', COMMAND, 'sh', command], env, {
+      cwd: directory,
+      pidFile,
+    });
     let exited = false;
     void child.exited.then(() => (exited = true));
     const kill = async (): Promise<void> => {

@@ -25,7 +25,7 @@ import {
 
 import type { SandboxId } from '@/lib/sandboxes';
 
-import { HARNESS_IDS } from '@/lib/harnesses';
+import { HARNESS_IDS, HARNESSES } from '@/lib/harnesses';
 import { sandboxIdOf } from '@/lib/sandboxes';
 
 /** A setting of the example is missing or wrong: its message says which, and what to do. */
@@ -137,11 +137,14 @@ type Opened = { resumed: boolean; session: ExampleSandbox };
 
 /**
  * What the example's sandboxes reach, and nothing else: the trusted hosts of the whole ecosystem,
- * where the agents clone and install, the hosts Claude Code and Codex install from and call, and
- * `hosts`.
+ * where the agents clone and install, the hosts each harness installs from and calls, and `hosts`.
+ * The harnesses that go through OpenRouter reach it in place of their own provider.
  */
 function exampleHosts(hosts: readonly string[]): string[] {
-  return allowedHosts(trustedHosts(), ...HARNESS_IDS.map((id) => harnessHosts(id)), hosts);
+  const harnesses = HARNESS_IDS.map((id) =>
+    harnessHosts(id, HARNESSES[id].route === 'OpenRouter' ? { provider: 'openrouter' } : {}),
+  );
+  return allowedHosts(trustedHosts(), ...harnesses, hosts);
 }
 
 /**
