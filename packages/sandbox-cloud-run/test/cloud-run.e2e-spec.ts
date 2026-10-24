@@ -92,6 +92,12 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     expect(await session.readBinaryFile({ path: 'bytes.bin' })).toEqual(bytes);
   });
 
+  it('runs a command with bash, as the harnesses write it', async () => {
+    const { stdout } = await session.run({ command: 'words=(one two); echo "${words[1]}"' });
+
+    expect(stdout).toBe('two\n');
+  });
+
   it('puts a credential in on the way out, without it ever entering the sandbox', async () => {
     const secret = `e2e-secret-${run}-0123456789`;
     const echo = await createCloudRunNetworkSandboxSession({

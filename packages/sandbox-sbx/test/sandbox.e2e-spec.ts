@@ -70,6 +70,12 @@ describe('a Docker Sandbox', () => {
     expect(stdout.trim()).toBe('s3cr3t');
   });
 
+  it('runs a command with bash, as the harnesses write it', async () => {
+    const { stdout } = await session.run({ command: 'words=(one two); echo "${words[1]}"' });
+
+    expect(stdout).toBe('two\n');
+  });
+
   it('serves an exposed port on the host loopback', async () => {
     const server = await session.spawn({
       command:

@@ -104,6 +104,12 @@ describe.runIf(hostRunsMicroVms())('a microsandbox', () => {
     expect(next.stdout.trim()).toBe('[]');
   });
 
+  it('runs a command with bash, as the harnesses write it', async () => {
+    const { stdout } = await session.run({ command: 'words=(one two); echo "${words[1]}"' });
+
+    expect(stdout).toBe('two\n');
+  });
+
   it('kills a process and what it started', async () => {
     const spawned = await session.spawn({ command: 'sleep 300 & sleep 301; wait' });
     await new Promise((resolve) => setTimeout(resolve, 300));

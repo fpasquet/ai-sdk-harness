@@ -10,7 +10,13 @@ import type {
   SandboxExecution,
 } from '../transport/microsandbox-connection.js';
 
-import { READ, READ_DIRECTORY, READ_MISSING, WRITE } from '../transport/sandbox-scripts.js';
+import {
+  COMMAND,
+  READ,
+  READ_DIRECTORY,
+  READ_MISSING,
+  WRITE,
+} from '../transport/sandbox-scripts.js';
 import { abortReason } from '../utils/abort.js';
 
 type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
@@ -70,7 +76,7 @@ export class MicrosandboxSandboxSession implements SandboxSession {
     abortSignal,
   }: ProcessOptions): Promise<SandboxProcess> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
-    const running = await this.handle.connection.start(['sh', '-c', command], {
+    const running = await this.handle.connection.start(['sh', '-c', COMMAND, 'sh', command], {
       cwd: this.resolve(workingDirectory ?? '.'),
       env,
     });
