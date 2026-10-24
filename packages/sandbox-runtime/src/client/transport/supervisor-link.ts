@@ -52,7 +52,11 @@ export class SupervisorLink {
    */
   static start(argv: readonly string[], env: Record<string, string>): Promise<SupervisorLink> {
     const [command = '/bin/sh', ...args] = argv;
-    const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    // srt, a command of this host: a bundler would trace the whole project for it.
+    const child = spawn(/* turbopackIgnore: true */ command, args, {
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     const link = new SupervisorLink(child);
     return new Promise((resolve, reject) => {
       child.once('error', (error) =>

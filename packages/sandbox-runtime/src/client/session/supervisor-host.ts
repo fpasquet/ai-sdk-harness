@@ -116,7 +116,11 @@ export class SupervisorHost {
     await mkdir(target, { recursive: true });
     await writeFile(join(target, 'package.json'), '{ "type": "module" }\n');
     for (const folder of ['in-sandbox', 'protocol']) {
-      await cp(join(build, folder), join(target, folder), { recursive: true, force: true });
+      // The supervisor's files, found at run time: a bundler would trace the whole project for them.
+      await cp(join(/* turbopackIgnore: true */ build, folder), join(target, folder), {
+        recursive: true,
+        force: true,
+      });
     }
     return join(target, 'in-sandbox', 'supervisor.js');
   }
