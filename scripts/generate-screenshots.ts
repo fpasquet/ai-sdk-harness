@@ -340,9 +340,13 @@ async function captureSessions(page: Page): Promise<void> {
   await settled(page);
 
   const primes = conversation(page, /primes/i);
-  await primes.hover();
-  await primes.getByRole('button', { name: 'Conversation actions' }).click();
-  await page.getByRole('menuitem', { name: /suspend now/i }).click();
+  // Four conversations are live at once: after the use cases, the manager may already have
+  // suspended this one, the idle longest, for its port. "Suspend now" is then disabled.
+  if (!(await primes.getByText('Suspended').isVisible())) {
+    await primes.hover();
+    await primes.getByRole('button', { name: 'Conversation actions' }).click();
+    await page.getByRole('menuitem', { name: /suspend now/i }).click();
+  }
   await primes.getByText('Suspended').waitFor({ timeout: TURN_TIMEOUT_MS });
   await primes.click();
   await page.waitForTimeout(1000);
@@ -366,6 +370,9 @@ async function captureWorkspace(page: Page): Promise<void> {
  * the panel above the conversation lists it, open.
  */
 async function captureBlockedHosts(page: Page): Promise<void> {
+  // Back to the chat: the pages that check a plugin and an item have no "New chat".
+  await page.goto(EXAMPLE_URL);
+  await page.waitForLoadState('networkidle');
   await startChat(page);
   await converse(
     page,

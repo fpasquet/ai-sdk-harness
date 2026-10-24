@@ -12,18 +12,18 @@ Open a tool call to see what the agent ran in the microVM, and what came back:
 
 A new conversation is set up in two steps before its first message. First its coding agent, picked in a gallery where every official harness adapter has a card: those whose credential the server does not have are greyed out, with the variables to set. Then, with the agent and its model shown on top, what it takes from the **marketplace**, and the prompt:
 
-| Coding agent   | Runs on                | Suggested models                       | Where it runs                                     |
-| -------------- | ---------------------- | -------------------------------------- | ------------------------------------------------- |
-| Claude Code    | a Claude subscription  | Claude Haiku 4.5, Sonnet 5.5, Opus 5.5 | its CLI, behind a bridge in the sandbox           |
-| Codex          | a ChatGPT subscription | GPT-5.5, GPT-5.6 Luna, GPT-6 Luna      | its CLI, behind a bridge in the sandbox           |
-| OpenCode       | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | its server, behind a bridge in the sandbox        |
-| Pi             | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | the Next.js server, its tools in the sandbox      |
-| Cline          | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3    | the Next.js server, its tools in the sandbox      |
-| Deep Agents    | OpenRouter             | Claude Haiku 5.5, Kimi K3, GLM 5.3     | a LangGraph agent, behind a bridge in the sandbox |
-| Grok Build     | OpenRouter             | Grok Build 0.1, Grok 4.7               | its CLI, over ACP in the sandbox                  |
-| fx             | a ChatGPT subscription | GPT-5.5, GPT-5.6 Luna, GPT-6 Luna      | the Next.js server, its tools in the sandbox      |
-| GitHub Copilot | a Copilot subscription | GPT-5.5, Claude Sonnet 5.5             | its CLI, over ACP in the sandbox                  |
-| Cursor         | a Cursor account       | Auto, GPT-5.6 Luna                     | its CLI, over ACP in the sandbox                  |
+| Coding agent   | Runs on                | Suggested models                        | Where it runs                                     |
+| -------------- | ---------------------- | --------------------------------------- | ------------------------------------------------- |
+| Claude Code    | a Claude subscription  | Claude Haiku 4.5, Sonnet 5.5, Opus 5.5  | its CLI, behind a bridge in the sandbox           |
+| Codex          | a ChatGPT subscription | GPT-5.6 Luna, GPT-5.6 Terra, GPT-6 Luna | its CLI, behind a bridge in the sandbox           |
+| OpenCode       | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3     | its server, behind a bridge in the sandbox        |
+| Pi             | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3     | the Next.js server, its tools in the sandbox      |
+| Cline          | OpenRouter             | DeepSeek V4 Flash, Kimi K3, GLM 5.3     | the Next.js server, its tools in the sandbox      |
+| Deep Agents    | OpenRouter             | Claude Haiku 5.5, Kimi K3, GLM 5.3      | a LangGraph agent, behind a bridge in the sandbox |
+| Grok Build     | OpenRouter             | Grok Build 0.1, Grok 4.7                | its CLI, over ACP in the sandbox                  |
+| fx             | a ChatGPT subscription | GPT-5.6 Luna, GPT-5.6 Terra, GPT-6 Luna | the Next.js server, its tools in the sandbox      |
+| GitHub Copilot | a Copilot subscription | GPT-5.5, Claude Sonnet 5.5              | its CLI, over ACP in the sandbox                  |
+| Cursor         | a Cursor account       | Auto, GPT-5.6 Luna                      | its CLI, over ACP in the sandbox                  |
 
 The model picker of the second step lists the suggested models first. For the agents that go through OpenRouter, it also offers, searchable, every model of [OpenRouter's catalog](https://openrouter.ai/models) that can call tools, read by the server once an hour (`lib/models.ts`): Grok Build keeps to xAI's models, and Pi runs those of its own catalog, generated from OpenRouter's.
 

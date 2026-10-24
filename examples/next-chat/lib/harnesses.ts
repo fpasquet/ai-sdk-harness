@@ -34,9 +34,10 @@ export const HARNESSES = {
     // Codex takes no approvals of its own tools: the harness runs it with `allow-all` only.
     asksFirst: false,
     resumes: true,
+    // The models of a ChatGPT subscription: it refuses `gpt-5.5`, which an API key runs.
     models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
       { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
     ],
   },
@@ -129,9 +130,10 @@ export const HARNESSES = {
     runsIn: 'server',
     asksFirst: true,
     resumes: true,
+    // The models of a ChatGPT subscription: it refuses `gpt-5.5`, which an API key runs.
     models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5' },
       { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
       { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
     ],
   },
