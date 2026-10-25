@@ -11,8 +11,8 @@ const MISSING = 'for c in "$@"; do command -v "$c" >/dev/null 2>&1 || printf "%s
 const quote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
 
 /**
- * Checks that the sandbox's image has `commands`, before anything runs in it: a missing one would
- * otherwise fail far later, in the middle of the harness's bootstrap.
+ * Checks that the sandbox has `commands` once its setup ran, which may install them: a missing one
+ * would otherwise fail far later, in the middle of the harness's bootstrap.
  */
 export async function assertRequiredCommands(
   session: GceNetworkSandboxSession,

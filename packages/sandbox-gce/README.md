@@ -301,7 +301,7 @@ Every sandbox boots from an image the service offers: `SANDBOX_IMAGE`, its defau
 await createGceNetworkSandboxSession({ url, image: 'python', ports: [4000] });
 ```
 
-Whatever the project's language, a harness needs **Node.js** in the sandbox, for its bridge (Claude Code installs its SDK with pnpm), and **git**, for the repositories. Build every image on the [sandbox image](#3-the-sandbox-image) script, then add the toolchain: `apt-get install -y python3-venv`, Go's tarball, `rustup`… The client checks the image as soon as the machine runs: one lacking `node` or `git` fails the creation with `GceSandboxImageError`, which names what is missing, and the machine is deleted. `requiredCommands` changes the list, `[]` turns the check off.
+Whatever the project's language, a harness needs **Node.js** in the sandbox, for its bridge (Claude Code installs its SDK with pnpm), and **git**, for the repositories. Build every image on the [sandbox image](#3-the-sandbox-image) script, then add the toolchain: `apt-get install -y python3-venv`, Go's tarball, `rustup`… The client checks the sandbox once its `setup` ran, which may install them: one lacking `node` or `git` fails the creation with `GceSandboxImageError`, which names what is missing, and the machine is deleted. `requiredCommands` changes the list, `[]` turns the check off.
 
 A template is made on the image of its sandbox: `python` and `default` get one each.
 
@@ -421,7 +421,7 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 | `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken |
 | `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                  |
 | `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`              |
-| `requiredCommands` | `['node', 'git']` | Commands the image must have, checked as soon as the machine runs                                   |
+| `requiredCommands` | `['node', 'git']` | Commands the sandbox must have once `setup` ran                                                     |
 | `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template     |
 | `abortSignal`      | none              | Aborts the creation or the resume                                                                   |
 

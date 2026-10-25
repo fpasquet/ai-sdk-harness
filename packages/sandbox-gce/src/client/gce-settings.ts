@@ -77,7 +77,7 @@ export interface GceCreationSettings extends GceConnectionSettings {
    */
   image?: string;
   /**
-   * Commands the image must have, checked as soon as the machine runs: a harness needs Node.js for
+   * Commands the sandbox must have once `setup` ran, which may install them: a harness needs Node.js for
    * its bridge and git for the repositories, whatever the project's language. A missing one fails
    * the creation with `GceSandboxImageError`, the sandbox deleted. `[]` checks nothing.
    *

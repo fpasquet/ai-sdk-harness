@@ -98,8 +98,8 @@ async function build(
       { client, name: builder, workingDirectory, processes: new Set() },
       [],
     );
-    await assertRequiredCommands(session, requiredCommands, abortSignal);
     await runSetup(session, setup, abortSignal);
+    await assertRequiredCommands(session, requiredCommands, abortSignal);
     await template.prepare({ session: session.restricted(), abortSignal });
     await client.saveTemplate(builder, id, abortSignal);
     return id;

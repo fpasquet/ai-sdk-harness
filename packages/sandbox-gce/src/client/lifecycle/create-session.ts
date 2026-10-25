@@ -89,8 +89,8 @@ export async function createGceNetworkSandboxSession(
   try {
     // A template was checked and set up before it was saved.
     if (!template) {
-      await assertRequiredCommands(session, requiredCommands, abortSignal);
       await runSetup(session, setup, abortSignal);
+      await assertRequiredCommands(session, requiredCommands, abortSignal);
     }
     return session;
   } catch (error) {
