@@ -73,6 +73,8 @@ RUN apt-get update \
 CMD ["ai-sdk-sandbox-cloud-run", "serve"]
 ```
 
+Whatever your project's language, keep Node.js and git in the image: the harness needs Node.js for its bridge, and git fetches the repositories. Add your project's toolchain beside them, Python, Go or Rust: every sandbox of the service sees this one image, so it holds every toolchain your agents need, or you deploy one service per toolchain. [Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) shows the other ways.
+
 Pin `ai-sdk-sandbox-cloud-run` to the version your application depends on. The client and the service check that they speak the same protocol, and the service refuses a client that does not, saying which version to deploy.
 
 ### 2. The bucket and the service account

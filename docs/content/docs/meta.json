@@ -2,6 +2,7 @@
   "pages": [
     "index",
     "getting-started",
+    "choosing-a-sandbox",
     "adding-plugins",
     "managing-sessions",
     "working-on-a-repository",
