@@ -1,0 +1,5 @@
+---
+'ai-sdk-sandbox-gke': minor
+---
+
+First release: GKE Sandbox sandboxes for AI SDK harness agents. Each sandbox is a pod of its own under gVisor, made by Agent Sandbox as a `Sandbox` resource, run as a user who is not root, with no capability, no Kubernetes credential, no resolver and no way out but an egress proxy that keeps the credentials outside. `createGkeNetworkSandboxSession()` and `resumeGkeNetworkSandboxSession()` speak the protocol of `ai-sdk-sandbox-cloud-run` to a sandbox service you deploy in the cluster (`ai-sdk-sandbox-gke serve`), which drives the sandboxes through the Kubernetes API; the package also ships the egress proxy (`ai-sdk-sandbox-gke proxy`) and the agent of the sandbox image (`ai-sdk-sandbox-gke agent`). `stop()` suspends the sandbox, its pod deleted and its home volume kept; templates are saved as volume snapshots. Each sandbox picks its image among those the service offers (`image`, `SANDBOX_IMAGES`), and an image lacking Node.js or git fails the creation with `GkeSandboxImageError`.

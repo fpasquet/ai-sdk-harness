@@ -1,0 +1,19 @@
+---
+title: ai-sdk-sandbox-gke
+description: The options of createGkeNetworkSandboxSession and resumeGkeNetworkSandboxSession, generated from the source.
+---
+
+## `createGkeNetworkSandboxSession(options)`
+
+Creates a sandbox, a GKE Sandbox pod of its own, through the sandbox service and returns a `GkeNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable path="packages/sandbox-gke/src/client/gke-settings.ts" name="GkeCreationSettings" />
+
+## `resumeGkeNetworkSandboxSession(options)`
+
+Reattaches to a running sandbox, or makes a suspended one's pod again on its home volume. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `GkeSandboxNotFoundError` when no sandbox has that name.
+
+<AutoTypeTable
+  path="packages/sandbox-gke/src/client/gke-settings.ts"
+  name="GkeConnectionSettings"
+/>

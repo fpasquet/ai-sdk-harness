@@ -45,6 +45,11 @@
       - any-glob-to-any-file:
           - 'packages/sandbox-gce/**'
 
+'package: sandbox-gke':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/sandbox-gke/**'
+
 'package: sandbox-runtime':
   - changed-files:
       - any-glob-to-any-file:
