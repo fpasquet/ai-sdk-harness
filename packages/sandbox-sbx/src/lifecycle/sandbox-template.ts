@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { SbxCli } from '../transport/sbx-cli.js';
 
 import { openSandbox, runSetup } from './open-sandbox.js';
+import { assertRequiredCommands } from './required-commands.js';
 
 /** The name templates are saved under: an image repository locally, a template name prefix in the cloud. */
 export const TEMPLATE_REPOSITORY = 'ai-sdk-harness-template';
@@ -18,6 +19,8 @@ export interface TemplateSource {
   agent: string;
   image?: string;
   setup: readonly string[];
+  /** Commands the image must have once set up: not part of the template's reference. */
+  requiredCommands: readonly string[];
 }
 
 /** Images being built by this process, by reference: one build per reference at a time. */
@@ -55,7 +58,7 @@ export async function ensureTemplateImage(
  * `ai-sdk-harness-template-<digest>` in the cloud.
  */
 export function templateReference(
-  { template, agent, image, setup }: TemplateSource,
+  { template, agent, image, setup }: Omit<TemplateSource, 'requiredCommands'>,
   cloud = false,
 ): string {
   const digest = createHash('sha256')
@@ -96,7 +99,7 @@ async function imageExists(
 
 async function buildImage({
   cli,
-  source: { template, agent, image, setup },
+  source: { template, agent, image, setup, requiredCommands },
   reference,
   abortSignal,
 }: {
@@ -112,6 +115,7 @@ async function buildImage({
   });
   try {
     await runSetup(cli, builder, { setup, abortSignal });
+    await assertRequiredCommands(cli, builder, { commands: requiredCommands, abortSignal });
     const session = await openSandbox(cli, builder, { abortSignal });
     await template.prepare({ session: session.restricted(), abortSignal });
     // A local `sbx template save` refuses a running sandbox; a cloud one snapshots it running.

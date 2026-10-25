@@ -136,6 +136,14 @@ export interface SbxCreationSettings extends SbxConnectionSettings {
    * With a `template`, they run before it is prepared and are baked into it.
    */
   setup?: readonly string[];
+  /**
+   * Commands the image must have once `setup` ran: a harness needs Node.js for its bridge and git
+   * for the repositories, whatever the project's language. A missing one fails the creation with
+   * `SbxSandboxImageError`, the sandbox removed. `[]` checks nothing.
+   *
+   * @defaultValue `['node', 'git']`
+   */
+  requiredCommands?: readonly string[];
 }
 
 /** Options of `createSbxNetworkSandboxSession()`. */

@@ -151,6 +151,12 @@ The sandbox's working directory (`defaultWorkingDirectory`, under which the harn
 
 What the agent writes in a read-write `workspace`, your machine may run later: Git hooks, an `.envrc`, the scripts of a `package.json`. Review its changes before running anything from the directory, or prefer `clone: true`, which only hands its commits back through a Git remote.
 
+## Images and toolchains
+
+A sandbox runs any image (`image`): `python:3.12`, `golang:1.23`, your project's own. The commands go through `bash`, or `sh` where there is none, and the files through `cat`: nothing of the package needs a language of its own.
+
+The harness does: whatever the project's language, **Node.js** must be in the sandbox for its bridge (Claude Code installs its SDK there with pnpm), and **git** for the repositories. The kits of Docker Sandboxes have both; an image of yours needs them beside its toolchain, in the image or installed by `setup`. Once `setup` ran, the package checks them and fails the creation with `SbxSandboxImageError`, naming what is missing, rather than leaving the harness to fail in the middle of its bootstrap. `requiredCommands` changes the list; `[]` turns the check off, for a sandbox no harness runs in.
+
 ## Docker and docker compose
 
 Every Docker Sandbox runs a Docker daemon of its own, inside its microVM: the agent can `docker run` and `docker compose up` like on a developer's machine, so it can test a project for real against the services it needs. Clone the project in, then let the agent, or your setup, start its services and run its tests:
@@ -312,35 +318,37 @@ A view starts its own processes, publishes its own ports and registers its own c
 
 `createSbxNetworkSandboxSession(options)` takes every option below; `resumeSbxNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal`, `cloud` and the connection settings.
 
-| Option                | Default        | Description                                                                                     |
-| --------------------- | -------------- | ----------------------------------------------------------------------------------------------- |
-| `sandboxId`           | `ai-sdk-<hex>` | The sandbox's name in `sbx ls`. Creation fails if it is taken                                   |
-| `template`            | none           | `await agent.getSandboxTemplate()`: prepare once, start every later sandbox from the image      |
-| `abortSignal`         | none           | Aborts the creation or the resume                                                               |
-| `agent`               | `'shell'`      | The Docker Sandboxes agent kit: its image and network rules                                     |
-| `image`               | the kit's own  | Container image to use instead (`sbx create --template`)                                        |
-| `cloud`               | `false`        | Run in Docker Sandboxes Cloud (`sbx --cloud`) rather than on this host                          |
-| `workspace`           | none           | Host directory to mount read-write as the working directory (local only)                        |
-| `clone`               | `false`        | With `workspace`: a private clone of the Git repository instead (local only)                    |
-| `readOnlyWorkspaces`  | `[]`           | More host directories, mounted read-only (local only)                                           |
-| `networkPolicy`       | the machine's  | What the sandbox may reach: `allow-all`, `deny-all` or `custom` (local only)                    |
-| `denyNetwork`         | `[]`           | Hosts the sandbox may never reach (`sbx create --deny-network`)                                 |
-| `allowNetwork`        | `[]`           | Hosts a cloud sandbox may reach, on top of the account's policy (cloud only)                    |
-| `cpus`                | decided by sbx | CPUs of the microVM                                                                             |
-| `memory`              | decided by sbx | Memory limit of the microVM (`4g`, `512m`)                                                      |
-| `platform`            | decided by sbx | `linux/amd64` or `linux/arm64` (cloud only)                                                     |
-| `ttl`                 | decided by sbx | Time-to-live of a cloud sandbox, 24 hours at most (cloud only)                                  |
-| `onTimeout`           | decided by sbx | `stop`, `restart` or `delete` the cloud sandbox when its `ttl` lapses (cloud only)              |
-| `setup`               | `[]`           | Commands run once after creation, as the sandbox user (who has `sudo`), baked into the template |
-| `ports`               | `[]`           | _Connection._ Ports the harness may reach, published on demand                                  |
-| `brokerCredentials`   | `true`         | _Connection._ Keep credentials out of the sandbox, swapped in by the proxy                      |
-| `clearEnv`            | `[]`           | _Connection._ More variables to drop from commands that do not set them                         |
-| `keepProxyManagedEnv` | `false`        | _Connection._ Keep the `proxy-managed` credential variables Docker Sandboxes pre-sets           |
-| `commandTimeoutMs`    | `60_000`       | _Connection._ How long a control command of `sbx` may take (see [Errors](#errors))              |
-| `binary`              | `'sbx'`        | _Connection._ The `sbx` binary                                                                  |
+| Option                | Default           | Description                                                                                          |
+| --------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `sandboxId`           | `ai-sdk-<hex>`    | The sandbox's name in `sbx ls`. Creation fails if it is taken                                        |
+| `template`            | none              | `await agent.getSandboxTemplate()`: prepare once, start every later sandbox from the image           |
+| `abortSignal`         | none              | Aborts the creation or the resume                                                                    |
+| `agent`               | `'shell'`         | The Docker Sandboxes agent kit: its image and network rules                                          |
+| `image`               | the kit's own     | Container image to use instead (`sbx create --template`)                                             |
+| `cloud`               | `false`           | Run in Docker Sandboxes Cloud (`sbx --cloud`) rather than on this host                               |
+| `workspace`           | none              | Host directory to mount read-write as the working directory (local only)                             |
+| `clone`               | `false`           | With `workspace`: a private clone of the Git repository instead (local only)                         |
+| `readOnlyWorkspaces`  | `[]`              | More host directories, mounted read-only (local only)                                                |
+| `networkPolicy`       | the machine's     | What the sandbox may reach: `allow-all`, `deny-all` or `custom` (local only)                         |
+| `denyNetwork`         | `[]`              | Hosts the sandbox may never reach (`sbx create --deny-network`)                                      |
+| `allowNetwork`        | `[]`              | Hosts a cloud sandbox may reach, on top of the account's policy (cloud only)                         |
+| `cpus`                | decided by sbx    | CPUs of the microVM                                                                                  |
+| `memory`              | decided by sbx    | Memory limit of the microVM (`4g`, `512m`)                                                           |
+| `platform`            | decided by sbx    | `linux/amd64` or `linux/arm64` (cloud only)                                                          |
+| `ttl`                 | decided by sbx    | Time-to-live of a cloud sandbox, 24 hours at most (cloud only)                                       |
+| `onTimeout`           | decided by sbx    | `stop`, `restart` or `delete` the cloud sandbox when its `ttl` lapses (cloud only)                   |
+| `setup`               | `[]`              | Commands run once after creation, as the sandbox user (who has `sudo`), baked into the template      |
+| `requiredCommands`    | `['node', 'git']` | Commands the sandbox must have once `setup` ran: see [Images and toolchains](#images-and-toolchains) |
+| `ports`               | `[]`              | _Connection._ Ports the harness may reach, published on demand                                       |
+| `brokerCredentials`   | `true`            | _Connection._ Keep credentials out of the sandbox, swapped in by the proxy                           |
+| `clearEnv`            | `[]`              | _Connection._ More variables to drop from commands that do not set them                              |
+| `keepProxyManagedEnv` | `false`           | _Connection._ Keep the `proxy-managed` credential variables Docker Sandboxes pre-sets                |
+| `commandTimeoutMs`    | `60_000`          | _Connection._ How long a control command of `sbx` may take (see [Errors](#errors))                   |
+| `binary`              | `'sbx'`           | _Connection._ The `sbx` binary                                                                       |
 
 ## Errors
 
+- `SbxSandboxImageError`: the image of a new sandbox lacks a command of `requiredCommands`, once `setup` ran; the sandbox is removed. Carries `sandboxId` and `missing`.
 - `SbxSandboxNotFoundError`: `resumeSbxNetworkSandboxSession()` found no sandbox of that name. Carries `sandboxId`.
 - `SbxError`: an `sbx` command exited with a non-zero status. Carries `args`, `exitCode` and `stderr`.
 - `SbxTimeoutError` (an `SbxError`): a control command of `sbx` — listing, publishing a port, stopping or removing the sandbox, the package's own short commands in it — did not finish within `commandTimeoutMs`, and was stopped. Creating the sandbox, its `setup`, file reads and writes and the commands the agent runs have no deadline: they end with their `abortSignal`. Carries `timeoutMs`. A listing (`sbx ls`, `template ls`, `policy ls`, `policy log`, `secret ls`) is first tried twice more, 2 then 5 seconds later, as it is when `sbx` answers that the Docker sign-in service is unavailable: a `sandboxd` that cannot refresh its Docker session for a moment delays a session instead of failing it.

@@ -9,6 +9,7 @@ import { createFakeSbx } from '../../test/fake-sbx.js';
 import {
   createSbxNetworkSandboxSession,
   resumeSbxNetworkSandboxSession,
+  SbxSandboxImageError,
   SbxSandboxNotFoundError,
 } from '../index.js';
 import { templateReference } from './sandbox-template.js';
@@ -103,6 +104,19 @@ describe('createSbxNetworkSandboxSession', () => {
         setup: ['echo broken'],
       }),
     ).rejects.toThrow(/failing on purpose/);
+    expect(sbx.state().sandboxes).toEqual({});
+  });
+
+  it('checks the image has what a harness needs, after the setup, and removes it otherwise', async () => {
+    const error = await createSbxNetworkSandboxSession({
+      binary: sbx.binary,
+      sandboxId: 'box',
+      image: 'python:3.12',
+      requiredCommands: ['node', 'no-such-command'],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SbxSandboxImageError);
+    expect(error).toMatchObject({ sandboxId: 'box', missing: ['no-such-command'] });
     expect(sbx.state().sandboxes).toEqual({});
   });
 
