@@ -1,0 +1,156 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+import type { Reply } from '../../common/http-reply.js';
+import type { Sandboxes } from '../sandboxes/sandboxes.js';
+
+import {
+  optionalString,
+  readJson,
+  requiredString,
+  stringList,
+  stringRecord,
+  transformationList,
+} from '../../common/http-body.js';
+import { NO_CONTENT } from '../../common/http-reply.js';
+import { PACKAGE_VERSION } from '../../common/package-version.js';
+import { PROTOCOL_VERSION } from '../../protocol/version.js';
+import { execRelay } from './exec-relay.js';
+
+interface Context {
+  sandboxes: Sandboxes;
+  /** The route's captures: the sandbox's name first, then the rest. */
+  params: string[];
+  request: IncomingMessage;
+  response: ServerResponse;
+}
+
+/** A route handles its request, or streams its own answer and replies with nothing. */
+type Handler = (context: Context) => Promise<Reply | undefined>;
+
+export interface Route {
+  method: string;
+  path: RegExp;
+  handle: Handler;
+}
+
+const network = async (request: IncomingMessage) => {
+  const body = await readJson(request);
+  return {
+    allowedHosts: stringList(body, 'allowedHosts'),
+    baseUrls: stringRecord(body, 'baseUrls'),
+    template: optionalString(body, 'template'),
+    name: optionalString(body, 'name'),
+  };
+};
+
+const SANDBOX = '/v1/sandboxes/([^/]+)';
+
+const route = (method: string, path: RegExp, handle: Handler): Route => ({ method, path, handle });
+
+/**
+ * The service's API, version 1: the same as `ai-sdk-sandbox-cloud-run`'s. Every route but the
+ * health check sits under `/v1`; a sandbox's ports are reached by the tunnel (`port-tunnel.ts`),
+ * outside these routes.
+ */
+export const ROUTES: Route[] = [
+  route('GET', /^\/health$/, () =>
+    Promise.resolve({
+      status: 200,
+      body: { status: 'ok', protocol: PROTOCOL_VERSION, version: PACKAGE_VERSION },
+    }),
+  ),
+  route('POST', /^\/v1\/sandboxes$/, async ({ sandboxes, request }) => {
+    const { name, ...options } = await network(request);
+    return { status: 201, body: await sandboxes.create(name ?? '', options) };
+  }),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/resume$`),
+    async ({ sandboxes, params: [name = ''], request }) => ({
+      status: 200,
+      body: await sandboxes.resume(name, await network(request)),
+    }),
+  ),
+  route('POST', new RegExp(`^${SANDBOX}/suspend$`), async ({ sandboxes, params: [name = ''] }) => {
+    await sandboxes.suspend(name);
+    return NO_CONTENT;
+  }),
+  route('DELETE', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => {
+    await sandboxes.delete(name);
+    return NO_CONTENT;
+  }),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/exec$`),
+    async ({ sandboxes, params: [name = ''], request, response }) => {
+      await execRelay(sandboxes, name, { request, response });
+      return undefined;
+    },
+  ),
+  route(
+    'GET',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)$`),
+    async ({ sandboxes, params: [name = '', id = ''] }) => ({
+      status: 200,
+      body: await (await sandboxes.agent(name)).wait(id),
+    }),
+  ),
+  route(
+    'DELETE',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)$`),
+    async ({ sandboxes, params: [name = '', id = ''] }) => {
+      await (await sandboxes.agent(name)).kill(id);
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'DELETE',
+    new RegExp(`^${SANDBOX}/processes$`),
+    async ({ sandboxes, params: [name = ''] }) => {
+      await (await sandboxes.agent(name)).killAll();
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/transformations$`),
+    async ({ sandboxes, params: [name = ''], request }) => {
+      await sandboxes.addTransformations(name, transformationList(await readJson(request)));
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'PUT',
+    new RegExp(`^${SANDBOX}/transformations$`),
+    async ({ sandboxes, params: [name = ''], request }) => {
+      await sandboxes.setTransformations(name, transformationList(await readJson(request)));
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'PUT',
+    new RegExp(`^${SANDBOX}/network$`),
+    async ({ sandboxes, params: [name = ''], request }) => {
+      const { allowedHosts = [] } = await network(request);
+      await sandboxes.setAllowedHosts(name, allowedHosts);
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/template$`),
+    async ({ sandboxes, params: [name = ''], request }) => {
+      await sandboxes.saveTemplate(name, requiredString(await readJson(request), 'id'));
+      return NO_CONTENT;
+    },
+  ),
+  route('GET', /^\/v1\/templates\/([^/]+)$/, async ({ sandboxes, params: [id = ''] }) =>
+    (await sandboxes.templateExists(id))
+      ? { status: 200, body: { id } }
+      : { status: 404, body: { error: `No template "${id}".` } },
+  ),
+  route('DELETE', /^\/v1\/templates\/([^/]+)$/, async ({ sandboxes, params: [id = ''] }) => {
+    await sandboxes.deleteTemplate(id);
+    return NO_CONTENT;
+  }),
+];

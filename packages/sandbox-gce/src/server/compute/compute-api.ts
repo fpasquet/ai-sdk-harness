@@ -1,0 +1,170 @@
+import type { AccessToken } from './access-token.js';
+
+import { ComputeError } from './compute-error.js';
+
+/** The fields of a Compute Engine instance the service reads. */
+export interface Instance {
+  name: string;
+  /** `PROVISIONING`, `STAGING`, `RUNNING`, `STOPPING`, `TERMINATED`, `SUSPENDING`, `SUSPENDED`… */
+  status: string;
+  labels?: Record<string, string>;
+  networkInterfaces?: { networkIP?: string }[];
+}
+
+/** The fields of an image the service reads. */
+export interface Image {
+  name: string;
+  selfLink: string;
+  status?: string;
+}
+
+interface Operation {
+  name: string;
+  status: string;
+  selfLink: string;
+  error?: { errors?: { code?: string; message?: string }[] };
+  httpErrorStatusCode?: number;
+}
+
+/** The longest an operation is waited for: creating an image takes some minutes. */
+const OPERATION_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * The calls of the [Compute Engine API](https://cloud.google.com/compute/docs/reference/rest/v1)
+ * the service makes, over its REST interface: no client library, so that the service keeps no
+ * runtime dependency. Every change is an operation, waited for until it is done.
+ */
+export class ComputeApi {
+  /**
+   * @param options `endpoint`: the API's root, `https://compute.googleapis.com/compute/v1` but in
+   *   tests. `project` and `zone`: where the sandboxes' machines live.
+   */
+  constructor(
+    private readonly options: {
+      endpoint: string;
+      project: string;
+      zone: string;
+      token: AccessToken;
+    },
+  ) {}
+
+  /** The instance `name`, or `undefined` when there is none. */
+  getInstance(name: string): Promise<Instance | undefined> {
+    return this.read<Instance>(this.zonal(`instances/${name}`));
+  }
+
+  async insertInstance(body: Record<string, unknown>): Promise<void> {
+    await this.change('POST', this.zonal('instances'), { body });
+  }
+
+  async startInstance(name: string): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/start`));
+  }
+
+  async resumeInstance(name: string): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/resume`));
+  }
+
+  async stopInstance(name: string): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/stop`));
+  }
+
+  /** Deletes the instance `name` and its disks set to go with it. Nothing when there is none. */
+  async deleteInstance(name: string): Promise<void> {
+    await this.change('DELETE', this.zonal(`instances/${name}`), { ignore: [404] });
+  }
+
+  /**
+   * An image, `path` relative to the API's root (`projects/<project>/global/images/<name>`, or
+   * `…/images/family/<family>` for the latest of a family): `undefined` when there is none.
+   */
+  getImage(path: string): Promise<Image | undefined> {
+    return this.read<Image>(`${this.options.endpoint}/${path}`);
+  }
+
+  /** The URL of the image `name` of the service's project. */
+  imagePath(name: string): string {
+    return `projects/${this.options.project}/global/images/${name}`;
+  }
+
+  /** Saves the boot disk of the stopped instance `disk` as the image `name`. */
+  async insertImage(name: string, disk: string, labels: Record<string, string>): Promise<void> {
+    await this.change('POST', `${this.global}/images`, {
+      body: { name, labels, sourceDisk: `zones/${this.options.zone}/disks/${disk}` },
+    });
+  }
+
+  async deleteImage(name: string): Promise<void> {
+    await this.change('DELETE', `${this.global}/images/${name}`, { ignore: [404] });
+  }
+
+  /** The URL of `resource` in the service's zone, relative to the project. */
+  private zonal(resource: string): string {
+    return `${this.global.replace(/\/global$/, '')}/zones/${this.options.zone}/${resource}`;
+  }
+
+  private get global(): string {
+    return `${this.options.endpoint}/projects/${this.options.project}/global`;
+  }
+
+  private async read<T>(url: string): Promise<T | undefined> {
+    const response = await this.call('GET', url);
+    if (response.status === 404) return undefined;
+    return (await this.parse(response)) as T;
+  }
+
+  /** Starts an operation and waits until it is done. Statuses in `ignore` end it at once. */
+  private async change(
+    method: string,
+    url: string,
+    { body, ignore = [] }: { body?: unknown; ignore?: readonly number[] } = {},
+  ): Promise<void> {
+    const response = await this.call(method, url, body);
+    if (ignore.includes(response.status)) return;
+    await this.wait((await this.parse(response)) as Operation);
+  }
+
+  private async wait(started: Operation): Promise<void> {
+    const deadline = Date.now() + OPERATION_TIMEOUT_MS;
+    let operation = started;
+    while (operation.status !== 'DONE') {
+      if (Date.now() > deadline) {
+        throw new ComputeError(504, `operation ${operation.name} is still running.`);
+      }
+      // `wait` answers once the operation is done, or after some two minutes.
+      const response = await this.call('POST', `${operation.selfLink ?? ''}/wait`);
+      operation = (await this.parse(response)) as Operation;
+    }
+    const [first] = operation.error?.errors ?? [];
+    if (first !== undefined) {
+      throw new ComputeError(
+        operation.httpErrorStatusCode ?? 500,
+        `${first.code ?? 'ERROR'}: ${first.message ?? 'the operation failed.'}`,
+      );
+    }
+  }
+
+  private async call(method: string, url: string, body?: unknown): Promise<Response> {
+    const headers: Record<string, string> = {};
+    const token = await this.options.token.get();
+    if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    return fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  private async parse(response: Response): Promise<unknown> {
+    const text = await response.text();
+    if (response.ok) return JSON.parse(text) as unknown;
+    let message = text;
+    try {
+      message = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? text;
+    } catch {
+      // Not the API's JSON.
+    }
+    throw new ComputeError(response.status, message.trim());
+  }
+}
