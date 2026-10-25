@@ -69,6 +69,22 @@ export interface GceConnectionSettings {
 /** What a new sandbox is made of. */
 export interface GceCreationSettings extends GceConnectionSettings {
   /**
+   * The image the sandbox's machine boots from, by the name the service gives it in
+   * `SANDBOX_IMAGES`: one per toolchain, say `python` or `go`. The service refuses a name it does
+   * not offer: callers never pick an arbitrary image.
+   *
+   * @defaultValue the service's `SANDBOX_IMAGE`
+   */
+  image?: string;
+  /**
+   * Commands the image must have, checked as soon as the machine runs: a harness needs Node.js for
+   * its bridge and git for the repositories, whatever the project's language. A missing one fails
+   * the creation with `GceSandboxImageError`, the sandbox deleted. `[]` checks nothing.
+   *
+   * @defaultValue `['node', 'git']`
+   */
+  requiredCommands?: readonly string[];
+  /**
    * Commands run once, right after the sandbox is created, as the sandbox's user, who has `sudo`
    * without a password. With a `template`, they run before it is prepared and are saved in it.
    *

@@ -65,7 +65,10 @@ describe('a sandbox machine', () => {
 
     expect(body['serviceAccounts']).toEqual([]);
     expect(body['networkInterfaces']).toEqual([{}]);
-    expect(body['labels']).toEqual({ 'ai-sdk-sandbox': 'sandbox' });
+    expect(body['labels']).toEqual({
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-image': 'default',
+    });
     const metadata = JSON.stringify(body['metadata']);
     expect(metadata).not.toContain(SECRET);
     expect(metadata).not.toContain('a-secret-of-thirty-two-characters!');

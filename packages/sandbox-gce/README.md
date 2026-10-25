@@ -288,6 +288,23 @@ try {
 
 `auth` takes `'gcloud'` (the default: `gcloud auth print-identity-token`), `'metadata'` (the workload's service account on Google Cloud), `'none'`, or a function returning an identity token for the service's URL, such as one from `google-auth-library`.
 
+## Images and toolchains
+
+Every sandbox boots from an image the service offers: `SANDBOX_IMAGE`, its default, and those `SANDBOX_IMAGES` names, one per toolchain say. A caller picks one by its name, never by its path:
+
+```bash
+--set-env-vars=SANDBOX_IMAGE=family/ai-sdk-sandbox \
+--set-env-vars=SANDBOX_IMAGES=python=family/ai-sdk-sandbox-python,go=family/ai-sdk-sandbox-go
+```
+
+```ts
+await createGceNetworkSandboxSession({ url, image: 'python', ports: [4000] });
+```
+
+Whatever the project's language, a harness needs **Node.js** in the sandbox, for its bridge (Claude Code installs its SDK with pnpm), and **git**, for the repositories. Build every image on the [sandbox image](#3-the-sandbox-image) script, then add the toolchain: `apt-get install -y python3-venv`, Go's tarball, `rustup`… The client checks the image as soon as the machine runs: one lacking `node` or `git` fails the creation with `GceSandboxImageError`, which names what is missing, and the machine is deleted. `requiredCommands` changes the list, `[]` turns the check off.
+
+A template is made on the image of its sandbox: `python` and `default` get one each.
+
 ## Templates
 
 A harness bootstraps itself in the sandbox before its first turn: Claude Code installs `@anthropic-ai/claude-agent-sdk` and the `claude` CLI. Pass the agent's template and it happens once: the first call creates a throwaway sandbox, runs `setup` in it, lets the harness prepare it, stops it, saves its disk as an image and deletes it. Every later sandbox boots from that image.
@@ -393,48 +410,51 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 
 `createGceNetworkSandboxSession(options)` takes every option below; `resumeGceNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.
 
-| Option         | Default        | Description                                                                                         |
-| -------------- | -------------- | --------------------------------------------------------------------------------------------------- |
-| `url`          | required       | _Connection._ The URL of the sandbox service                                                        |
-| `auth`         | `'gcloud'`     | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token         |
-| `ports`        | `[]`           | _Connection._ Ports the harness may reach, through the service                                      |
-| `allowedHosts` | `[]`           | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                       |
-| `baseUrls`     | `{}`           | _Connection._ Base URL variables routed through the proxy, on top of the service's                  |
-| `serviceToken` | none           | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                |
-| `sandboxId`    | `ai-sdk-<hex>` | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken |
-| `template`     | none           | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                  |
-| `setup`        | `[]`           | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template     |
-| `abortSignal`  | none           | Aborts the creation or the resume                                                                   |
+| Option             | Default           | Description                                                                                         |
+| ------------------ | ----------------- | --------------------------------------------------------------------------------------------------- |
+| `url`              | required          | _Connection._ The URL of the sandbox service                                                        |
+| `auth`             | `'gcloud'`        | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token         |
+| `ports`            | `[]`              | _Connection._ Ports the harness may reach, through the service                                      |
+| `allowedHosts`     | `[]`              | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                       |
+| `baseUrls`         | `{}`              | _Connection._ Base URL variables routed through the proxy, on top of the service's                  |
+| `serviceToken`     | none              | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                |
+| `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken |
+| `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                  |
+| `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`              |
+| `requiredCommands` | `['node', 'git']` | Commands the image must have, checked as soon as the machine runs                                   |
+| `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template     |
+| `abortSignal`      | none              | Aborts the creation or the resume                                                                   |
 
 ## Configuration
 
 ### The service (`serve`)
 
-| Variable                  | Default                                                                                  | Description                                                                                     |
-| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `SANDBOX_ZONE`            | required                                                                                 | The zone of the machines                                                                        |
-| `SANDBOX_IMAGE`           | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`           |
-| `SANDBOX_AGENT_SECRET`    | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager       |
-| `SANDBOX_PROXY_URL`       | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                    |
-| `SANDBOX_PROXY_ADMIN_URL` | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                 |
-| `SANDBOX_PROXY_TOKEN`     | required                                                                                 | The proxy's token                                                                               |
-| `SANDBOX_PROJECT`         | the service's project                                                                    | The project of the machines                                                                     |
-| `SANDBOX_NETWORK`         | the default network                                                                      | The machines' VPC network                                                                       |
-| `SANDBOX_SUBNETWORK`      | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                         |
-| `SANDBOX_NETWORK_TAGS`    | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                           |
-| `SANDBOX_MACHINE_TYPE`    | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                   |
-| `SANDBOX_DISK_GB`         | `20`                                                                                     | The size of their disk                                                                          |
-| `SANDBOX_DISK_TYPE`       | `pd-balanced`                                                                            | Its type                                                                                        |
-| `SANDBOX_SPOT`            | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after |
-| `SANDBOX_INSTANCE_PREFIX` | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                         |
-| `SANDBOX_AGENT_PORT`      | `8100`                                                                                   | The port of the agents                                                                          |
-| `SANDBOX_START_TIMEOUT`   | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                           |
-| `SANDBOX_ALLOWED_HOSTS`   | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                   |
-| `SANDBOX_BASE_URLS`       | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                |
-| `SANDBOX_SERVICE_TOKEN`   | none                                                                                     | A secret every call must carry, beside Cloud Run's IAM                                          |
-| `COMPUTE_AUTH`            | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                               |
-| `PORT`, `HOST`            | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                       |
-| `LOG_FORMAT`              | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                     |
+| Variable                  | Default                                                                                  | Description                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `SANDBOX_ZONE`            | required                                                                                 | The zone of the machines                                                                            |
+| `SANDBOX_IMAGE`           | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`               |
+| `SANDBOX_IMAGES`          | none                                                                                     | Other images callers may pick by name, as `NAME=image` pairs: `python=family/ai-sdk-sandbox-python` |
+| `SANDBOX_AGENT_SECRET`    | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager           |
+| `SANDBOX_PROXY_URL`       | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                        |
+| `SANDBOX_PROXY_ADMIN_URL` | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                     |
+| `SANDBOX_PROXY_TOKEN`     | required                                                                                 | The proxy's token                                                                                   |
+| `SANDBOX_PROJECT`         | the service's project                                                                    | The project of the machines                                                                         |
+| `SANDBOX_NETWORK`         | the default network                                                                      | The machines' VPC network                                                                           |
+| `SANDBOX_SUBNETWORK`      | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                             |
+| `SANDBOX_NETWORK_TAGS`    | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                               |
+| `SANDBOX_MACHINE_TYPE`    | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                       |
+| `SANDBOX_DISK_GB`         | `20`                                                                                     | The size of their disk                                                                              |
+| `SANDBOX_DISK_TYPE`       | `pd-balanced`                                                                            | Its type                                                                                            |
+| `SANDBOX_SPOT`            | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after     |
+| `SANDBOX_INSTANCE_PREFIX` | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                             |
+| `SANDBOX_AGENT_PORT`      | `8100`                                                                                   | The port of the agents                                                                              |
+| `SANDBOX_START_TIMEOUT`   | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                               |
+| `SANDBOX_ALLOWED_HOSTS`   | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                       |
+| `SANDBOX_BASE_URLS`       | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                    |
+| `SANDBOX_SERVICE_TOKEN`   | none                                                                                     | A secret every call must carry, beside Cloud Run's IAM                                              |
+| `COMPUTE_AUTH`            | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                                   |
+| `PORT`, `HOST`            | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                           |
+| `LOG_FORMAT`              | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                         |
 
 ### The proxy (`proxy`)
 
@@ -460,6 +480,14 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 | `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone          |
 
 A sandbox's commands run with nothing of the agent's environment: only their `PATH`, `HOME`, `USER`, the proxy and base URL variables, and the variables the command sets.
+
+## Errors
+
+- `GceSandboxImageError`: the image of a new sandbox lacks a command of `requiredCommands`. Carries `sandboxId` and `missing`.
+- `GceSandboxNotFoundError`: `resumeGceNetworkSandboxSession()` found no sandbox of that name, running or stopped. Carries `sandboxId`.
+- `GceSandboxServiceError`: the service answered with an error status: 409 for a name already taken, 400 for an image it does not offer or a command carrying a credential, 504 for a machine whose agent did not answer in time. Carries `request` and `status`.
+- `HarnessSandboxAuthenticationError` (from `@ai-sdk/harness`): Cloud Run refused the call (401 or 403), or the service token is missing or wrong.
+- `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a network policy with CIDR rules.
 
 ## Cost
 

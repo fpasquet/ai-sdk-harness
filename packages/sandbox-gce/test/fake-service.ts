@@ -73,7 +73,7 @@ export async function startFakeService(
     zone: compute.zone,
     machine: {
       machineType: 'e2-standard-4',
-      image: compute.image,
+      images: { default: compute.image, python: compute.pythonImage },
       diskSizeGb: 20,
       diskType: 'pd-balanced',
       tags: ['ai-sdk-sandbox'],

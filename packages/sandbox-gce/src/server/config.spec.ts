@@ -28,7 +28,7 @@ describe('the service configuration', () => {
 
     expect(config.machine).toEqual({
       machineType: 'e2-standard-4',
-      image: 'projects/my-project/global/images/ai-sdk-sandbox',
+      images: { default: 'projects/my-project/global/images/ai-sdk-sandbox' },
       diskSizeGb: 20,
       diskType: 'pd-balanced',
       network: undefined,
@@ -53,11 +53,16 @@ describe('the service configuration', () => {
         SANDBOX_ALLOWED_HOSTS: 'registry.npmjs.org, *.github.com',
         SANDBOX_BASE_URLS: 'GATEWAY_URL=https://gateway.example.com',
         SANDBOX_SPOT: 'true',
+        SANDBOX_IMAGES: 'python=family/sandbox-python, go=projects/images-project/global/images/go',
       },
       silentLogger,
     );
 
-    expect(config.machine.image).toBe('projects/images-project/global/images/family/sandbox');
+    expect(config.machine.images).toEqual({
+      default: 'projects/images-project/global/images/family/sandbox',
+      python: 'projects/my-project/global/images/family/sandbox-python',
+      go: 'projects/images-project/global/images/go',
+    });
     expect(config.machine.spot).toBe(true);
     expect(config.network).toEqual({
       allowedHosts: ['registry.npmjs.org', '*.github.com'],
@@ -75,5 +80,8 @@ describe('the service configuration', () => {
     await expect(
       sandboxesConfig({ ...REQUIRED, SANDBOX_BASE_URLS: 'nope' }, silentLogger),
     ).rejects.toThrow('is not NAME=url');
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_IMAGES: 'Python=x' }, silentLogger),
+    ).rejects.toThrow('is not NAME=image');
   });
 });

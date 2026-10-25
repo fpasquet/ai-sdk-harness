@@ -12,6 +12,7 @@ import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session
 import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
+import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
 import { ensureTemplate, runSetup } from './sandbox-template.js';
 
 /**
@@ -64,20 +65,33 @@ function sessionOf(
 export async function createGceNetworkSandboxSession(
   options: GceNetworkSandboxSessionCreateOptions,
 ): Promise<GceNetworkSandboxSession> {
-  const { abortSignal, template, setup = [], allowedHosts, baseUrls } = options;
+  const { abortSignal, template, setup = [], allowedHosts, baseUrls, image } = options;
+  const requiredCommands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   const name = options.sandboxId ?? `ai-sdk-${randomBytes(4).toString('hex')}`;
   assertSandboxName(name);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls };
   const templateId = template
-    ? await ensureTemplate(client, { template, setup, network }, abortSignal)
+    ? await ensureTemplate(
+        client,
+        { template, setup, network, image, requiredCommands },
+        abortSignal,
+      )
     : undefined;
-  const description = await client.create(name, { ...network, template: templateId, abortSignal });
+  const description = await client.create(name, {
+    ...network,
+    image,
+    template: templateId,
+    abortSignal,
+  });
   const session = sessionOf(client, description, options);
   try {
-    // A template already ran them, before it was saved.
-    if (!template) await runSetup(session, setup, abortSignal);
+    // A template was checked and set up before it was saved.
+    if (!template) {
+      await assertRequiredCommands(session, requiredCommands, abortSignal);
+      await runSetup(session, setup, abortSignal);
+    }
     return session;
   } catch (error) {
     // Half-made, the sandbox would block a retry under the same id.

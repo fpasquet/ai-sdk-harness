@@ -3,7 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { userInfo } from 'node:os';
@@ -69,6 +69,8 @@ export class FakeCompute {
   readonly zone = 'test-zone';
   /** The base image of the sandboxes, as the service is configured with it. */
   readonly image = `projects/${this.project}/global/images/family/sandbox`;
+  /** Another image the service offers: its disk marks it, `/etc/image` holding `python`. */
+  readonly pythonImage = `projects/${this.project}/global/images/family/python`;
   /** Every call, `METHOD path`, in order. */
   readonly calls: string[] = [];
   /** Images, by name: their disk's directory. */
@@ -163,8 +165,11 @@ export class FakeCompute {
     const disk = this.diskOf(name);
     const image = this.images.get(sourceImageOf(body));
     rmSync(disk, { recursive: true, force: true });
-    if (image === undefined) mkdirSync(disk, { recursive: true });
-    else cpSync(image, disk, { recursive: true });
+    if (image === undefined) {
+      mkdirSync(disk, { recursive: true });
+      // A disk made from an image of the service says which, beside the home: `image.txt`.
+      writeFileSync(join(disk, 'image.txt'), sourceImageOf(body));
+    } else cpSync(image, disk, { recursive: true });
     const instance: FakeInstance = {
       name,
       status: 'STAGING',

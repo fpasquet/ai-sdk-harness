@@ -21,10 +21,11 @@ export interface MachineSettings {
   /** `e2-standard-4`, or a custom type: `e2-custom-4-8192`. */
   machineType: string;
   /**
-   * The image the machines boot from, relative to the API's root:
+   * The images the machines boot from, by the name callers pick them with, `default` the one they
+   * get without: one per toolchain, say. Each relative to the API's root:
    * `projects/<project>/global/images/<name>`, or `…/images/family/<family>` for the latest.
    */
-  image: string;
+  images: Readonly<Record<string, string>>;
   diskSizeGb: number;
   /** `pd-balanced`, `pd-ssd`… */
   diskType: string;
@@ -63,6 +64,9 @@ export interface SandboxesOptions {
 /** The label of the service's machines and images, and what each is. */
 const LABEL = 'ai-sdk-sandbox';
 
+/** The label naming the image a machine or a template was made on. */
+const IMAGE_LABEL = 'ai-sdk-sandbox-image';
+
 /** A name of a sandbox or a template: what an instance or image name and a URL path all take. */
 const NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
@@ -74,6 +78,9 @@ const ADDRESS_KEPT_MS = 5000;
 
 /** How long a resolved base image is trusted: a family moves on when a new image is built. */
 const IMAGE_KEPT_MS = 5 * 60_000;
+
+/** The image a sandbox gets when its caller names none. */
+export const DEFAULT_IMAGE = 'default';
 
 /** Compute Engine's names are 63 characters at most. */
 const MAX_NAME = 63;
@@ -95,9 +102,12 @@ function assertName(name: string, what: string, room: number): void {
  */
 export class Sandboxes {
   private readonly endpoints = new Map<string, { endpoint: AgentEndpoint; until: number }>();
-  private base?: { namespace: string; until: number };
+  private readonly bases = new Map<string, { namespace: string; until: number }>();
 
   constructor(private readonly options: SandboxesOptions) {
+    if (options.machine.images[DEFAULT_IMAGE] === undefined) {
+      throw new Error(`The sandboxes need a "${DEFAULT_IMAGE}" image.`);
+    }
     if (!/^[a-z][a-z0-9-]{0,7}$/.test(options.instancePrefix)) {
       throw new Error(
         `The instance prefix "${options.instancePrefix}" must start with a letter and hold 8 lowercase letters, digits or dashes at most.`,
@@ -117,21 +127,30 @@ export class Sandboxes {
     return new AgentClient(this.remember(name, instance));
   }
 
-  /** Creates the sandbox `name`, from the template `template` when given. Never resumes one. */
+  /**
+   * Creates the sandbox `name` on the image `image`, from its template `template` when given.
+   * Never resumes one.
+   */
   async create(
     name: string,
-    { template, ...network }: SandboxNetwork & { template?: string },
+    {
+      template,
+      image = DEFAULT_IMAGE,
+      ...network
+    }: SandboxNetwork & { image?: string; template?: string },
   ): Promise<SandboxDescription> {
     this.assertSandboxName(name);
+    const base = this.imagePathOf(image);
     const instance = this.instanceName(name);
     if ((await this.options.compute.getInstance(instance)) !== undefined) {
       throw new HttpError(409, `A sandbox named "${name}" already exists.`);
     }
-    const sourceImage =
-      template === undefined ? this.options.machine.image : await this.templateImage(template);
+    const sourceImage = template === undefined ? base : await this.templateImage(template, image);
     const startedAt = Date.now();
     try {
-      await this.options.compute.insertInstance(this.instanceBody(instance, sourceImage));
+      await this.options.compute.insertInstance(
+        this.instanceBody(instance, { sourceImage, image }),
+      );
     } catch (error) {
       if (error instanceof ComputeError && error.status === 409) {
         throw new HttpError(409, `A sandbox named "${name}" already exists.`);
@@ -244,15 +263,18 @@ export class Sandboxes {
    */
   async saveTemplate(name: string, id: string): Promise<void> {
     this.assertSandboxName(name);
-    const image = await this.templateImageName(id);
     const instance = await this.instanceOf(name);
     if (instance === undefined) throw new HttpError(404, `No sandbox "${name}".`);
+    // The template is made on the image the builder booted from.
+    const base = instance.labels?.[IMAGE_LABEL] ?? DEFAULT_IMAGE;
+    const image = await this.templateImageName(id, base);
     await this.forget(name);
     await this.options.compute.stopInstance(instance.name);
     try {
       await this.options.compute.insertImage(image, instance.name, {
         [LABEL]: 'template',
-        [`${LABEL}-base`]: await this.namespace(),
+        [IMAGE_LABEL]: base,
+        [`${LABEL}-base`]: await this.namespace(base),
       });
     } catch (error) {
       // Another process saved the same template meanwhile: it is as good.
@@ -261,15 +283,16 @@ export class Sandboxes {
     this.options.logger.info(`${name} saved as the template ${id}`);
   }
 
-  async templateExists(id: string): Promise<boolean> {
-    const image = await this.options.compute.getImage(
-      this.options.compute.imagePath(await this.templateImageName(id)),
-    );
-    return image !== undefined && (image.status === undefined || image.status === 'READY');
+  /** Whether the template `id` exists, made on the image `image`. */
+  async templateExists(id: string, image = DEFAULT_IMAGE): Promise<boolean> {
+    const name = await this.templateImageName(id, image);
+    const found = await this.options.compute.getImage(this.options.compute.imagePath(name));
+    return found !== undefined && (found.status === undefined || found.status === 'READY');
   }
 
-  async deleteTemplate(id: string): Promise<void> {
-    await this.options.compute.deleteImage(await this.templateImageName(id));
+  async deleteTemplate(id: string, image = DEFAULT_IMAGE): Promise<void> {
+    const name = await this.templateImageName(id, image);
+    await this.options.compute.deleteImage(name);
   }
 
   /** The instance of the sandbox `name`: `undefined` when there is none, or one not the service's. */
@@ -354,42 +377,57 @@ export class Sandboxes {
     assertName(name, 'sandbox', MAX_NAME - this.options.instancePrefix.length);
   }
 
-  /** The image a template boots from: its id, then what the templates are made on. */
-  private async templateImageName(id: string): Promise<string> {
-    assertName(id, 'template', MAX_NAME - 9);
-    return `${id}-${await this.namespace()}`;
+  /** The path of the image callers name `image`: refused unless the service offers it. */
+  private imagePathOf(image: string): string {
+    const path = this.options.machine.images[image];
+    if (path === undefined) {
+      const offered = Object.keys(this.options.machine.images).join(', ');
+      throw new HttpError(400, `No image "${image}" on this service. It offers: ${offered}.`);
+    }
+    return path;
   }
 
-  private async templateImage(id: string): Promise<string> {
-    if (!(await this.templateExists(id))) throw new HttpError(404, `No template "${id}".`);
-    return this.options.compute.imagePath(await this.templateImageName(id));
+  /** The image a template boots from: its id, then what the templates are made on. */
+  private async templateImageName(id: string, image: string): Promise<string> {
+    assertName(id, 'template', MAX_NAME - 9);
+    return `${id}-${await this.namespace(image)}`;
+  }
+
+  private async templateImage(id: string, image: string): Promise<string> {
+    if (!(await this.templateExists(id, image))) {
+      throw new HttpError(404, `No template "${id}" on the image "${image}".`);
+    }
+    return this.options.compute.imagePath(await this.templateImageName(id, image));
   }
 
   /**
-   * What the templates are made on: this package and the base image, a family resolved to its
-   * latest image. A template is only ever used on the image it was made on: after a new base image,
-   * the first sandbox makes the template again.
+   * What the templates of `image` are made on: this package and the image, a family resolved to its
+   * latest image. A template is only ever used on the image it was made on: after a new image, the
+   * first sandbox makes the template again.
    */
-  private async namespace(): Promise<string> {
-    if (this.base !== undefined && Date.now() < this.base.until) return this.base.namespace;
-    const image = await this.options.compute.getImage(this.options.machine.image);
-    if (image === undefined) {
-      throw new HttpError(500, `The base image ${this.options.machine.image} does not exist.`);
-    }
+  private async namespace(image: string): Promise<string> {
+    const cached = this.bases.get(image);
+    if (cached !== undefined && Date.now() < cached.until) return cached.namespace;
+    const path = this.imagePathOf(image);
+    const resolved = await this.options.compute.getImage(path);
+    if (resolved === undefined) throw new HttpError(500, `The image ${path} does not exist.`);
     const namespace = createHash('sha256')
-      .update(JSON.stringify([PACKAGE_VERSION, image.selfLink]))
+      .update(JSON.stringify([PACKAGE_VERSION, resolved.selfLink]))
       .digest('hex')
       .slice(0, 8);
-    this.base = { namespace, until: Date.now() + IMAGE_KEPT_MS };
+    this.bases.set(image, { namespace, until: Date.now() + IMAGE_KEPT_MS });
     return namespace;
   }
 
-  private instanceBody(name: string, sourceImage: string): Record<string, unknown> {
+  private instanceBody(
+    name: string,
+    { sourceImage, image }: { image: string; sourceImage: string },
+  ): Record<string, unknown> {
     const { machine, zone } = this.options;
     return {
       name,
       machineType: `zones/${zone}/machineTypes/${machine.machineType}`,
-      labels: { [LABEL]: 'sandbox' },
+      labels: { [LABEL]: 'sandbox', [IMAGE_LABEL]: image },
       tags: { items: machine.tags },
       disks: [
         {

@@ -6,6 +6,7 @@ import type { SandboxNetwork } from '../../protocol/api.js';
 import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 
 import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session.js';
+import { assertRequiredCommands } from './required-commands.js';
 
 /** The prefix of the templates' ids, and of the sandboxes that build them. */
 export const TEMPLATE_PREFIX = 'ai-sdk-harness-template';
@@ -14,6 +15,15 @@ export const TEMPLATE_PREFIX = 'ai-sdk-harness-template';
 export interface TemplateSource {
   template: HarnessV1SandboxTemplate;
   setup: readonly string[];
+}
+
+/** Where a template is built: the image of its machine, and what it may reach meanwhile. */
+interface BuildSettings {
+  network: SandboxNetwork;
+  /** The service's name of the image: its default without. */
+  image?: string;
+  /** Commands the image must have, checked before the setup. */
+  requiredCommands: readonly string[];
 }
 
 /** Templates being built by this process, by service and id: one build at a time. */
@@ -52,15 +62,15 @@ export async function runSetup(
  */
 export function ensureTemplate(
   client: SandboxServiceClient,
-  source: TemplateSource & { network: SandboxNetwork },
+  source: BuildSettings & TemplateSource,
   abortSignal?: AbortSignal,
 ): Promise<string> {
   const id = templateId(source);
-  const key = `${client.baseUrl} ${id}`;
+  const key = `${client.baseUrl} ${source.image ?? ''} ${id}`;
   let ready = building.get(key);
   if (ready === undefined) {
     ready = client
-      .templateExists(id, abortSignal)
+      .templateExists(id, source.image, abortSignal)
       .then((exists) => (exists ? id : build(client, { ...source, id }, abortSignal)));
     building.set(key, ready);
     // A failed build is not remembered: the next sandbox tries again.
@@ -71,16 +81,24 @@ export function ensureTemplate(
 
 async function build(
   client: SandboxServiceClient,
-  { template, setup, network, id }: TemplateSource & { id: string; network: SandboxNetwork },
+  {
+    template,
+    setup,
+    network,
+    image,
+    requiredCommands,
+    id,
+  }: BuildSettings & TemplateSource & { id: string },
   abortSignal?: AbortSignal,
 ): Promise<string> {
   const builder = `${TEMPLATE_PREFIX}-${id.slice(-8)}-${randomBytes(3).toString('hex')}`;
-  const { workingDirectory } = await client.create(builder, { ...network, abortSignal });
+  const { workingDirectory } = await client.create(builder, { ...network, image, abortSignal });
   try {
     const session = new GceNetworkSandboxSession(
       { client, name: builder, workingDirectory, processes: new Set() },
       [],
     );
+    await assertRequiredCommands(session, requiredCommands, abortSignal);
     await runSetup(session, setup, abortSignal);
     await template.prepare({ session: session.restricted(), abortSignal });
     await client.saveTemplate(builder, id, abortSignal);

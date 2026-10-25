@@ -18,6 +18,12 @@ interface CallOptions {
 
 const encoder = new TextEncoder();
 
+/** The path of a template, the image it was made on in its query. */
+const templatePath = (id: string, image: string | undefined): string =>
+  image === undefined
+    ? `v1/templates/${id}`
+    : `v1/templates/${id}?image=${encodeURIComponent(image)}`;
+
 /**
  * The HTTP API of the sandbox service (`ai-sdk-sandbox-gce serve`). Each call carries an
  * identity token when there is one: Cloud Run's IAM checks it. Nothing else of this process goes
@@ -51,7 +57,7 @@ export class SandboxServiceClient {
   /** Creates the sandbox `name`, from a template when given. */
   async create(
     name: string,
-    options: SandboxNetwork & { abortSignal?: AbortSignal; template?: string },
+    options: SandboxNetwork & { abortSignal?: AbortSignal; image?: string; template?: string },
   ): Promise<SandboxDescription> {
     const { abortSignal, ...body } = options;
     const response = await this.call('POST', 'v1/sandboxes', {
@@ -142,13 +148,17 @@ export class SandboxServiceClient {
     await this.call('POST', `v1/sandboxes/${name}/template`, { body: { id }, abortSignal });
   }
 
-  async templateExists(id: string, abortSignal?: AbortSignal): Promise<boolean> {
-    const response = await this.call('GET', `v1/templates/${id}`, { abortSignal, accept: [404] });
+  /** Whether the template `id` exists, made on the image `image` (the service's default without). */
+  async templateExists(id: string, image?: string, abortSignal?: AbortSignal): Promise<boolean> {
+    const response = await this.call('GET', templatePath(id, image), {
+      abortSignal,
+      accept: [404],
+    });
     return response.status !== 404;
   }
 
-  async deleteTemplate(id: string): Promise<void> {
-    await this.call('DELETE', `v1/templates/${id}`);
+  async deleteTemplate(id: string, image?: string): Promise<void> {
+    await this.call('DELETE', templatePath(id, image));
   }
 
   /**

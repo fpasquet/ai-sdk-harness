@@ -39,9 +39,14 @@ const network = async (request: IncomingMessage) => {
     allowedHosts: stringList(body, 'allowedHosts'),
     baseUrls: stringRecord(body, 'baseUrls'),
     template: optionalString(body, 'template'),
+    image: optionalString(body, 'image'),
     name: optionalString(body, 'name'),
   };
 };
+
+/** The image a template is made on, from the query: the service's default without. */
+const imageOf = (request: IncomingMessage): string | undefined =>
+  new URL(request.url ?? '/', 'http://service').searchParams.get('image') ?? undefined;
 
 const SANDBOX = '/v1/sandboxes/([^/]+)';
 
@@ -144,13 +149,17 @@ export const ROUTES: Route[] = [
       return NO_CONTENT;
     },
   ),
-  route('GET', /^\/v1\/templates\/([^/]+)$/, async ({ sandboxes, params: [id = ''] }) =>
-    (await sandboxes.templateExists(id))
+  route('GET', /^\/v1\/templates\/([^/]+)$/, async ({ sandboxes, params: [id = ''], request }) =>
+    (await sandboxes.templateExists(id, imageOf(request)))
       ? { status: 200, body: { id } }
       : { status: 404, body: { error: `No template "${id}".` } },
   ),
-  route('DELETE', /^\/v1\/templates\/([^/]+)$/, async ({ sandboxes, params: [id = ''] }) => {
-    await sandboxes.deleteTemplate(id);
-    return NO_CONTENT;
-  }),
+  route(
+    'DELETE',
+    /^\/v1\/templates\/([^/]+)$/,
+    async ({ sandboxes, params: [id = ''], request }) => {
+      await sandboxes.deleteTemplate(id, imageOf(request));
+      return NO_CONTENT;
+    },
+  ),
 ];

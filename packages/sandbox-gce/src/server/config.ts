@@ -7,6 +7,7 @@ import { DEFAULT_BASE_URLS } from '../protocol/proxy-routes.js';
 import { AccessToken, type ComputeAuth } from './compute/access-token.js';
 import { ComputeApi } from './compute/compute-api.js';
 import { ProxyAdmin } from './sandboxes/proxy-admin.js';
+import { DEFAULT_IMAGE } from './sandboxes/sandboxes.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -75,14 +76,36 @@ function imagePath(image: string, project: string): string {
   return image.startsWith('projects/') ? image : `projects/${project}/global/images/${image}`;
 }
 
+/** A name callers pick an image by: what a label value takes. */
+const IMAGE_NAME = /^[a-z][a-z0-9_-]{0,62}$/;
+
+/**
+ * The images the service offers: `SANDBOX_IMAGE` as `default`, and the `NAME=image` pairs of
+ * `SANDBOX_IMAGES`, one per toolchain say: `python=family/sandbox-python,go=family/sandbox-go`.
+ */
+function images(env: Environment, project: string): Record<string, string> {
+  const offered: Record<string, string> = {
+    [DEFAULT_IMAGE]: imagePath(
+      required(env, 'SANDBOX_IMAGE', 'the image of the sandboxes, a name or a family'),
+      project,
+    ),
+  };
+  for (const entry of list(env['SANDBOX_IMAGES'])) {
+    const at = entry.indexOf('=');
+    const name = entry.slice(0, at);
+    if (at < 1 || !IMAGE_NAME.test(name)) {
+      throw new Error(`SANDBOX_IMAGES: \`${entry}\` is not NAME=image, NAME in lowercase letters.`);
+    }
+    offered[name] = imagePath(entry.slice(at + 1), project);
+  }
+  return offered;
+}
+
 /** What the sandboxes' machines are made of. */
 function machineSettings(env: Environment, project: string): MachineSettings {
   return {
     machineType: env['SANDBOX_MACHINE_TYPE'] ?? 'e2-standard-4',
-    image: imagePath(
-      required(env, 'SANDBOX_IMAGE', 'the image of the sandboxes, a name or a family'),
-      project,
-    ),
+    images: images(env, project),
     diskSizeGb: Number.parseInt(env['SANDBOX_DISK_GB'] ?? '20', 10),
     diskType: env['SANDBOX_DISK_TYPE'] ?? 'pd-balanced',
     network: nonEmpty(env['SANDBOX_NETWORK']),

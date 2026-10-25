@@ -11,10 +11,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FakeService } from '../../../test/fake-service.js';
+import type { GceNetworkSandboxSession } from '../../index.js';
 
 import { startFakeService } from '../../../test/fake-service.js';
 import {
   createGceNetworkSandboxSession,
+  GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
   resumeGceNetworkSandboxSession,
@@ -339,6 +341,87 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
 
     const { stdout } = await session.run({ command: 'pgrep -f "slee[p] 32" || echo none' });
     expect(stdout).toBe('none\n');
+  });
+});
+
+describe('the image of a Compute Engine sandbox', () => {
+  let fake: FakeService;
+  const options = (): { auth: 'none'; url: string } => ({ url: fake.url, auth: 'none' });
+
+  beforeEach(async () => {
+    fake = await startFakeService();
+  });
+  afterEach(() => fake.dispose());
+
+  /** The image a sandbox's machine booted from, as the fake writes it on its disk. */
+  const bootedFrom = async (session: { run: GceNetworkSandboxSession['run'] }): Promise<string> =>
+    (await session.run({ command: 'cat "$HOME/../image.txt"' })).stdout;
+
+  it('is the service default, or one it offers by name', async () => {
+    const plain = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'plain' });
+    const python = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'python',
+      image: 'python',
+    });
+
+    expect(await bootedFrom(plain)).toBe('sandbox');
+    expect(await bootedFrom(python)).toBe('python');
+    expect(fake.compute.instance('sbx-python')?.labels).toMatchObject({
+      'ai-sdk-sandbox-image': 'python',
+    });
+  });
+
+  it('is refused when the service does not offer it, and no machine is made', async () => {
+    const error = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      image: 'cobol',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(GceSandboxServiceError);
+    expect(String(error)).toContain(
+      'No image "cobol" on this service. It offers: default, python.',
+    );
+    expect(fake.compute.instance('sbx-box')).toBeUndefined();
+  });
+
+  it('must have what a harness needs, or the sandbox is deleted', async () => {
+    const error = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      requiredCommands: ['node', 'no-such-command'],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(GceSandboxImageError);
+    expect(error).toMatchObject({ sandboxId: 'box', missing: ['no-such-command'] });
+    expect(fake.compute.instance('sbx-box')).toBeUndefined();
+  });
+
+  it('gets a template of its own, made on it', async () => {
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'harness@1',
+      prepare: async ({ session }) => {
+        await session.run({ command: 'printf baked > "$HOME/baked.txt"' });
+      },
+    };
+
+    const python = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'python',
+      image: 'python',
+      template,
+    });
+    const plain = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'plain',
+      template,
+    });
+
+    expect(fake.compute.images.size).toBe(2);
+    expect(await bootedFrom(python)).toBe('python');
+    expect(await bootedFrom(plain)).toBe('sandbox');
+    expect((await python.run({ command: 'cat "$HOME/baked.txt"' })).stdout).toBe('baked');
   });
 });
 
