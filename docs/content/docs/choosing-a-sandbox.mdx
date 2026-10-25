@@ -1,0 +1,67 @@
+---
+title: Choosing a sandbox
+description: Which sandbox package fits where your agent runs, what any sandbox image needs, and how to work on a Python, Go or Rust project.
+seo:
+  description: 'Pick the sandbox of an AI SDK HarnessAgent among Docker Sandboxes, microsandbox, Cloud Run, Compute Engine and Anthropic Sandbox Runtime, give it an image for your project language with Node.js and git beside the toolchain, and open its network to that language registries only.'
+---
+
+Every sandbox package gives `HarnessAgent.createSession({ sandboxSession })` the same thing, a `HarnessV1NetworkSandboxSession`: the harness and your tools never know which one runs. What differs is where the sandbox runs, what isolates it, and what the agent can do in it.
+
+## Where the sandbox runs
+
+| Package                                                            | Where                                | Isolation             | Docker and Compose  | Image per sandbox                         | Between turns                          |
+| ------------------------------------------------------------------ | ------------------------------------ | --------------------- | ------------------- | ----------------------------------------- | -------------------------------------- |
+| [ai-sdk-sandbox-sbx](/docs/packages/sandbox-sbx)                   | This host, or Docker Sandboxes Cloud | A microVM             | Yes                 | Yes, `image`                              | Stopped, its files kept                |
+| [ai-sdk-sandbox-microsandbox](/docs/packages/sandbox-microsandbox) | This host                            | A microVM             | Yes, `docker: true` | Yes, any OCI image (`node:24` by default) | Stopped, its disk kept                 |
+| [ai-sdk-sandbox-runtime](/docs/packages/sandbox-runtime)           | This host                            | srt: processes fenced | No                  | No: the host's own tools                  | Processes ended, its files kept        |
+| [ai-sdk-sandbox-cloud-run](/docs/packages/sandbox-cloud-run)       | Google Cloud, Cloud Run              | gVisor                | No                  | No: the service's image, shared           | Saved to Cloud Storage, nothing billed |
+| [ai-sdk-sandbox-gce](/docs/packages/sandbox-gce)                   | Google Cloud, Compute Engine         | A virtual machine     | Yes                 | Yes, among the images the service offers  | Machine stopped, its disk kept         |
+
+- **On a developer's machine**: `sbx` or `microsandbox`, which run Docker in the sandbox; `runtime` when neither is available and the project needs no containers.
+- **On Google Cloud**: `cloud-run` when the agent only edits code and runs plain processes, scaled to zero and cheap; `gce` when the project's tests need `docker compose`, a database, or a machine of their own.
+
+## What every image needs
+
+The packages need no language of their own in the sandbox: commands go through `bash`, or `sh` where there is none, and files through `cat`. **The harness does**, whatever your project's language:
+
+- **Node.js**, for the harness's bridge: Claude Code installs its SDK in the sandbox with pnpm, and Codex its CLI with npm. [ai-sdk-harness-approval](/docs/packages/harness-approval)'s sandbox policy is a Node.js hook too.
+- **git**, for [ai-sdk-harness-workspace](/docs/packages/harness-workspace) to fetch the repositories.
+
+The kits of Docker Sandboxes, the `node:24` image of microsandbox and the images the Cloud Run and Compute Engine READMEs build have both. An image of yours needs them beside its toolchain. `ai-sdk-sandbox-sbx` and `ai-sdk-sandbox-gce` check them once `setup` ran and fail the creation with an error naming what is missing (`SbxSandboxImageError`, `GceSandboxImageError`), rather than leaving the harness to fail in the middle of its bootstrap; `requiredCommands` changes the list.
+
+## Working on a Python, Go or Rust project
+
+The agent runs the project's tests with the tools the sandbox has. Give it the toolchain one of three ways:
+
+1. **An image with the toolchain and Node.js.** Start from your language's image and copy Node.js in, both on the same Debian release:
+
+   ```dockerfile title="Dockerfile"
+   FROM python:3.12-bookworm
+   COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+   COPY --from=node:24-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+   RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+   ```
+
+   Pass it as `image` to `sbx` or `microsandbox`. With `ai-sdk-sandbox-gce`, build one Compute Engine image per toolchain and offer each by name in `SANDBOX_IMAGES`: `image: 'python'` picks it. A template of the harness is made on each image.
+
+2. **The toolchain installed by `setup`**, on top of an image that has Node.js and git: `setup: ['curl -LsSf https://astral.sh/uv/install.sh | sh']`. With a `template`, it runs once and is saved in it.
+
+3. **The project's own containers**, where the sandbox runs Docker (`sbx`, `microsandbox`, `gce`): the agent runs `docker compose run tests`, and the toolchain is the project's.
+
+`ai-sdk-sandbox-cloud-run` has one image for every sandbox of a service: put every toolchain your agents need in it, or deploy one service per toolchain.
+
+## Opening the network to the project's registries
+
+A sandbox closed to all but a few hosts must still reach the registries of the project's language. [ai-sdk-harness-network](/docs/packages/harness-network) lists them, checked from a closed sandbox:
+
+```ts
+import { harnessHosts, networkPolicy, trustedHosts } from 'ai-sdk-harness-network';
+
+const sandboxSession = await createSbxNetworkSandboxSession({
+  ports: [4000],
+  networkPolicy: networkPolicy(harnessHosts('claude-code'), trustedHosts('github', 'python')),
+});
+```
+
+`trustedHosts()` takes services (`'pypi'`, `'crates'`, `'go'`) or groups of them (`'javascript'`, `'python'`, `'rust'`, `'jvm'`, `'dotnet'`, `'containers'`, `'linux'`). Open what the project uses, not every group: each host is a way for code to leave the sandbox, and some, such as `storage.googleapis.com` for Go's modules, accept uploads from anyone holding a credential.
