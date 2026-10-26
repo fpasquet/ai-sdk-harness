@@ -40,6 +40,11 @@
       - any-glob-to-any-file:
           - 'packages/sandbox-microsandbox/**'
 
+'package: sandbox-gce':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/sandbox-gce/**'
+
 'package: sandbox-runtime':
   - changed-files:
       - any-glob-to-any-file:

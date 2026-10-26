@@ -1,0 +1,83 @@
+import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
+
+import type { ProxyRegistration } from '../../protocol/proxy.js';
+
+import { HttpError } from '../../common/http-error.js';
+import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
+
+/**
+ * The administration API of the egress proxy (`protocol/proxy.ts`), where the service registers the
+ * sandboxes, what they may reach and their credentials. The proxy alone holds the credentials: the
+ * service keeps none of them.
+ */
+export class ProxyAdmin {
+  constructor(
+    private readonly url: string,
+    private readonly token: string,
+  ) {}
+
+  async register(name: string, registration: ProxyRegistration): Promise<void> {
+    await this.call('PUT', name, { body: registration });
+  }
+
+  async setAllowedHosts(name: string, allowedHosts: readonly string[]): Promise<void> {
+    await this.call('PUT', `${name}/network`, { body: { allowedHosts } });
+  }
+
+  async addTransformations(
+    name: string,
+    transformations: readonly HarnessV1RequestTransformation[],
+  ): Promise<void> {
+    await this.call('POST', `${name}/transformations`, { body: { transformations } });
+  }
+
+  async setTransformations(
+    name: string,
+    transformations: readonly HarnessV1RequestTransformation[],
+  ): Promise<void> {
+    await this.call('PUT', `${name}/transformations`, { body: { transformations } });
+  }
+
+  /** Whether one of `texts` holds a credential the proxy keeps for the sandbox `name`. */
+  async holdsSecret(name: string, texts: readonly string[]): Promise<boolean> {
+    const response = await this.call('POST', `${name}/screen`, { body: { texts } });
+    return ((await response.json()) as { refused?: boolean }).refused === true;
+  }
+
+  /** Forgets the sandbox `name` and its credentials. Idempotent. */
+  async remove(name: string): Promise<void> {
+    await this.call('DELETE', name);
+  }
+
+  /** Calls `/v1/sandboxes/<path>`. */
+  private async call(
+    method: string,
+    path: string,
+    { body }: { body?: unknown } = {},
+  ): Promise<Response> {
+    let response: Response;
+    try {
+      response = await fetch(new URL(`v1/sandboxes/${path}`, `${this.url.replace(/\/$/, '')}/`), {
+        method,
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (error) {
+      throw new HttpError(502, `The egress proxy could not be reached: ${String(error)}`);
+    }
+    if (response.ok) return response;
+    const text = await response.text();
+    let message = text;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? text;
+    } catch {
+      // Not the proxy's JSON.
+    }
+    // A sandbox the proxy does not know is one whose machine does not run.
+    throw new HttpError(response.status === 404 ? 404 : 502, `Egress proxy: ${message.trim()}`);
+  }
+}
