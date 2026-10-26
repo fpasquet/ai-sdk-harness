@@ -10,6 +10,7 @@ import { applyNetworkPolicy } from '../network/network-policy.js';
 import { SbxCli } from '../transport/sbx-cli.js';
 import { assertSandboxName, assertSettingsFit, createArgs } from './create-args.js';
 import { assertSandboxExists, listSandboxes, openSandbox, runSetup } from './open-sandbox.js';
+import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
 import { ensureTemplateImage } from './sandbox-template.js';
 
 /** Fails, before anything is created, when `name` is taken. */
@@ -22,14 +23,21 @@ async function assertNameFree(cli: SbxCli, name: string, abortSignal?: AbortSign
   }
 }
 
-/** Fences a new sandbox with its network policy, then runs its setup in it. */
+/**
+ * Fences a new sandbox with its network policy, then runs its setup in it and checks that its image
+ * has what the harness needs. A template was set up and checked before it was saved.
+ */
 async function ready(
   cli: SbxCli,
   name: string,
-  { networkPolicy, setup = [], abortSignal }: SbxNetworkSandboxSessionCreateOptions,
+  options: SbxNetworkSandboxSessionCreateOptions & { fromTemplate: boolean },
 ): Promise<void> {
+  const { networkPolicy, setup = [], abortSignal, fromTemplate } = options;
   if (networkPolicy) await applyNetworkPolicy(cli, name, networkPolicy);
+  if (fromTemplate) return;
   await runSetup(cli, name, { setup, abortSignal });
+  const commands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
+  await assertRequiredCommands(cli, name, { commands, abortSignal });
 }
 
 /**
@@ -59,8 +67,13 @@ export async function createSbxNetworkSandboxSession(
   await assertNameFree(cli, name, abortSignal);
 
   const agent = options.agent ?? 'shell';
+  const requiredCommands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
   const image = template
-    ? await ensureTemplateImage(cli, { template, agent, image: options.image, setup }, abortSignal)
+    ? await ensureTemplateImage(
+        cli,
+        { template, agent, image: options.image, setup, requiredCommands },
+        abortSignal,
+      )
     : options.image;
   await cli.check(
     createArgs({ name, image, fromTemplate: template !== undefined, settings: options }),
@@ -68,8 +81,7 @@ export async function createSbxNetworkSandboxSession(
     { abortSignal, unbounded: true },
   );
   try {
-    // A template already ran the setup, before it was saved.
-    await ready(cli, name, { ...options, setup: template ? [] : setup });
+    await ready(cli, name, { ...options, fromTemplate: template !== undefined });
     return await openSandbox(cli, name, options);
   } catch (error) {
     // Half-made, the sandbox would block a retry under the same id.
