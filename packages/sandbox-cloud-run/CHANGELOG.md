@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-cloud-run
 
+## 0.1.3
+
+### Patch Changes
+
+- abcb895: `run()` and `spawn()` run their command with bash, as `@ai-sdk/sandbox-vercel` does, or with sh in an image without bash: they ran it with sh, and a harness that writes bash failed there. Pi does, from its first command: `sh: 1: Syntax error: "(" unexpected`.
+
 ## 0.1.2
 
 ### Patch Changes

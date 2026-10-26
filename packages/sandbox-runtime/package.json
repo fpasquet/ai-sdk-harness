@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-sandbox-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Anthropic Sandbox Runtime (srt) sandbox sessions for AI SDK harness agents: Claude Code, Codex and friends on this host, fenced by the operating system, with no container.",
   "keywords": [
     "ai",
