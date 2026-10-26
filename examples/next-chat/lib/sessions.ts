@@ -50,6 +50,13 @@ import { createExampleWorkspace } from '@/lib/workspace';
  */
 const SESSION_PORTS = Array.from({ length: 4 }, (_, i) => 4001 + i);
 
+/**
+ * The longest a turn may run, in milliseconds: one hour unless `EXAMPLE_TURN_TIMEOUT_MS` says
+ * otherwise, 0 never cutting one short. A turn goes on without the page, which may be closed: an
+ * agent left working stops there at the latest.
+ */
+const TURN_TIMEOUT_MS = Number(process.env.EXAMPLE_TURN_TIMEOUT_MS ?? 60 * 60_000);
+
 const approveByPolicy = APPROVAL_POLICY.approver<{ session: SessionSummary<Conversation> }>({
   grants: ({ session }) => session.metadata.grants,
 });
@@ -155,7 +162,7 @@ function createExampleSessions(): SessionManager<Conversation> {
             return openSandbox(harnessTemplate, [...repositoryHosts, ...pluginHosts]);
           },
           ports: SESSION_PORTS,
-          stopWhenUnused: SANDBOX === 'cloud-run',
+          stopWhenUnused: SANDBOX === 'cloud-run' || SANDBOX === 'gce',
         });
   const manager = createSessionManager<Conversation>({
     agent: async ({ metadata }) => agentFor(metadata, await resolveSelection(metadata.selection)),
@@ -166,6 +173,7 @@ function createExampleSessions(): SessionManager<Conversation> {
       process.env.EXAMPLE_SESSIONS_DIR ?? join(process.cwd(), '.data/sessions'),
     ),
     idleTimeoutMs: SUSPEND_AFTER_MS,
+    turnTimeoutMs: TURN_TIMEOUT_MS,
     // A conversation that asks first: the policy answers what it decides, within the turn, and
     // allows what you allowed for the rest of the conversation. The rest waits for you.
     approve: (approval, context) =>

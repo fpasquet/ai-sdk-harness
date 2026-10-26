@@ -43,6 +43,7 @@
         "MSB_*",
         "EXAMPLE_*",
         "CLOUD_RUN_*",
+        "GCE_*",
         "SRT_*"
       ],
       "cache": false,
@@ -78,7 +79,7 @@
     },
     "test:e2e": {
       "dependsOn": ["^build"],
-      "passThroughEnv": ["SBX_*", "MSB_*", "MICROSANDBOX_*", "CLOUD_RUN_*", "SRT_*"],
+      "passThroughEnv": ["SBX_*", "MSB_*", "MICROSANDBOX_*", "CLOUD_RUN_*", "GCE_*", "SRT_*"],
       "cache": false
     },
     "typecheck": {

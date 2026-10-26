@@ -20,6 +20,7 @@ const config: NextConfig = {
     '@ai-sdk/harness-pi',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',
+    'ai-sdk-sandbox-gce',
     // A native addon, loaded from its platform package at runtime.
     'ai-sdk-sandbox-microsandbox',
     'microsandbox',

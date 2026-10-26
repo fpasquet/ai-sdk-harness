@@ -1,8 +1,9 @@
 import type { UIMessage } from 'ai';
 
+import { createUIMessageStreamResponse } from 'ai';
 import { expandCommand, InvalidPluginError } from 'ai-sdk-harness-plugins';
 
-import type { Conversation } from '@/lib/conversations';
+import type { Conversation, TurnTimings } from '@/lib/conversations';
 
 import { titleOf } from '@/lib/conversations';
 import { harnessAvailability } from '@/lib/harness-adapters';
@@ -10,8 +11,9 @@ import { HARNESS_IDS, HARNESSES, isKnown } from '@/lib/harnesses';
 import { errorResponse } from '@/lib/http';
 import { openRouterModelsFor } from '@/lib/models';
 import { resolveSelection } from '@/lib/plugins';
-import { ExampleConfigurationError } from '@/lib/sandbox';
+import { ExampleConfigurationError, SANDBOX } from '@/lib/sandbox';
 import { sessions } from '@/lib/sessions';
+import { timeTurn } from '@/lib/timings';
 
 // A turn reads files, runs commands and edits code: give it time.
 export const maxDuration = 300;
@@ -34,9 +36,12 @@ const textOf = (message: UIMessage | undefined): string =>
  * session, with the agent it picked; the session keeps the conversation, so only the new message
  * is sent to the agent — expanded first when it calls a command of the plugins, `/explain src`.
  * When the last message is the agent's, the user answered what it asked approval for: the paused
- * turn continues.
+ * turn continues. The turn is timed, from this request to its end, and its timings kept with the
+ * conversation for the page to show under the agent's answer. It goes on when the page is closed,
+ * up to `EXAMPLE_TURN_TIMEOUT_MS`: the stop button interrupts it (`/api/sessions/<id>/interrupt`).
  */
 export async function POST(request: Request): Promise<Response> {
+  const receivedAt = Date.now();
   const { id, messages, ...picked } = (await request.json()) as ChatRequest;
   const manager = sessions();
   const last = messages.at(-1);
@@ -45,29 +50,44 @@ export async function POST(request: Request): Promise<Response> {
     if (metadata === undefined)
       return new Response('Unknown coding agent or model.', { status: 400 });
 
-    const turn = await (last?.role === 'assistant'
-      ? manager.continue(id, { message: last, abortSignal: request.signal })
-      : reply(id, { metadata, message: last, abortSignal: request.signal }));
-    return turn.toUIMessageStreamResponse();
+    const continued = last?.role === 'assistant';
+    const turn = await (continued
+      ? manager.continue(id, { message: last })
+      : reply(id, { metadata, message: last }));
+    const stream = timeTurn(turn.stream, {
+      receivedAt,
+      readyAt: Date.now(),
+      messageId: continued ? last.id : undefined,
+      // Once the turn is written: the conversation then takes its timings.
+      onTimed: (messageId, timings) =>
+        void turn.done.then(() => keepTimings(id, messageId, timings)).catch(() => undefined),
+    });
+    return createUIMessageStreamResponse({ stream });
   } catch (error) {
     if (InvalidPluginError.isInstance(error)) return new Response(error.message, { status: 400 });
     return errorResponse(error);
   }
 }
 
+/** Keeps the timings of a turn with its conversation, by the id of the agent's message. */
+async function keepTimings(id: string, messageId: string, timings: TurnTimings): Promise<void> {
+  await sessions().update(id, {
+    metadata: (metadata) => ({
+      ...metadata,
+      timings: { ...metadata.timings, [messageId]: timings },
+    }),
+  });
+}
+
 /** Sends the user's message, expanded first when it calls a command of the plugins. */
 async function reply(
   id: string,
-  {
-    abortSignal,
-    message,
-    metadata,
-  }: { abortSignal: AbortSignal; message: UIMessage | undefined; metadata: Conversation },
+  { message, metadata }: { message: UIMessage | undefined; metadata: Conversation },
 ) {
   const text = textOf(message);
   const { plugins } = await resolveSelection(metadata.selection);
   const prompt = expandCommand(text, plugins)?.prompt ?? text;
-  return sessions().send(id, { message: message ?? text, prompt, abortSignal });
+  return sessions().send(id, { message: message ?? text, prompt });
 }
 
 /**
@@ -93,6 +113,7 @@ async function open(
     selection: Array.isArray(picked.selection) ? picked.selection.map(String) : [],
     askFirst: picked.askFirst === true && HARNESSES[picked.harness].asksFirst,
     title: titleOf(textOf(first)),
+    sandbox: SANDBOX,
   };
   // Refused here rather than in the background: an id the marketplace does not have.
   await resolveSelection(metadata.selection);

@@ -1,5 +1,6 @@
 import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 import type { CloudRunAuth } from 'ai-sdk-sandbox-cloud-run';
+import type { GceAuth } from 'ai-sdk-sandbox-gce';
 import type { SbxBlockedRequest, SbxNetworkSandboxSession } from 'ai-sdk-sandbox-sbx';
 
 import { allowedHosts, harnessHosts, trustedHosts } from 'ai-sdk-harness-network';
@@ -8,6 +9,11 @@ import {
   createCloudRunNetworkSandboxSession,
   resumeCloudRunNetworkSandboxSession,
 } from 'ai-sdk-sandbox-cloud-run';
+import {
+  createGceNetworkSandboxSession,
+  GceSandboxNotFoundError,
+  resumeGceNetworkSandboxSession,
+} from 'ai-sdk-sandbox-gce';
 import {
   createMicrosandboxNetworkSandboxSession,
   resumeMicrosandboxNetworkSandboxSession,
@@ -27,6 +33,7 @@ import type { SandboxId } from '@/lib/sandboxes';
 
 import { HARNESS_IDS, HARNESSES } from '@/lib/harnesses';
 import { sandboxIdOf } from '@/lib/sandboxes';
+import { timedOpening } from '@/lib/timings';
 
 /** A setting of the example is missing or wrong: its message says which, and what to do. */
 export class ExampleConfigurationError extends Error {
@@ -43,7 +50,8 @@ export type ExampleSandbox = HarnessV1NetworkSandboxSession & {
 
 /**
  * The sandbox the agents run in: `EXAMPLE_SANDBOX=microsandbox` for a microsandbox,
- * `cloud-run` for Cloud Run, `srt` for srt on this machine, a Docker Sandbox otherwise.
+ * `cloud-run` for Cloud Run, `gce` for Compute Engine, `srt` for srt on this machine, a Docker
+ * Sandbox otherwise.
  */
 export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 
@@ -51,12 +59,26 @@ export const SANDBOX: SandboxId = sandboxIdOf(process.env.EXAMPLE_SANDBOX);
 const SANDBOX_ID = process.env.EXAMPLE_SANDBOX_ID ?? 'ai-sdk-harness-example';
 
 /**
- * How long a conversation may stay idle before it is suspended: 5 minutes on Cloud Run, where a
- * sandbox is billed while it runs, 15 minutes with a local Docker Sandbox.
- * `EXAMPLE_SUSPEND_AFTER_MS` overrides it, 0 never suspends.
+ * How many minutes a conversation stays idle before it is suspended, by sandbox: 5 on Cloud Run and
+ * Compute Engine, where a live conversation is billed (on Compute Engine, some 10 cents an hour: an
+ * e2-medium Spot machine, and the Cloud Run instance its bridge keeps busy) and a stopped sandbox
+ * starts again in some 30 s; 15 on this machine.
+ */
+const SUSPEND_AFTER_MINUTES: Record<SandboxId, number> = {
+  sbx: 15,
+  microsandbox: 15,
+  'cloud-run': 5,
+  gce: 5,
+  srt: 15,
+};
+
+/**
+ * How long a conversation may stay idle before it is suspended: {@link SUSPEND_AFTER_MINUTES}, or
+ * `EXAMPLE_SUSPEND_AFTER_MS`, 0 never suspending. On Cloud Run and Compute Engine, the sandbox
+ * itself is stopped once no conversation holds it.
  */
 export const SUSPEND_AFTER_MS = Number(
-  process.env.EXAMPLE_SUSPEND_AFTER_MS ?? (SANDBOX === 'cloud-run' ? 5 : 15) * 60_000,
+  process.env.EXAMPLE_SUSPEND_AFTER_MS ?? SUSPEND_AFTER_MINUTES[SANDBOX] * 60_000,
 );
 
 /**
@@ -83,6 +105,8 @@ const CLOUD_RUN_SETUP = ['command -v pnpm >/dev/null || npm install --global --s
 
 const CLOUD_RUN_AUTH = ['gcloud', 'metadata', 'none'] as const;
 
+const GCE_AUTH = ['gcloud', 'metadata', 'none'] as const;
+
 /** What each coding agent is told of the sandbox it works in. */
 export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
   sbx:
@@ -103,6 +127,11 @@ export const SANDBOX_INSTRUCTIONS: Record<SandboxId, string> = {
     'You are a coding agent working in a Cloud Run sandbox: a Linux sandbox with Node.js and git, ' +
     'whose network only reaches the model API and the npm registry. Feel free to create files and ' +
     'run commands to answer.',
+  gce:
+    'You are a coding agent working in a Compute Engine virtual machine: Debian with Node.js, git, ' +
+    'Python, and Docker with docker compose, as a user with sudo. Its network only reaches the ' +
+    'model API, the npm registry and the hosts it was allowed, through a proxy. Feel free to ' +
+    'create files and run commands to answer.',
   srt:
     "You are a coding agent working in an srt sandbox on the user's machine: you may write in your " +
     "working directory, read the rest of the machine but the user's home, and reach the model APIs " +
@@ -128,7 +157,7 @@ export async function openSandbox(
       'A microsandbox is opened per conversation: see createConversationMicrosandbox.',
     );
   }
-  const sandbox = await OPENERS[SANDBOX](template, hosts);
+  const sandbox = await timedOpening(() => OPENERS[SANDBOX](template, hosts));
   if (sandbox.resumed) await sandbox.session.killAllProcesses();
   return sandbox.session;
 }
@@ -217,25 +246,33 @@ export async function createConversationMicrosandbox(
   template: TemplateOf,
   abortSignal?: AbortSignal,
 ): Promise<HarnessV1NetworkSandboxSession> {
-  return createMicrosandboxNetworkSandboxSession({
-    sandboxId: conversationSandboxId(conversationId),
-    ports: [BRIDGE_PORT],
-    setup: MICROSANDBOX_SETUP,
-    docker: MICROSANDBOX_DOCKER,
-    template: await template(),
-    abortSignal,
-  });
+  const { session } = await timedOpening(async () => ({
+    resumed: false,
+    session: await createMicrosandboxNetworkSandboxSession({
+      sandboxId: conversationSandboxId(conversationId),
+      ports: [BRIDGE_PORT],
+      setup: MICROSANDBOX_SETUP,
+      docker: MICROSANDBOX_DOCKER,
+      template: await template(),
+      abortSignal,
+    }),
+  }));
+  return session;
 }
 
 /** The microVM of a conversation, started again when its conversation was suspended. */
-export function resumeConversationMicrosandbox(
+export async function resumeConversationMicrosandbox(
   conversationId: string,
   abortSignal?: AbortSignal,
 ): Promise<HarnessV1NetworkSandboxSession> {
-  return resumeMicrosandboxNetworkSandboxSession({
-    sandboxId: conversationSandboxId(conversationId),
-    abortSignal,
-  });
+  const { session } = await timedOpening(async () => ({
+    resumed: true,
+    session: await resumeMicrosandboxNetworkSandboxSession({
+      sandboxId: conversationSandboxId(conversationId),
+      abortSignal,
+    }),
+  }));
+  return session;
 }
 
 /**
@@ -244,6 +281,25 @@ export function resumeConversationMicrosandbox(
  * {@link exampleHosts}, on top of the service's own.
  */
 async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Promise<Opened> {
+  const settings = cloudRunSettings(SANDBOX_ID, hosts);
+  try {
+    return { resumed: true, session: await resumeCloudRunNetworkSandboxSession(settings) };
+  } catch (error) {
+    if (!(error instanceof CloudRunSandboxNotFoundError)) throw error;
+  }
+  const session = await createCloudRunNetworkSandboxSession({
+    ...settings,
+    setup: CLOUD_RUN_SETUP,
+    template: await template(),
+  });
+  return { resumed: false, session };
+}
+
+/**
+ * The settings of the Cloud Run sandbox `sandboxId`: the service at `CLOUD_RUN_SANDBOX_URL`, called
+ * as the gcloud account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise.
+ */
+function cloudRunSettings(sandboxId: string, hosts: readonly string[]) {
   const url = process.env.CLOUD_RUN_SANDBOX_URL;
   if (url === undefined || url === '') {
     throw new ExampleConfigurationError(
@@ -256,25 +312,89 @@ async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Pro
       `CLOUD_RUN_SANDBOX_AUTH=${auth}: use ${CLOUD_RUN_AUTH.join(', ')}.`,
     );
   }
-  const settings = {
+  return {
     url,
     auth: auth as CloudRunAuth,
-    sandboxId: SANDBOX_ID,
+    sandboxId,
     ports: [BRIDGE_PORT],
     // The service does not keep them while the sandbox is suspended: a resume passes them again.
     allowedHosts: exampleHosts(hosts),
   };
+}
+
+/**
+ * A Compute Engine sandbox, through the sandbox service at `GCE_SANDBOX_URL`, called as the gcloud
+ * account unless `GCE_SANDBOX_AUTH` says otherwise. Its network only reaches {@link exampleHosts},
+ * on top of the service's own. Its image ships pnpm: no setup.
+ */
+async function openGce(template: TemplateOf, hosts: readonly string[]): Promise<Opened> {
+  const settings = gceSettings(SANDBOX_ID, hosts);
   try {
-    return { resumed: true, session: await resumeCloudRunNetworkSandboxSession(settings) };
+    return { resumed: true, session: await resumeGceNetworkSandboxSession(settings) };
   } catch (error) {
-    if (!(error instanceof CloudRunSandboxNotFoundError)) throw error;
+    if (!(error instanceof GceSandboxNotFoundError)) throw error;
   }
-  const session = await createCloudRunNetworkSandboxSession({
+  const session = await createGceNetworkSandboxSession({
     ...settings,
-    setup: CLOUD_RUN_SETUP,
     template: await template(),
   });
   return { resumed: false, session };
+}
+
+/**
+ * The settings of the Compute Engine sandbox `sandboxId`: the service at `GCE_SANDBOX_URL`, called
+ * as the gcloud account unless `GCE_SANDBOX_AUTH` says otherwise, with `GCE_SANDBOX_SERVICE_TOKEN`
+ * when the service has a token of its own (`SANDBOX_SERVICE_TOKEN`).
+ */
+function gceSettings(sandboxId: string, hosts: readonly string[]) {
+  const url = process.env.GCE_SANDBOX_URL;
+  if (url === undefined || url === '') {
+    throw new ExampleConfigurationError(
+      'EXAMPLE_SANDBOX=gce needs GCE_SANDBOX_URL, the URL of the sandbox service: see the README of ai-sdk-sandbox-gce.',
+    );
+  }
+  const auth = process.env.GCE_SANDBOX_AUTH ?? 'gcloud';
+  if (!(GCE_AUTH as readonly string[]).includes(auth)) {
+    throw new ExampleConfigurationError(`GCE_SANDBOX_AUTH=${auth}: use ${GCE_AUTH.join(', ')}.`);
+  }
+  return {
+    url,
+    auth: auth as GceAuth,
+    serviceToken: process.env.GCE_SANDBOX_SERVICE_TOKEN || undefined,
+    sandboxId,
+    ports: [BRIDGE_PORT],
+    // The proxy forgets them while the machine is stopped: a resume passes them again.
+    allowedHosts: exampleHosts(hosts),
+  };
+}
+
+/**
+ * Makes the template of the example's sandbox ahead of its first conversation, on Cloud Run or
+ * Compute Engine, where making it takes minutes: creates a throwaway sandbox from it, as the
+ * example's own, then deletes it: the template is made the first time, reused afterwards, and the
+ * first machine started on a new template waits a minute more than the next ones. Run it after
+ * each deploy that changes the harnesses or the image: `pnpm template`.
+ */
+export async function prepareSandboxTemplate(template: TemplateOf): Promise<void> {
+  const sandboxId = `${SANDBOX_ID}-template`;
+  let session: { destroy(): Promise<void> };
+  if (SANDBOX === 'gce') {
+    session = await createGceNetworkSandboxSession({
+      ...gceSettings(sandboxId, []),
+      template: await template(),
+    });
+  } else if (SANDBOX === 'cloud-run') {
+    session = await createCloudRunNetworkSandboxSession({
+      ...cloudRunSettings(sandboxId, []),
+      setup: CLOUD_RUN_SETUP,
+      template: await template(),
+    });
+  } else {
+    throw new ExampleConfigurationError(
+      `EXAMPLE_SANDBOX=${SANDBOX}: only Cloud Run and Compute Engine sandboxes have a template to make ahead.`,
+    );
+  }
+  await session.destroy();
 }
 
 /**
@@ -310,5 +430,6 @@ const OPENERS: Record<
 > = {
   sbx: openSbx,
   'cloud-run': openCloudRun,
+  gce: openGce,
   srt: openSrt,
 };

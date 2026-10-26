@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ToolApprovalResponse } from '@/components/harness/tool-approval';
 import type { PartAnswers } from '@/components/message-part';
-import type { Conversation } from '@/lib/conversations';
+import type { Conversation, TurnTimings } from '@/lib/conversations';
 
 import {
   ConversationContent,
@@ -47,6 +47,7 @@ import {
   type PromptEditorHandle,
 } from '@/components/prompt-editor';
 import { SessionList, StatusDot } from '@/components/session-list';
+import { formatDuration, TurnTimingsLine, useElapsed } from '@/components/turn-timings';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
@@ -353,6 +354,7 @@ function Chat({
                 isStreaming={status === 'streaming' && index === messages.length - 1}
                 key={message.id}
                 message={message}
+                timings={session?.metadata.timings?.[message.id]}
               />
             ))
           )}
@@ -376,7 +378,11 @@ function Chat({
           marketplace={marketplace}
           onDraftChange={onDraftChange}
           onSend={send}
-          onStop={() => void stop()}
+          onStop={() => {
+            // The turn goes on without the page: stopped on the server, then here.
+            void fetch(`/api/sessions/${id}/interrupt`, { method: 'POST' });
+            void stop();
+          }}
           sandbox={sandbox}
           status={status}
           waiting={session?.status === 'awaiting-input'}
@@ -464,9 +470,18 @@ function SessionNotes({
   submitted: boolean;
 }) {
   const suspended = session?.status === 'suspended';
+  // How long the session has been opening: the sandbox, then the harness session in it.
+  const elapsed = useElapsed(submitted);
   return (
     <>
-      {submitted && <Shimmer className="text-sm">{startNote(harness, suspended)}</Shimmer>}
+      {submitted && (
+        <div className="flex items-baseline gap-2">
+          <Shimmer className="text-sm">{startNote(harness, suspended)}</Shimmer>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatDuration(elapsed)}
+          </span>
+        </div>
+      )}
       {!busy && suspended && (
         <p className="text-xs text-muted-foreground">
           Suspended{session.error ? ` (${session.error})` : ''}: its harness session is stopped and
@@ -654,10 +669,13 @@ function ChatMessage({
   answers,
   isStreaming,
   message,
+  timings,
 }: {
   answers: PartAnswers;
   isStreaming: boolean;
   message: UIMessage;
+  /** How long the turn that wrote it took, once it is over. */
+  timings: TurnTimings | undefined;
 }) {
   return (
     <Message from={message.role}>
@@ -672,6 +690,7 @@ function ChatMessage({
           />
         ))}
       </MessageContent>
+      {timings && !isStreaming && <TurnTimingsLine timings={timings} />}
     </Message>
   );
 }
