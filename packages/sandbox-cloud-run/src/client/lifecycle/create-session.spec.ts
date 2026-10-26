@@ -45,6 +45,11 @@ async function started(process: { stdout: ReadableStream<Uint8Array> }): Promise
   reader.releaseLock();
 }
 
+/**
+ * The processes the tests look for with `pgrep` sleep 51 to 55 s, as no other suite's do: `pgrep`
+ * sees every process of the host, those of the suites run alongside included.
+ */
+
 /** A Node.js one-liner, run in the sandbox. */
 const node = (code: string): string => `node -e '${code}'`;
 
@@ -187,14 +192,14 @@ describe('a Cloud Run sandbox', () => {
   it('streams the output of a spawned process, and kills it with what it started', async () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
-    const spawned = await session.spawn({ command: 'echo started; sleep 30 & wait' });
+    const spawned = await session.spawn({ command: 'echo started; sleep 51 & wait' });
     const reader = spawned.stdout.getReader();
     expect(new TextDecoder().decode((await reader.read()).value)).toBe('started\n');
     await spawned.kill();
 
     const { exitCode } = await spawned.wait();
     expect(exitCode).not.toBe(0);
-    const { stdout } = await session.run({ command: 'pgrep -f "slee[p] 30" || echo none' });
+    const { stdout } = await session.run({ command: 'pgrep -f "slee[p] 51" || echo none' });
     expect(stdout).toBe('none\n');
   });
 
@@ -202,7 +207,7 @@ describe('a Cloud Run sandbox', () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
     const controller = new AbortController();
 
-    const spawned = await session.spawn({ command: 'sleep 30', abortSignal: controller.signal });
+    const spawned = await session.spawn({ command: 'sleep 51', abortSignal: controller.signal });
     controller.abort(new Error('stop'));
 
     await expect(spawned.wait()).rejects.toThrow('stop');
@@ -329,28 +334,28 @@ describe('the lifecycle of a Cloud Run sandbox', () => {
 
   it('stops the processes of every session, those of a previous run included', async () => {
     const first = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
-    await started(await first.spawn({ command: 'echo started; sleep 31' }));
+    await started(await first.spawn({ command: 'echo started; sleep 52' }));
     const second = await resumeCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
     await second.killAllProcesses();
 
-    const { stdout } = await second.run({ command: 'pgrep -f "slee[p] 31" || echo none' });
+    const { stdout } = await second.run({ command: 'pgrep -f "slee[p] 52" || echo none' });
     expect(stdout).toBe('none\n');
   });
 
   it('releases what a view made by fork started, and nothing of the other views', async () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
     const view = session.fork({ ports: [4001] });
-    await started(await session.spawn({ command: 'echo started; sleep 33' }));
-    await started(await view.spawn({ command: 'echo started; sleep 34' }));
+    await started(await session.spawn({ command: 'echo started; sleep 54' }));
+    await started(await view.spawn({ command: 'echo started; sleep 55' }));
 
     await view.release();
 
     const { stdout } = await session.run({
       // A killed process may take a moment to go.
       command:
-        'for i in 1 2 3 4 5; do pgrep -f "slee[p] 34" >/dev/null || break; sleep 0.2; done; ' +
-        'pgrep -f "slee[p] 33" >/dev/null && echo kept; pgrep -f "slee[p] 34" || echo gone',
+        'for i in 1 2 3 4 5; do pgrep -f "slee[p] 55" >/dev/null || break; sleep 0.2; done; ' +
+        'pgrep -f "slee[p] 54" >/dev/null && echo kept; pgrep -f "slee[p] 55" || echo gone',
     });
     expect(stdout).toBe('kept\ngone\n');
     await session.release();
@@ -358,11 +363,11 @@ describe('the lifecycle of a Cloud Run sandbox', () => {
 
   it('releases what a session holds, and keeps the sandbox running', async () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
-    await started(await session.spawn({ command: 'echo started; sleep 32' }));
+    await started(await session.spawn({ command: 'echo started; sleep 53' }));
 
     await session.release();
 
-    const { stdout } = await session.run({ command: 'pgrep -f "slee[p] 32" || echo none' });
+    const { stdout } = await session.run({ command: 'pgrep -f "slee[p] 53" || echo none' });
     expect(stdout).toBe('none\n');
   });
 
