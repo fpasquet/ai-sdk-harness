@@ -112,7 +112,34 @@ function machineSettings(env: Environment, project: string): MachineSettings {
     subnetwork: nonEmpty(env['SANDBOX_SUBNETWORK']),
     tags: list(env['SANDBOX_NETWORK_TAGS'] ?? 'ai-sdk-sandbox'),
     spot: env['SANDBOX_SPOT'] === 'true',
+    spotFallback: env['SANDBOX_SPOT_FALLBACK'] !== 'false',
+    maxRunSeconds: maxRunSeconds(env['SANDBOX_MAX_RUN_HOURS']),
   };
+}
+
+/**
+ * `SANDBOX_MAX_RUN_HOURS`, the longest a machine runs at a time, in seconds: no limit when unset.
+ * Compute Engine takes 30 s at least.
+ */
+function maxRunSeconds(value: string | undefined): number | undefined {
+  const text = nonEmpty(value);
+  if (text === undefined) return undefined;
+  const hours = Number(text);
+  if (!Number.isFinite(hours) || hours * 3600 < 30) {
+    throw new Error(`SANDBOX_MAX_RUN_HOURS: \`${text}\` is not a number of hours, 30 s at least.`);
+  }
+  return Math.round(hours * 3600);
+}
+
+/** `SANDBOX_MAX_RUNNING`, a positive integer: no limit when unset. */
+function maxRunning(value: string | undefined): number | undefined {
+  const text = nonEmpty(value);
+  if (text === undefined) return undefined;
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`SANDBOX_MAX_RUNNING: \`${text}\` is not a positive integer.`);
+  }
+  return parsed;
 }
 
 /** The secret the agents' tokens are derived from. */
@@ -160,6 +187,8 @@ export async function sandboxesConfig(env: Environment, logger: Logger): Promise
       baseUrls: baseUrls(env['SANDBOX_BASE_URLS']),
     },
     startTimeoutMs: Number.parseInt(env['SANDBOX_START_TIMEOUT'] ?? '300', 10) * 1000,
+    maxRunning: maxRunning(env['SANDBOX_MAX_RUNNING']),
+    proxyInstance: nonEmpty(env['SANDBOX_PROXY_INSTANCE']),
     serviceToken: nonEmpty(env['SANDBOX_SERVICE_TOKEN']),
   };
 }

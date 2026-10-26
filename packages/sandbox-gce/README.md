@@ -46,18 +46,18 @@ flowchart TB
   service -- "commands, files, ports: port 8100" --> vmagent
   service -- "hosts, credentials: port 3129" --> proxy
   vm -- "the firewall's only way out: port 3128" --> proxy
-  proxy -- "Cloud NAT, HTTPS, real credentials put in" --> api
+  proxy -- "its own external address, HTTPS, real credentials put in" --> api
 ```
 
 - **The client** (this package's API) creates, resumes, stops and deletes sandboxes, and runs commands, files and ports through the service. It is the client of `ai-sdk-sandbox-cloud-run`, under other names.
 - **The sandbox service** (`ai-sdk-sandbox-gce serve`) runs in a Cloud Run service, with VPC egress into the sandboxes' network. It keeps nothing: what a machine is, Compute Engine says; what it may reach and its credentials, the proxy holds; its processes, its agent runs. Any instance serves any sandbox, and it scales to zero.
 - **The agent** (`ai-sdk-sandbox-gce agent`) runs in every sandbox machine, started by systemd from the sandbox image. It runs the commands as the sandbox's user, and passes a tunnel on to a port of the machine. It only answers the service, with a token derived for its machine.
-- **The egress proxy** (`ai-sdk-sandbox-gce proxy`) runs on a machine of its own, the only one with a way out, through Cloud NAT. It knows each sandbox by its machine's internal address, and holds its allowed hosts and credentials in memory.
+- **The egress proxy** (`ai-sdk-sandbox-gce proxy`) runs on a machine of its own, the only one with a way out, through an external address of its own. It knows each sandbox by its machine's internal address, and holds its allowed hosts and credentials in memory.
 
 ## Requirements
 
 - Node.js 24 or later: in your application, the service's image, the sandbox image and the proxy's machine.
-- A Google Cloud project with Compute Engine, Cloud Run and Cloud NAT, and the `gcloud` CLI.
+- A Google Cloud project with Compute Engine, Cloud Run and Cloud DNS, and the `gcloud` CLI.
 - `@ai-sdk/harness` and a harness adapter, such as `@ai-sdk/harness-claude-code`.
 
 ## Deploying
@@ -93,57 +93,105 @@ gcloud compute firewall-rules create agents-from-service --network=sandboxes --d
   --action=ALLOW --rules=tcp:8100 --source-ranges=10.8.17.0/26 --target-tags=ai-sdk-sandbox
 gcloud compute firewall-rules create proxy-admin-from-service --network=sandboxes --direction=INGRESS \
   --action=ALLOW --rules=tcp:3129 --source-ranges=10.8.17.0/26 --target-tags=ai-sdk-sandbox-proxy
-
-# The proxy's way out: Cloud NAT, for its subnetwork alone.
-gcloud compute routers create sandboxes --network=sandboxes --region=$REGION
-gcloud compute routers nats create proxy --router=sandboxes --region=$REGION \
-  --nat-custom-subnet-ip-ranges=proxy --auto-allocate-nat-external-ips
 ```
 
-A sandbox resolves names through the metadata server, which the firewall does not filter: a DNS query for any name leaves the VPC, a channel for a few bytes at a time. Close it with a [response policy](https://cloud.google.com/dns/docs/zones/manage-response-policies) on the sandboxes' network that answers every name with `NXDOMAIN`: the commands only ever resolve names through the proxy, which resolves them on its own machine.
+A sandbox resolves names through the metadata server, which the firewall does not filter: a DNS query for any name leaves the VPC, a channel for a few bytes at a time. Close it with a [response policy](https://cloud.google.com/dns/docs/zones/manage-response-policies) on the network that answers every name itself, so that no query leaves it:
+
+```bash
+gcloud services enable dns.googleapis.com
+gcloud dns response-policies create sandboxes-no-dns --networks=sandboxes \
+  --description="Every name answered locally: DNS is no way out of a sandbox."
+gcloud dns response-policies rules create every-name --response-policy=sandboxes-no-dns \
+  --dns-name="*." --local-data=name="*.",type=A,ttl=300,rrdatas=0.0.0.0
+```
+
+Every name then resolves to `0.0.0.0` in the sandboxes, which lose nothing by it: their commands reach hosts through the proxy, which resolves the names, and the metadata server is in their `/etc/hosts`. The proxy, on the same network, resolves names with public resolvers instead, which its startup script below sets up.
 
 ### 2. The egress proxy
 
-A small machine, always on: the sandboxes' only way out. It needs no service account.
+A small machine, the sandboxes' only way out: always on, or started with the first sandbox and stopped with the last when the service drives it (`SANDBOX_PROXY_INSTANCE`). Its service account may only read its token, from Secret Manager, and write its logs: the token never sits in the machine's metadata, which anyone allowed to read the project's machines reads. Its ephemeral external address is its way out, billed only while it runs; no firewall rule lets anything in from outside.
 
 ```bash
-PROXY_TOKEN=$(openssl rand -hex 32)
-printf '%s' "$PROXY_TOKEN" | gcloud secrets create sandbox-proxy-token --data-file=-
+printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create sandbox-proxy-token --data-file=-
+
+gcloud iam service-accounts create sandbox-proxy
+gcloud secrets add-iam-policy-binding sandbox-proxy-token \
+  --member=serviceAccount:sandbox-proxy@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+for role in roles/logging.logWriter roles/monitoring.metricWriter; do
+  gcloud projects add-iam-policy-binding $PROJECT \
+    --member=serviceAccount:sandbox-proxy@$PROJECT.iam.gserviceaccount.com --role=$role
+done
 
 gcloud compute instances create sandbox-proxy --zone=$ZONE --machine-type=e2-small \
-  --subnet=proxy --private-network-ip=10.8.16.2 --no-address --no-service-account --no-scopes \
+  --subnet=proxy --private-network-ip=10.8.16.2 \
+  --service-account=sandbox-proxy@$PROJECT.iam.gserviceaccount.com --scopes=cloud-platform \
   --tags=ai-sdk-sandbox-proxy --image-family=debian-12 --image-project=debian-cloud \
-  --shielded-secure-boot --metadata=ai-sdk-sandbox-proxy-token=$PROXY_TOKEN \
-  --metadata-from-file=startup-script=proxy-startup.sh
+  --shielded-secure-boot --metadata-from-file=startup-script=proxy-startup.sh
 ```
 
 ```bash title="proxy-startup.sh"
 #!/bin/sh
 set -e
+# Public resolvers, not the metadata server's, which the sandboxes' response policy answers.
+mkdir -p /etc/systemd/resolved.conf.d
+# After gce-resolved.conf, which adds the metadata server: the empty DNS= resets the list.
+printf '[Resolve]\nDNS=\nDNS=8.8.8.8 1.1.1.1\nDomains=~.\n' > /etc/systemd/resolved.conf.d/public-dns.conf
+for network in /run/systemd/network/*.network; do
+  mkdir -p "/etc/systemd/network/$(basename "$network").d"
+  printf '[DHCPv4]\nUseDNS=false\n' > "/etc/systemd/network/$(basename "$network").d/no-dhcp-dns.conf"
+done
+systemctl restart systemd-networkd systemd-resolved
 if ! command -v ai-sdk-sandbox-gce >/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
   npm install --global ai-sdk-sandbox-gce@0.1.0
 fi
-cat > /etc/systemd/system/ai-sdk-sandbox-proxy.service <<'UNIT'
+# Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
+if [ ! -d /opt/google-cloud-ops-agent ]; then
+  curl -fsSL https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh | bash -s -- --also-install
+fi
+# Its token, read from Secret Manager as the machine's service account.
+cat > /usr/local/bin/ai-sdk-sandbox-proxy-token <<'SCRIPT'
+#!/bin/sh
+set -e
+metadata=http://metadata.google.internal/computeMetadata/v1
+project=$(curl -fsS -H Metadata-Flavor:Google $metadata/project/project-id)
+access=$(curl -fsS -H Metadata-Flavor:Google $metadata/instance/service-accounts/default/token \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')
+curl -fsS -H "Authorization: Bearer $access" \
+  "https://secretmanager.googleapis.com/v1/projects/$project/secrets/sandbox-proxy-token/versions/latest:access" \
+  | python3 -c 'import base64, json, sys; print(base64.b64decode(json.load(sys.stdin)["payload"]["data"]).decode(), end="")'
+SCRIPT
+chmod 755 /usr/local/bin/ai-sdk-sandbox-proxy-token
+cat > /tmp/ai-sdk-sandbox-proxy.service <<'UNIT'
 [Unit]
 Description=ai-sdk-sandbox-gce egress proxy
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/bin/sh -c 'SANDBOX_PROXY_TOKEN=$(curl -fsS -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/ai-sdk-sandbox-proxy-token) exec ai-sdk-sandbox-gce proxy'
+ExecStart=/bin/sh -c 'SANDBOX_PROXY_TOKEN=$(/usr/local/bin/ai-sdk-sandbox-proxy-token) exec ai-sdk-sandbox-gce proxy'
 Restart=always
 DynamicUser=yes
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-systemctl daemon-reload
-systemctl enable --now ai-sdk-sandbox-proxy
+# Started by systemd at boot, before this script: restarted only when its unit changed, since a
+# restart forgets the sandboxes registered meanwhile.
+if ! cmp -s /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox-proxy.service; then
+  mv /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox-proxy.service
+  systemctl daemon-reload
+  systemctl enable ai-sdk-sandbox-proxy
+  systemctl restart ai-sdk-sandbox-proxy
+else
+  systemctl enable --now ai-sdk-sandbox-proxy
+fi
 ```
 
 Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol.
+
+The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
 
 ### 3. The sandbox image
 
@@ -163,10 +211,10 @@ echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/l
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Node.js and the agent.
+# Node.js, the agent, and pnpm: the Claude Code and Codex bridges install their dependencies with it.
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 apt-get install -y nodejs
-npm install --global ai-sdk-sandbox-gce@0.1.0
+npm install --global ai-sdk-sandbox-gce@0.1.0 pnpm@10
 
 # The sandbox's user: sudo without a password, and Docker.
 useradd --create-home --shell /bin/bash agent
@@ -176,7 +224,7 @@ echo 'agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agent
 cat > /etc/systemd/system/ai-sdk-sandbox-agent.service <<'UNIT'
 [Unit]
 Description=ai-sdk-sandbox-gce agent
-After=network-online.target docker.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -189,7 +237,7 @@ UNIT
 systemctl enable ai-sdk-sandbox-agent
 ```
 
-The agent runs as root and starts the commands as `agent`. It points Docker at the proxy itself, the daemon and the client: images are pulled through the proxy, and containers get its address in their proxy variables. Rebuild the image every week or so for the security updates: the templates made on the previous one are made again on the next sandbox.
+The agent runs as root and starts the commands as `agent`. It does not wait for Docker to boot, some 10 s on a small machine: its socket answers the first `docker` command once the daemon is up. It points Docker at the proxy itself, the daemon and the client: images are pulled through the proxy, and containers get its address in their proxy variables. Rebuild the image every week or so for the security updates: the templates made on the previous one are made again on the next sandbox.
 
 ### 4. The service
 
@@ -201,15 +249,38 @@ RUN npm install --global --silent ai-sdk-sandbox-gce@0.1.0 && npm cache clean --
 CMD ["ai-sdk-sandbox-gce", "serve"]
 ```
 
+Its service account gets a role of its own, with what the service calls and nothing else, limited by a condition to the names it uses: the sandboxes' machines and disks (`sbx-`), the proxy's machine, the sandbox images and templates (`ai-sdk-`).
+
+```yaml title="sandbox-condition.yaml"
+title: sandbox-resources
+description: The sandboxes' machines and disks, the proxy's machine, the sandbox images and templates
+expression: >-
+  (resource.type != "compute.googleapis.com/Instance"
+    || resource.name.extract("/instances/{name}").startsWith("sbx-")
+    || resource.name.endsWith("/instances/sandbox-proxy"))
+  && (resource.type != "compute.googleapis.com/Disk"
+    || resource.name.extract("/disks/{name}").startsWith("sbx-"))
+  && (resource.type != "compute.googleapis.com/Image"
+    || resource.name.extract("/images/{name}").startsWith("ai-sdk-"))
+```
+
 ```bash
 gcloud iam service-accounts create sandboxes
-for role in roles/compute.instanceAdmin.v1 roles/compute.storageAdmin; do
-  gcloud projects add-iam-policy-binding $PROJECT \
-    --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com --role=$role
-done
+gcloud iam roles create sandboxService --project=$PROJECT --title="Sandbox service" --permissions=\
+compute.instances.create,compute.instances.get,compute.instances.list,compute.instances.start,\
+compute.instances.stop,compute.instances.resume,compute.instances.delete,compute.instances.setLabels,\
+compute.instances.setMetadata,compute.instances.setTags,compute.instances.setScheduling,\
+compute.disks.create,compute.disks.delete,compute.disks.setLabels,compute.disks.useReadOnly,\
+compute.images.create,compute.images.get,compute.images.getFromFamily,compute.images.useReadOnly,\
+compute.images.setLabels,compute.images.delete,compute.subnetworks.use,\
+compute.zoneOperations.get,compute.globalOperations.get
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com \
+  --role=projects/$PROJECT/roles/sandboxService --condition-from-file=sandbox-condition.yaml
 
 printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create sandbox-agent-secret --data-file=-
-for secret in sandbox-agent-secret sandbox-proxy-token; do
+printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create sandbox-service-token --data-file=-
+for secret in sandbox-agent-secret sandbox-proxy-token sandbox-service-token; do
   gcloud secrets add-iam-policy-binding $secret \
     --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 done
@@ -222,13 +293,17 @@ gcloud run deploy sandboxes --region=$REGION --source=. \
   --set-env-vars=SANDBOX_SUBNETWORK=regions/$REGION/subnetworks/sandboxes \
   --set-env-vars=SANDBOX_PROXY_URL=http://10.8.16.2:3128,SANDBOX_PROXY_ADMIN_URL=http://10.8.16.2:3129 \
   --set-env-vars=SANDBOX_ALLOWED_HOSTS=registry.npmjs.org \
-  --set-secrets=SANDBOX_AGENT_SECRET=sandbox-agent-secret:latest,SANDBOX_PROXY_TOKEN=sandbox-proxy-token:latest
+  --set-env-vars=SANDBOX_PROXY_INSTANCE=sandbox-proxy,SANDBOX_MAX_RUNNING=5,SANDBOX_MAX_RUN_HOURS=12 \
+  --set-secrets=SANDBOX_AGENT_SECRET=sandbox-agent-secret:latest,SANDBOX_PROXY_TOKEN=sandbox-proxy-token:latest \
+  --set-secrets=SANDBOX_SERVICE_TOKEN=sandbox-service-token:latest
 ```
 
 What these settings are for:
 
 - `--network`, `--subnet`, `--vpc-egress`: Direct VPC egress, so that the service reaches the agents and the proxy on their internal addresses.
-- `roles/compute.instanceAdmin.v1`: create, stop, start and delete the machines. `roles/compute.storageAdmin`: save a template as an image. Narrow both to a custom role if you like.
+- `sandboxService`: create, stop, start and delete the machines, save a template as an image, start and stop the proxy; nothing outside the names of the condition. A missing permission shows in `pnpm test:e2e`.
+- `SANDBOX_PROXY_INSTANCE`: the proxy only runs while a sandbox does. `SANDBOX_MAX_RUNNING`: the machines running at once, a cap on the bill. `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever happens.
+- `SANDBOX_SERVICE_TOKEN`: a second lock beside Cloud Run's IAM; the client hands it over as `serviceToken`.
 - `--min-instances=0`: no instance and no bill while no call comes; the sandboxes run on without the service.
 - `--timeout=3600`: the longest a request lasts, so the longest a bridge WebSocket lasts. The harness reconnects beyond it.
 - `--concurrency=1000`: every open bridge holds a request.
@@ -242,7 +317,7 @@ gcloud run services add-iam-policy-binding sandboxes --region=$REGION \
   --member=serviceAccount:my-app@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
 ```
 
-Anyone with that role can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs. For a second lock, set `SANDBOX_SERVICE_TOKEN` on the service and hand the same to the client as `serviceToken`. Read the service's URL with `gcloud run services describe sandboxes --region=$REGION --format='value(status.url)'`; the examples below read it from `GCE_SANDBOX_URL`.
+Anyone with that role and the service token can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs, and hand the token to the client as `serviceToken` (`gcloud secrets versions access latest --secret=sandbox-service-token`). Read the service's URL with `gcloud run services describe sandboxes --region=$REGION --format='value(status.url)'`; the examples below read it from `GCE_SANDBOX_URL`.
 
 ## Installation
 
@@ -311,7 +386,17 @@ A harness bootstraps itself in the sandbox before its first turn: Claude Code in
 
 The image is named after the template's id and a digest of this package's version and the base image, a family resolved to its latest image: `ai-sdk-harness-template-<digest>-<base>`. After a new sandbox image, or a new version of the package, the first sandbox makes the template again. Delete the old images (label `ai-sdk-sandbox=template`) now and then: each costs its storage.
 
-Making a template takes a few minutes: the machine boots, the harness installs, and Compute Engine saves the disk.
+Making a template takes a few minutes: the machine boots, the harness installs, Compute Engine saves the disk, and the first sandbox on a new image waits a minute more while Compute Engine spreads it. Make it when you deploy, rather than in the first user's session, with a script that creates a sandbox from the agent's template and deletes it:
+
+```ts title="make-template.ts"
+const agent = new HarnessAgent({ id: 'coder', harness: createClaudeCode() });
+const sandboxSession = await createGceNetworkSandboxSession({
+  url: process.env.GCE_SANDBOX_URL!,
+  allowedHosts: ['registry.npmjs.org'],
+  template: await agent.getSandboxTemplate(),
+});
+await sandboxSession.destroy();
+```
 
 ## Stopping and resuming
 
@@ -386,7 +471,7 @@ The machine has no external address, and the VPC firewall, applied outside the g
 
 `allowedHosts` adds hosts for one sandbox, on top of the service's `SANDBOX_ALLOWED_HOSTS`. `*.example.com` covers the subdomains of `example.com`. `setNetworkPolicy` replaces the sandbox's own hosts: `allow-all` lets it reach any host over HTTPS, `deny-all` none but the service's and the base URLs'. CIDR rules are not supported.
 
-Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.io`, `auth.docker.io` and `production.cloudflare.docker.com`, or [`ai-sdk-harness-network`](https://ai-sdk-harness.pages.dev/docs/packages/harness-network)'s presets.
+Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` and `production.cloudfront.docker.com` (Docker Hub serves layers from either), or [`ai-sdk-harness-network`](https://ai-sdk-harness.pages.dev/docs/packages/harness-network)'s presets.
 
 ## Ports
 
@@ -429,32 +514,36 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 
 ### The service (`serve`)
 
-| Variable                  | Default                                                                                  | Description                                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `SANDBOX_ZONE`            | required                                                                                 | The zone of the machines                                                                            |
-| `SANDBOX_IMAGE`           | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`               |
-| `SANDBOX_IMAGES`          | none                                                                                     | Other images callers may pick by name, as `NAME=image` pairs: `python=family/ai-sdk-sandbox-python` |
-| `SANDBOX_AGENT_SECRET`    | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager           |
-| `SANDBOX_PROXY_URL`       | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                        |
-| `SANDBOX_PROXY_ADMIN_URL` | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                     |
-| `SANDBOX_PROXY_TOKEN`     | required                                                                                 | The proxy's token                                                                                   |
-| `SANDBOX_PROJECT`         | the service's project                                                                    | The project of the machines                                                                         |
-| `SANDBOX_NETWORK`         | the default network                                                                      | The machines' VPC network                                                                           |
-| `SANDBOX_SUBNETWORK`      | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                             |
-| `SANDBOX_NETWORK_TAGS`    | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                               |
-| `SANDBOX_MACHINE_TYPE`    | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                       |
-| `SANDBOX_DISK_GB`         | `20`                                                                                     | The size of their disk                                                                              |
-| `SANDBOX_DISK_TYPE`       | `pd-balanced`                                                                            | Its type                                                                                            |
-| `SANDBOX_SPOT`            | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after     |
-| `SANDBOX_INSTANCE_PREFIX` | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                             |
-| `SANDBOX_AGENT_PORT`      | `8100`                                                                                   | The port of the agents                                                                              |
-| `SANDBOX_START_TIMEOUT`   | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                               |
-| `SANDBOX_ALLOWED_HOSTS`   | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                       |
-| `SANDBOX_BASE_URLS`       | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                    |
-| `SANDBOX_SERVICE_TOKEN`   | none                                                                                     | A secret every call must carry, beside Cloud Run's IAM                                              |
-| `COMPUTE_AUTH`            | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                                   |
-| `PORT`, `HOST`            | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                           |
-| `LOG_FORMAT`              | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                         |
+| Variable                  | Default                                                                                  | Description                                                                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_ZONE`            | required                                                                                 | The zone of the machines                                                                                                                                    |
+| `SANDBOX_IMAGE`           | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`                                                                       |
+| `SANDBOX_IMAGES`          | none                                                                                     | Other images callers may pick by name, as `NAME=image` pairs: `python=family/ai-sdk-sandbox-python`                                                         |
+| `SANDBOX_AGENT_SECRET`    | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager                                                                   |
+| `SANDBOX_PROXY_URL`       | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                                                                                |
+| `SANDBOX_PROXY_ADMIN_URL` | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                                                                             |
+| `SANDBOX_PROXY_TOKEN`     | required                                                                                 | The proxy's token                                                                                                                                           |
+| `SANDBOX_PROJECT`         | the service's project                                                                    | The project of the machines                                                                                                                                 |
+| `SANDBOX_NETWORK`         | the default network                                                                      | The machines' VPC network                                                                                                                                   |
+| `SANDBOX_SUBNETWORK`      | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                                                                                     |
+| `SANDBOX_NETWORK_TAGS`    | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                                                                                       |
+| `SANDBOX_MACHINE_TYPE`    | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                                                                               |
+| `SANDBOX_DISK_GB`         | `20`                                                                                     | The size of their disk                                                                                                                                      |
+| `SANDBOX_DISK_TYPE`       | `pd-balanced`                                                                            | Its type                                                                                                                                                    |
+| `SANDBOX_SPOT`            | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after                                                             |
+| `SANDBOX_SPOT_FALLBACK`   | `true`                                                                                   | With Spot, a machine the zone has no Spot capacity for is created or started as a standard one, billed as such; `false` fails instead                       |
+| `SANDBOX_INSTANCE_PREFIX` | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                                                                                     |
+| `SANDBOX_AGENT_PORT`      | `8100`                                                                                   | The port of the agents                                                                                                                                      |
+| `SANDBOX_START_TIMEOUT`   | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                                                                                       |
+| `SANDBOX_MAX_RUNNING`     | none                                                                                     | The most sandboxes running at once: a creation or a resume beyond it is answered with a 429. Counted at each call, so two at the same instant may both pass |
+| `SANDBOX_MAX_RUN_HOURS`   | none                                                                                     | The longest a machine runs at a time: Compute Engine stops it then (`maxRunDuration`), disk kept, whatever the service or the application do. 30 s at least |
+| `SANDBOX_PROXY_INSTANCE`  | none                                                                                     | The egress proxy's machine, in the sandboxes' zone: started with the first sandbox that runs, stopped once none does. Always on without it                  |
+| `SANDBOX_ALLOWED_HOSTS`   | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                                                                               |
+| `SANDBOX_BASE_URLS`       | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                                                                            |
+| `SANDBOX_SERVICE_TOKEN`   | none                                                                                     | A secret every call must carry, beside Cloud Run's IAM                                                                                                      |
+| `COMPUTE_AUTH`            | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                                                                                           |
+| `PORT`, `HOST`            | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                                                   |
+| `LOG_FORMAT`              | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                                                                 |
 
 ### The proxy (`proxy`)
 
@@ -491,18 +580,18 @@ A sandbox's commands run with nothing of the agent's environment: only their `PA
 
 ## Cost
 
-A machine is billed by the second while it runs, and only for its disk once stopped: in `europe-west1`, an `e2-standard-4` is in the order of $0.15 an hour, Spot much less, and a stopped 20 GB balanced disk about $2 a month. The proxy machine, an `e2-small`, is about $15 a month, and Cloud NAT bills its hours and the gigabytes it processes. The service scales to zero. Check the current [Compute Engine pricing](https://cloud.google.com/compute/vm-instance-pricing).
+A machine is billed by the second while it runs, and only for its disk once stopped: in `europe-west1`, an `e2-standard-4` is in the order of $0.15 an hour, Spot much less, and a stopped 20 GB balanced disk about $2 a month. The proxy machine, an `e2-small`, is about $15 a month when always on, its external address a few dollars more; with `SANDBOX_PROXY_INSTANCE`, both are billed only while a sandbox runs. The service scales to zero. Check the current [Compute Engine pricing](https://cloud.google.com/compute/vm-instance-pricing).
 
 To keep the bill down: stop idle sandboxes early, delete finished ones, delete old template images, and cap the region's vCPU quota: unlike a budget alert, a quota really stops the spending.
 
 ## Security
 
 - **A virtual machine per sandbox**: its kernel is its own; the firewall rules apply outside it, and no rule written inside the guest weakens them.
-- **Nothing leaves the machine but through the proxy**, which only opens allowed hosts and the base URLs' APIs, and never a private address.
+- **Nothing leaves the machine but through the proxy**, which only opens allowed hosts and the base URLs' APIs, and never a private address, once DNS is closed as [the network](#1-the-network) shows.
 - **No service account, no external address**: the machine holds no Google credential, and nothing on the internet reaches it.
 - **The agents answer the service alone**: the firewall lets only the service's subnetwork reach their port, and every call carries a token derived from `SANDBOX_AGENT_SECRET` for that machine. A machine only ever learns its own token, from its metadata.
 - **The sandbox's user has `sudo`, and Docker**: inside the machine, the agent's code can do anything. The machine is the boundary, not the user.
-- **The proxy holds the credentials of every running sandbox**, in memory. Keep it a machine of its own, with nothing else on it, no service account, and its administration port open to the service alone.
+- **The proxy holds the credentials of every running sandbox**, in memory. Keep it a machine of its own, with nothing else on it, a service account that may only read its token and write logs, and its administration port open to the service alone.
 - **The service trusts its callers**: anyone granted `roles/run.invoker` can run commands in any sandbox. Never deploy it with `--allow-unauthenticated`; add `SANDBOX_SERVICE_TOKEN` as a second lock.
 - **Disks and template images hold the sandbox's files**: the agent's work and its transcript. They stay in your project; delete them with the sandbox.
 - **Metadata**: a machine reads its own metadata, project metadata included. Keep secrets out of the project's metadata, and SSH keys too (the service blocks project SSH keys on the machines).
@@ -511,22 +600,39 @@ To keep the bill down: stop idle sandboxes early, delete finished ones, delete o
 
 What the sandbox does, or does not, against the essential risks of running an agent's code: ✅ covered, ⚠️ partly or with care, ❌ not covered. The same table describes every sandbox package of this repository.
 
-| Control                        | Status | How                                                                                                              |
-| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------- |
-| Isolation boundary             | ✅     | A Compute Engine virtual machine per sandbox                                                                     |
-| Nothing of the host by default | ✅     | The machine sees its image and its disk, nothing of the service or the proxy                                     |
-| Writes to the host             | ✅     | No host: files go through the agent                                                                              |
-| Privileges                     | ⚠️     | The sandbox's user has `sudo` and Docker: root in the machine, and only in it                                    |
-| Docker and Compose             | ✅     | Docker Engine and Compose in the image, pulled through the proxy                                                 |
-| Outbound allow list            | ✅     | `allowedHosts` and `setNetworkPolicy()`, applied by the proxy; the VPC firewall closes all else                  |
-| Private networks and metadata  | ⚠️     | Refused by the proxy after DNS resolution; the machine's own metadata server stays readable, with no token in it |
-| Inbound ports                  | ✅     | Through the service only, behind Cloud Run's IAM, `SANDBOX_SERVICE_TOKEN` and the agent token                    |
-| Credentials out of the sandbox | ✅     | The real value only lives in the proxy's memory                                                                  |
-| Credential scope               | ⚠️     | Only to its API's host, in the headers its transformation names; echoed back in a body, not taken out            |
-| Environment                    | ✅     | The commands never see the agent's environment                                                                   |
-| Resource limits                | ✅     | The machine type: vCPUs, memory and disk of its own                                                              |
-| Lifetime limits                | ⚠️     | None: stop idle sandboxes yourself with `stop()`                                                                 |
-| Teardown                       | ✅     | `destroy()` deletes the machine and its disk; the proxy forgets its credentials                                  |
+| Control                        | Status | How                                                                                                                                |
+| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Isolation boundary             | ✅     | A Compute Engine virtual machine per sandbox                                                                                       |
+| Nothing of the host by default | ✅     | The machine sees its image and its disk, nothing of the service or the proxy                                                       |
+| Writes to the host             | ✅     | No host: files go through the agent                                                                                                |
+| Privileges                     | ⚠️     | The sandbox's user has `sudo` and Docker: root in the machine, and only in it                                                      |
+| Docker and Compose             | ✅     | Docker Engine and Compose in the image, pulled through the proxy                                                                   |
+| Outbound allow list            | ✅     | `allowedHosts` and `setNetworkPolicy()`, applied by the proxy; the VPC firewall closes all else                                    |
+| Private networks and metadata  | ⚠️     | Refused by the proxy after DNS resolution; the machine's own metadata server stays readable, with no token in it                   |
+| Inbound ports                  | ✅     | Through the service only, behind Cloud Run's IAM, `SANDBOX_SERVICE_TOKEN` and the agent token                                      |
+| Credentials out of the sandbox | ✅     | The real value only lives in the proxy's memory                                                                                    |
+| Credential scope               | ⚠️     | Only to its API's host, in the headers its transformation names; echoed back in a body, not taken out                              |
+| Environment                    | ✅     | The commands never see the agent's environment                                                                                     |
+| Resource limits                | ✅     | The machine type: vCPUs, memory and disk of its own                                                                                |
+| Lifetime limits                | ✅     | `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever the service or the application do; `stop()` sooner |
+| Teardown                       | ✅     | `destroy()` deletes the machine and its disk; the proxy forgets its credentials                                                    |
+
+## Before production
+
+The steps above set up the network, the proxy and the service as they ran on Google Cloud: DNS closed, the proxy on demand with a service account of its own, a narrow role for the service, the limits and the service token. What they leave to you:
+
+- [ ] **Run `pnpm test:e2e` against your deployment**: a missing permission, a closed host or a wrong token fails it.
+- [ ] **Stop idle sandboxes** from your application: `stop()` after a few minutes without a turn, `destroy()` when done, and a timeout on every turn. A stopped machine starts again in some 30 s.
+- [ ] **Automate in CI** what keeps the sandboxes current, rather than by hand:
+  - make the template on every deploy (see [Templates](#templates)): the first user then waits some 40 s, not 5 minutes, and a new harness version gets its template there;
+  - rebuild the sandbox image every week for the security updates, with [Packer](https://developer.hashicorp.com/packer/integrations/hashicorp/googlecompute) or the script of [step 3](#3-the-sandbox-image) on a throwaway machine: the next deploy makes the template again on it;
+  - delete the template images made on the previous ones (label `ai-sdk-sandbox=template`), which bill their storage.
+
+  Give the CI its Google identity through [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines), not a service account key.
+
+- [ ] **Set a budget alert** on the project, and keep the region's vCPU quota low: unlike an alert, a quota stops the spending.
+- [ ] **Restrict the service's ingress** when your application runs on Google Cloud: `gcloud run services update sandboxes --region=$REGION --ingress=internal`, the application then reaching it through the VPC (Direct VPC egress with `--vpc-egress=all-traffic`). Called from outside Google Cloud, the service stays public, guarded by IAM and its token.
+- [ ] **Authenticate your users** before anything reaches the service: whoever can call your application runs commands in its sandboxes. With Google accounts, a sign-in limited to your domain (Google OAuth, the `hd` claim checked on the server); on Google Cloud, [Identity-Aware Proxy](https://cloud.google.com/iap/docs/enabling-cloud-run) in front of the application. Either way, `roles/run.invoker` on the service goes to the application's service account alone.
 
 ## Limitations
 

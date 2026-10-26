@@ -30,9 +30,17 @@ interface Operation {
 const OPERATION_TIMEOUT_MS = 15 * 60_000;
 
 /**
+ * Whether a change is waited for until it is done, or only until Compute Engine accepted it: a stop
+ * or a deletion goes on for some 50 s after the guest is off, which no caller needs to wait for.
+ */
+export interface ChangeOptions {
+  wait?: boolean;
+}
+
+/**
  * The calls of the [Compute Engine API](https://cloud.google.com/compute/docs/reference/rest/v1)
  * the service makes, over its REST interface: no client library, so that the service keeps no
- * runtime dependency. Every change is an operation, waited for until it is done.
+ * runtime dependency. Every change is an operation, waited for until it is done unless told not to.
  */
 export class ComputeApi {
   /**
@@ -53,6 +61,22 @@ export class ComputeApi {
     return this.read<Instance>(this.zonal(`instances/${name}`));
   }
 
+  /** The instances of the zone whose label `key` is `value`, every page of them. */
+  async listInstances(key: string, value: string): Promise<Instance[]> {
+    const instances: Instance[] = [];
+    let pageToken: string | undefined;
+    do {
+      const query = new URLSearchParams({ filter: `labels.${key} = "${value}"` });
+      if (pageToken !== undefined) query.set('pageToken', pageToken);
+      const page = (await this.read<{ items?: Instance[]; nextPageToken?: string }>(
+        `${this.zonal('instances')}?${query.toString()}`,
+      )) ?? { items: [] };
+      instances.push(...(page.items ?? []));
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined);
+    return instances;
+  }
+
   async insertInstance(body: Record<string, unknown>): Promise<void> {
     await this.change('POST', this.zonal('instances'), { body });
   }
@@ -65,13 +89,18 @@ export class ComputeApi {
     await this.change('POST', this.zonal(`instances/${name}/resume`));
   }
 
-  async stopInstance(name: string): Promise<void> {
-    await this.change('POST', this.zonal(`instances/${name}/stop`));
+  async stopInstance(name: string, { wait = true }: ChangeOptions = {}): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/stop`), { wait });
+  }
+
+  /** Changes how the stopped instance `name` is provisioned: from Spot to standard, say. */
+  async setScheduling(name: string, scheduling: Record<string, unknown>): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/setScheduling`), { body: scheduling });
   }
 
   /** Deletes the instance `name` and its disks set to go with it. Nothing when there is none. */
-  async deleteInstance(name: string): Promise<void> {
-    await this.change('DELETE', this.zonal(`instances/${name}`), { ignore: [404] });
+  async deleteInstance(name: string, { wait = true }: ChangeOptions = {}): Promise<void> {
+    await this.change('DELETE', this.zonal(`instances/${name}`), { ignore: [404], wait });
   }
 
   /**
@@ -113,15 +142,24 @@ export class ComputeApi {
     return (await this.parse(response)) as T;
   }
 
-  /** Starts an operation and waits until it is done. Statuses in `ignore` end it at once. */
+  /**
+   * Starts an operation and waits until it is done, unless `wait` is false. Statuses in `ignore`
+   * end it at once.
+   */
   private async change(
     method: string,
     url: string,
-    { body, ignore = [] }: { body?: unknown; ignore?: readonly number[] } = {},
+    {
+      body,
+      ignore = [],
+      wait = true,
+    }: { body?: unknown; ignore?: readonly number[]; wait?: boolean } = {},
   ): Promise<void> {
     const response = await this.call(method, url, body);
     if (ignore.includes(response.status)) return;
-    await this.wait((await this.parse(response)) as Operation);
+    const started = (await this.parse(response)) as Operation;
+    // An operation done at once may have failed: read it even when not waiting.
+    if (wait || started.status === 'DONE') await this.wait(started);
   }
 
   private async wait(started: Operation): Promise<void> {
@@ -140,6 +178,7 @@ export class ComputeApi {
       throw new ComputeError(
         operation.httpErrorStatusCode ?? 500,
         `${first.code ?? 'ERROR'}: ${first.message ?? 'the operation failed.'}`,
+        first.code,
       );
     }
   }

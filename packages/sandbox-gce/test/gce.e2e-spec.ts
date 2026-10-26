@@ -22,8 +22,8 @@ const sessions: GceNetworkSandboxSession[] = [];
 const template: HarnessV1SandboxTemplate = {
   identity: `e2e-${run}`,
   prepare: async ({ session }) => {
-    const { exitCode } = await session.run({ command: 'echo baked > "$HOME/baked.txt"' });
-    expect(exitCode).toBe(0);
+    const { exitCode, stderr } = await session.run({ command: 'echo baked > "$HOME/baked.txt"' });
+    expect(exitCode, stderr).toBe(0);
   },
 };
 
@@ -50,11 +50,12 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
     session = await createGceNetworkSandboxSession({ ...options, sandboxId: `e2e-${run}` });
     sessions.push(session);
 
-    const { stdout, exitCode } = await session.run({
+    const { stdout, stderr, exitCode } = await session.run({
       command: 'id -un; pwd; sudo -n true && echo sudo',
     });
 
-    expect(exitCode).toBe(0);
+    // What the command printed on its error stream, when it fails.
+    expect(exitCode, stderr).toBe(0);
     expect(stdout).toBe(`agent\n${session.defaultWorkingDirectory}\nsudo\n`);
   });
 
@@ -75,12 +76,20 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
   it('runs Docker, its images pulled through the proxy', async () => {
     await session.setNetworkPolicy({
       mode: 'custom',
-      allowedHosts: ['registry-1.docker.io', 'auth.docker.io', 'production.cloudflare.docker.com'],
+      // Docker Hub serves layers from either CDN.
+      allowedHosts: [
+        'registry-1.docker.io',
+        'auth.docker.io',
+        'production.cloudflare.docker.com',
+        'production.cloudfront.docker.com',
+      ],
     });
 
-    const { stdout, exitCode } = await session.run({ command: 'docker run --rm hello-world' });
+    const { stdout, stderr, exitCode } = await session.run({
+      command: 'docker run --rm hello-world',
+    });
 
-    expect(exitCode).toBe(0);
+    expect(exitCode, stderr).toBe(0);
     expect(stdout).toContain('Hello from Docker!');
   });
 
@@ -90,7 +99,9 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
 
     const resumed = await resumeGceNetworkSandboxSession({ ...options, sandboxId: session.id });
 
-    expect(await resumed.readTextFile({ path: 'kept.txt' })).toBe('kept');
+    const kept = await resumed.readTextFile({ path: 'kept.txt' });
+
+    expect(kept).toBe('kept');
   });
 
   it('boots every later sandbox from a template, made once', async () => {

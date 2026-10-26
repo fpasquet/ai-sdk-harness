@@ -93,6 +93,15 @@ describe('the client of the egress proxy administration API', () => {
     });
   });
 
+  it('says whether the proxy answers its health', async () => {
+    answer = [200, '{"status":"ok"}'];
+    expect(await new ProxyAdmin(url, 'a-token').healthy()).toBe(true);
+    answer = [503, ''];
+    expect(await new ProxyAdmin(url, 'a-token').healthy()).toBe(false);
+    expect(await new ProxyAdmin('http://127.0.0.1:1', 'a-token').healthy()).toBe(false);
+    expect(calls.at(-1)?.url).toBe('/health');
+  });
+
   it('cannot reach a proxy that is gone', async () => {
     await new Promise((resolve) => server.close(resolve));
 

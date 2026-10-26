@@ -23,6 +23,7 @@ export class RegisteredSandbox implements EgressPolicy {
   transformations: HarnessV1RequestTransformation[] = [];
 
   constructor(
+    readonly name: string,
     registration: ProxyRegistration,
     readonly allowPrivateNetwork: boolean,
   ) {

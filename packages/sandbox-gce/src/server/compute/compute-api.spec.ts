@@ -53,6 +53,45 @@ describe('the Compute Engine API', () => {
     ]);
   });
 
+  it('only starts an operation when not told to wait, but reads one already failed', async () => {
+    answers.push(
+      { name: 'op', status: 'RUNNING', selfLink: `${endpoint}/op` },
+      {
+        name: 'op',
+        status: 'DONE',
+        selfLink: `${endpoint}/op`,
+        httpErrorStatusCode: 400,
+        error: { errors: [{ code: 'INVALID', message: 'no' }] },
+      },
+      { name: 'op', status: 'DONE', selfLink: `${endpoint}/op` },
+    );
+
+    await api().deleteInstance('box', { wait: false });
+    await expect(api().stopInstance('box', { wait: false })).rejects.toMatchObject({ status: 400 });
+    await api().setScheduling('box', { provisioningModel: 'STANDARD' });
+
+    expect(calls).toEqual([
+      'DELETE /projects/p/zones/z/instances/box',
+      'POST /projects/p/zones/z/instances/box/stop',
+      'POST /projects/p/zones/z/instances/box/setScheduling',
+    ]);
+  });
+
+  it('lists the instances of a label, every page of them', async () => {
+    answers.push(
+      { items: [{ name: 'a', status: 'RUNNING' }], nextPageToken: 'next' },
+      { items: [{ name: 'b', status: 'TERMINATED' }] },
+    );
+
+    const instances = await api().listInstances('ai-sdk-sandbox', 'sandbox');
+
+    expect(instances.map(({ name }) => name)).toEqual(['a', 'b']);
+    expect(calls).toEqual([
+      'GET /projects/p/zones/z/instances?filter=labels.ai-sdk-sandbox+%3D+%22sandbox%22',
+      'GET /projects/p/zones/z/instances?filter=labels.ai-sdk-sandbox+%3D+%22sandbox%22&pageToken=next',
+    ]);
+  });
+
   it('reports a failed operation with its status', async () => {
     answers.push({
       name: 'op',
@@ -65,6 +104,8 @@ describe('the Compute Engine API', () => {
     await expect(api().insertInstance({ name: 'box' })).rejects.toMatchObject({
       status: 403,
       message: 'Compute Engine: QUOTA_EXCEEDED: CPUS quota exceeded',
+      code: 'QUOTA_EXCEEDED',
+      outOfCapacity: false,
     });
   });
 

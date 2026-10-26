@@ -26,7 +26,7 @@ export class SandboxRegistry {
    * on another address: what it may reach is replaced, its credentials kept.
    */
   register(name: string, registration: ProxyRegistration): void {
-    const next = new RegisteredSandbox(registration, this.allowPrivateNetwork);
+    const next = new RegisteredSandbox(name, registration, this.allowPrivateNetwork);
     const previous = this.byName.get(name);
     if (previous !== undefined) {
       next.transformations = previous.transformations;

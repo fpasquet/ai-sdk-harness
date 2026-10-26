@@ -5,8 +5,10 @@ import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { connect, isIP } from 'node:net';
 
+import type { Logger } from '../common/logger.js';
 import type { EgressPolicy } from './egress-policy.js';
 
+import { silentLogger } from '../common/logger.js';
 import { routeTarget } from '../protocol/proxy-routes.js';
 import {
   injectedCredentials,
@@ -49,6 +51,14 @@ function reachability(
 }
 
 const UNKNOWN = 'This machine is no sandbox the proxy serves.';
+
+/** A connection or a request the proxy refused: from what machine and sandbox, to what, why. */
+interface Refusal {
+  address: string | undefined;
+  policy?: EgressPolicy;
+  target?: string;
+  why: string;
+}
 
 const refuse = (res: ServerResponse, message: string): void => {
   res.writeHead(403, { 'content-type': 'text/plain' }).end(`${message}\n`);
@@ -106,13 +116,14 @@ function targetOf(url: string): undefined | URL {
  * Anything else is refused, and so is any private address however it is named: the proxy's
  * loopback, the metadata server, the VPC. A connection from a machine no sandbox holds is refused.
  * The policy is read anew for each connection: allowing a host or adding a credential applies at
- * once.
+ * once. Every refusal is logged, with the sandbox and what it tried to reach.
  */
 export class EgressProxy {
   readonly server: Server;
 
   constructor(
     private readonly policyFor: (address: string | undefined) => EgressPolicy | undefined,
+    private readonly logger: Logger = silentLogger,
   ) {
     this.server = createServer((req, res) => this.forward(req, res));
     this.server.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) =>
@@ -130,6 +141,7 @@ export class EgressProxy {
     const { hostname, port } = new URL(`http://${req.url ?? ''}`);
     const policy = this.policyFor(socket.remoteAddress);
     if (policy === undefined) {
+      this.refused({ address: socket.remoteAddress, target: req.url, why: UNKNOWN });
       socket.end(`HTTP/1.1 403 Forbidden\r\n\r\n${UNKNOWN}\n`);
       return;
     }
@@ -137,6 +149,7 @@ export class EgressProxy {
     const listed = port === '443' && isListedHost(policy.allowedHosts, hostname);
     const refusal = listed ? reach.error : `${hostname} is not reachable from the sandbox.`;
     if (refusal !== undefined) {
+      this.refused({ address: socket.remoteAddress, policy, target: req.url, why: refusal });
       socket.end(`HTTP/1.1 403 Forbidden\r\n\r\n${refusal}\n`);
       return;
     }
@@ -155,23 +168,50 @@ export class EgressProxy {
    * to an allowed host, as package mirrors still serve, with no credential at all.
    */
   private forward(req: IncomingMessage, res: ServerResponse): void {
-    const policy = this.policyFor(req.socket.remoteAddress);
+    const address = req.socket.remoteAddress;
+    const policy = this.policyFor(address);
     if (policy === undefined) {
-      refuse(res, UNKNOWN);
+      this.deny(res, { address, why: UNKNOWN });
       return;
     }
     const route = targetOf(req.url ?? '');
-    const plain = route === undefined ? plainTarget(req.url ?? '') : undefined;
+    if (route === undefined) {
+      this.forwardPlain(req, res, policy);
+      return;
+    }
+    const refusal = routeRefusal(policy, route);
+    if (refusal !== undefined) {
+      this.deny(res, { address, policy, target: route.host, why: refusal });
+      return;
+    }
+    this.send(req, res, { policy, target: route, transformations: policy.transformations });
+  }
+
+  /** A plain HTTP request through `HTTP_PROXY`: sent on to an allowed host, refused otherwise. */
+  private forwardPlain(req: IncomingMessage, res: ServerResponse, policy: EgressPolicy): void {
+    const plain = plainTarget(req.url ?? '');
     if (plain !== undefined && isListedHost(policy.allowedHosts, plain.hostname)) {
       this.send(req, res, { policy, target: plain, transformations: [] });
       return;
     }
-    const refusal = routeRefusal(policy, route);
-    if (refusal !== undefined || route === undefined) {
-      refuse(res, refusal ?? '');
-      return;
-    }
-    this.send(req, res, { policy, target: route, transformations: policy.transformations });
+    // The host alone: a path or a query string may carry what is no business of the log.
+    const why = routeRefusal(policy, undefined) ?? '';
+    this.deny(res, { address: req.socket.remoteAddress, policy, target: plain?.host, why });
+  }
+
+  /** Refuses a plain request, and logs it. */
+  private deny(res: ServerResponse, refusal: Refusal): void {
+    this.refused(refusal);
+    refuse(res, refusal.why);
+  }
+
+  /**
+   * Logs a refusal: what was refused to whom, the sandbox or else the machine's address, so that a
+   * missing allowed host shows.
+   */
+  private refused({ address, policy, target, why }: Refusal): void {
+    const who = policy?.name ?? address ?? 'an unknown machine';
+    this.logger.info(`Refused ${target ?? '?'} to ${who}: ${why}`);
   }
 
   /** Sends `req` on to `target`, `transformations` applied, and its answer back without them. */
@@ -190,7 +230,12 @@ export class EgressProxy {
   ): void {
     const reach = reachability(policy, target.hostname);
     if (reach.error !== undefined) {
-      refuse(res, reach.error);
+      this.deny(res, {
+        address: req.socket.remoteAddress,
+        policy,
+        target: target.host,
+        why: reach.error,
+      });
       return;
     }
     const path = `${target.pathname}${target.search}`;

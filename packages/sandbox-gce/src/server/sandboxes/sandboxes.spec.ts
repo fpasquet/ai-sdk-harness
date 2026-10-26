@@ -31,15 +31,26 @@ type Stub<T> = {
 
 const image: Image = { name: 'sandbox-v1', selfLink: 'projects/p/global/images/sandbox-v1' };
 
-/** A Compute Engine whose instance `sbx-box` goes through `statuses`, the last one kept. */
+/**
+ * A Compute Engine whose instance `sbx-box` goes through `statuses`, the last one kept: a stop
+ * leaves it stopped, a deletion gone.
+ */
 function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
   return {
     getInstance: vi.fn(() => Promise.resolve(statuses.length > 1 ? statuses.shift() : statuses[0])),
+    listInstances: vi.fn((): Promise<Instance[]> => Promise.resolve([])),
     insertInstance: vi.fn(() => Promise.resolve()),
     startInstance: vi.fn(() => Promise.resolve()),
     resumeInstance: vi.fn(() => Promise.resolve()),
-    stopInstance: vi.fn(() => Promise.resolve()),
-    deleteInstance: vi.fn(() => Promise.resolve()),
+    stopInstance: vi.fn(() => {
+      statuses.splice(0, statuses.length, sandbox('TERMINATED'));
+      return Promise.resolve();
+    }),
+    setScheduling: vi.fn(() => Promise.resolve()),
+    deleteInstance: vi.fn(() => {
+      statuses.splice(0, statuses.length, undefined);
+      return Promise.resolve();
+    }),
     getImage: vi.fn((_path: string): Promise<Image | undefined> => Promise.resolve(image)),
     imagePath: vi.fn((name: string) => `projects/p/global/images/${name}`),
     insertImage: vi.fn(() => Promise.resolve()),
@@ -55,6 +66,7 @@ function proxyOf(): Stub<ProxyAdmin> {
     setTransformations: vi.fn(() => Promise.resolve()),
     holdsSecret: vi.fn(() => Promise.resolve(false)),
     remove: vi.fn(() => Promise.resolve()),
+    healthy: vi.fn(() => Promise.resolve(true)),
   };
 }
 
@@ -125,6 +137,145 @@ describe('the sandboxes of the service', () => {
     expect(compute.getInstance).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * A Compute Engine holding machines by name, `status` each, which a start, a stop, an insert or a
+   * deletion moves on: the sandboxes and the proxy's machine.
+   */
+  function machinesOf(initial: Record<string, string>): Stub<ComputeApi> {
+    const machines = new Map(Object.entries(initial));
+    const compute = computeOf();
+    const instance = (name: string): Instance | undefined => {
+      const status = machines.get(name);
+      return status === undefined ? undefined : { ...sandbox(status), name };
+    };
+    compute.getInstance.mockImplementation((name: string) => Promise.resolve(instance(name)));
+    compute.listInstances.mockImplementation(() =>
+      Promise.resolve(
+        [...machines.keys()]
+          .filter((name) => name.startsWith('sbx-'))
+          .flatMap((name) => {
+            const found = instance(name);
+            return found === undefined ? [] : [found];
+          }),
+      ),
+    );
+    compute.insertInstance.mockImplementation((body: Record<string, unknown>) => {
+      machines.set(body['name'] as string, 'RUNNING');
+      return Promise.resolve();
+    });
+    compute.startInstance.mockImplementation((name: string) => {
+      machines.set(name, 'RUNNING');
+      return Promise.resolve();
+    });
+    compute.stopInstance.mockImplementation((name: string) => {
+      machines.set(name, 'TERMINATED');
+      return Promise.resolve();
+    });
+    compute.deleteInstance.mockImplementation((name: string) => {
+      machines.delete(name);
+      return Promise.resolve();
+    });
+    return compute;
+  }
+
+  it('starts the stopped proxy with a sandbox, and stops it with the last one', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = machinesOf({ 'sandbox-proxy': 'TERMINATED', 'sbx-other': 'TERMINATED' });
+    const proxy = proxyOf();
+    const sandboxes = sandboxesOf({ compute, proxy, proxyInstance: 'sandbox-proxy' });
+
+    await sandboxes.create('box', {});
+    expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy');
+    expect(proxy.healthy).toHaveBeenCalled();
+
+    await sandboxes.delete('box');
+    expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+  });
+
+  it('keeps the proxy running while another sandbox runs, and leaves a stopped one alone', async () => {
+    const compute = machinesOf({
+      'sandbox-proxy': 'RUNNING',
+      'sbx-box': 'RUNNING',
+      'sbx-other': 'RUNNING',
+    });
+    const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+
+    await sandboxes.suspend('box');
+    expect(compute.stopInstance).not.toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+
+    const idle = machinesOf({ 'sandbox-proxy': 'TERMINATED', 'sbx-box': 'RUNNING' });
+    await sandboxesOf({ compute: idle, proxyInstance: 'sandbox-proxy' }).suspend('box');
+    expect(idle.stopInstance).not.toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+  });
+
+  it('waits for the proxy to answer, and says when it is missing or never answers', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const proxy = proxyOf();
+    proxy.healthy.mockResolvedValueOnce(false);
+    const compute = machinesOf({ 'sandbox-proxy': 'RUNNING' });
+    const sandboxes = sandboxesOf({ compute, proxy, proxyInstance: 'sandbox-proxy' });
+
+    await sandboxes.create('box', {});
+    // Asked again until it answers: once early, while the machine boots, and before registering.
+    expect(proxy.healthy.mock.calls.length).toBeGreaterThan(2);
+
+    const missing = machinesOf({});
+    await expect(
+      sandboxesOf({ compute: missing, proxyInstance: 'sandbox-proxy' }).resume('box', {}),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      sandboxesOf({
+        compute: machinesOf({ 'sbx-box': 'TERMINATED' }),
+        proxyInstance: 'sandbox-proxy',
+      }).resume('box', {}),
+    ).rejects.toMatchObject({ status: 500 });
+    const silent = proxyOf();
+    silent.healthy.mockResolvedValue(false);
+    await expect(
+      sandboxesOf({
+        compute: machinesOf({ 'sbx-box': 'TERMINATED', 'sandbox-proxy': 'RUNNING' }),
+        proxy: silent,
+        proxyInstance: 'sandbox-proxy',
+        startTimeoutMs: -1,
+      }).resume('box', {}),
+    ).rejects.toMatchObject({ status: 504 });
+  });
+
+  it('limits how long a machine runs at a time, Spot or standard', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const limit = { maxRunDuration: { seconds: '3600' }, instanceTerminationAction: 'STOP' };
+    const spot = computeOf([undefined, sandbox('RUNNING')]);
+    await sandboxesOf({
+      compute: spot,
+      machine: { ...machine, spot: true, maxRunSeconds: 3600 },
+    }).create('box', {});
+    expect(spot.insertInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduling: expect.objectContaining(limit) as unknown }),
+    );
+
+    const standard = computeOf([undefined, sandbox('RUNNING')]);
+    await sandboxesOf({ compute: standard, machine: { ...machine, maxRunSeconds: 3600 } }).create(
+      'box',
+      {},
+    );
+    expect(standard.insertInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduling: expect.objectContaining(limit) as unknown }),
+    );
+
+    const exhausted = computeOf([sandbox('TERMINATED'), sandbox('RUNNING')]);
+    exhausted.startInstance.mockRejectedValueOnce(
+      new ComputeError(503, 'no capacity', 'ZONE_RESOURCE_POOL_EXHAUSTED'),
+    );
+    await sandboxesOf({
+      compute: exhausted,
+      machine: { ...machine, spot: true, maxRunSeconds: 3600 },
+    }).resume('box', {});
+    expect(exhausted.setScheduling).toHaveBeenCalledWith(
+      'sbx-box',
+      expect.objectContaining({ provisioningModel: 'STANDARD', ...limit }),
+    );
+  });
+
   it('creates a machine on a private network, as a spot one when asked', async () => {
     agentAnswers(PROTOCOL_VERSION);
     const compute = computeOf([undefined, sandbox('RUNNING')]);
@@ -180,7 +331,94 @@ describe('the sandboxes of the service', () => {
     await expect(sandboxesOf({ compute }).create('box', {})).rejects.toMatchObject({
       status: 503,
     });
-    expect(compute.deleteInstance).toHaveBeenCalledWith('sbx-box');
+    expect(compute.deleteInstance).toHaveBeenCalledWith('sbx-box', { wait: false });
+  });
+
+  it('creates a standard machine when the zone has no Spot capacity left', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = computeOf([undefined, sandbox('RUNNING')]);
+    compute.insertInstance.mockRejectedValueOnce(
+      new ComputeError(503, 'no capacity', 'ZONE_RESOURCE_POOL_EXHAUSTED'),
+    );
+    const warn = vi.fn();
+    const sandboxes = sandboxesOf({
+      compute,
+      machine: { ...machine, spot: true },
+      logger: { ...silentLogger, warn },
+    });
+
+    await sandboxes.create('box', {});
+
+    const [, [standard] = []] = compute.insertInstance.mock.calls as unknown as [
+      unknown,
+      [{ scheduling: unknown }],
+    ];
+    expect(standard?.scheduling).toEqual({ automaticRestart: true, onHostMaintenance: 'MIGRATE' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('as a standard machine'));
+  });
+
+  it('fails without Spot capacity when told not to fall back, or for a standard machine', async () => {
+    const exhausted = (): Stub<ComputeApi> => {
+      const compute = computeOf([undefined]);
+      compute.insertInstance.mockRejectedValue(
+        new ComputeError(503, 'no capacity', 'ZONE_RESOURCE_POOL_EXHAUSTED'),
+      );
+      return compute;
+    };
+
+    await expect(
+      sandboxesOf({
+        compute: exhausted(),
+        machine: { ...machine, spot: true, spotFallback: false },
+      }).create('box', {}),
+    ).rejects.toMatchObject({ status: 503 });
+    await expect(sandboxesOf({ compute: exhausted() }).create('box', {})).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+
+  it('refuses to create or start a sandbox beyond the most running at once', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const others = [sandbox('RUNNING'), sandbox('STAGING'), sandbox('TERMINATED')];
+    const full = computeOf([undefined]);
+    full.listInstances.mockResolvedValue(others);
+
+    await expect(
+      sandboxesOf({ compute: full, maxRunning: 2 }).create('box', {}),
+    ).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringContaining('SANDBOX_MAX_RUNNING=2') as unknown,
+    });
+    expect(full.insertInstance).not.toHaveBeenCalled();
+    expect(full.listInstances).toHaveBeenCalledWith('ai-sdk-sandbox', 'sandbox');
+
+    const stopped = computeOf([sandbox('TERMINATED')]);
+    stopped.listInstances.mockResolvedValue(others);
+    await expect(
+      sandboxesOf({ compute: stopped, maxRunning: 2 }).resume('box', {}),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(stopped.startInstance).not.toHaveBeenCalled();
+
+    const room = computeOf([undefined, sandbox('RUNNING')]);
+    room.listInstances.mockResolvedValue(others);
+    await sandboxesOf({ compute: room, maxRunning: 3 }).create('box', {});
+    expect(room.insertInstance).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a machine on its way out before taking its name, and refuses one that stays', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = computeOf([sandbox('STOPPING'), undefined, sandbox('RUNNING')]);
+
+    await sandboxesOf({ compute }).create('box', {});
+    expect(compute.insertInstance).toHaveBeenCalledTimes(1);
+
+    const stuck = computeOf([sandbox('STOPPING')]);
+    await expect(
+      sandboxesOf({ compute: stuck, startTimeoutMs: -1 }).create('box', {}),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      sandboxesOf({ compute: computeOf([sandbox('TERMINATED')]) }).create('box', {}),
+    ).rejects.toMatchObject({ status: 409 });
   });
 
   it('refuses an agent of another protocol, and one that does not answer', async () => {
@@ -241,6 +479,35 @@ describe('the sandboxes of the service', () => {
     expect(compute.resumeInstance).toHaveBeenCalledWith('sbx-box');
   });
 
+  it('starts a stopped Spot machine as a standard one when the zone has no Spot capacity', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = computeOf([sandbox('TERMINATED'), sandbox('RUNNING')]);
+    compute.startInstance.mockRejectedValueOnce(
+      new ComputeError(503, 'no capacity', 'ZONE_RESOURCE_POOL_EXHAUSTED'),
+    );
+
+    await sandboxesOf({ compute, machine: { ...machine, spot: true } }).resume('box', {});
+
+    expect(compute.setScheduling).toHaveBeenCalledWith('sbx-box', {
+      automaticRestart: true,
+      onHostMaintenance: 'MIGRATE',
+      provisioningModel: 'STANDARD',
+      preemptible: false,
+      instanceTerminationAction: null,
+    });
+    expect(compute.startInstance).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes on any other failure to start a machine', async () => {
+    const compute = computeOf([sandbox('TERMINATED')]);
+    compute.startInstance.mockRejectedValueOnce(new ComputeError(403, 'quota', 'QUOTA_EXCEEDED'));
+
+    await expect(
+      sandboxesOf({ compute, machine: { ...machine, spot: true } }).resume('box', {}),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(compute.setScheduling).not.toHaveBeenCalled();
+  });
+
   it('cannot resume a sandbox that is gone, not the service own, or stuck', async () => {
     const resume = (instance: Instance | undefined, startTimeoutMs = 15_000) =>
       sandboxesOf({ compute: computeOf([instance]), startTimeoutMs }).resume('box', {});
@@ -265,7 +532,30 @@ describe('the sandboxes of the service', () => {
     await sandboxes.suspend('box');
 
     expect(compute.stopInstance).toHaveBeenCalledTimes(1);
+    expect(compute.stopInstance).toHaveBeenCalledWith('sbx-box', { wait: false });
     expect(warn).toHaveBeenCalledWith('The proxy could not forget box: Error: unreachable');
+  });
+
+  it('waits for a machine told to stop to leave RUNNING, and gives up on one that stays', async () => {
+    const compute = computeOf([sandbox('RUNNING'), sandbox('RUNNING'), sandbox('STOPPING')]);
+    compute.stopInstance.mockResolvedValue();
+
+    await sandboxesOf({ compute }).suspend('box');
+    expect(compute.getInstance).toHaveBeenCalledTimes(3);
+
+    const stuck = computeOf([sandbox('RUNNING')]);
+    stuck.deleteInstance.mockResolvedValue();
+    await expect(
+      sandboxesOf({ compute: stuck, startTimeoutMs: -1 }).delete('box'),
+    ).rejects.toMatchObject({ status: 504 });
+  });
+
+  it('deletes a machine without waiting for Compute Engine to be done', async () => {
+    const compute = computeOf();
+
+    await sandboxesOf({ compute }).delete('box');
+
+    expect(compute.deleteInstance).toHaveBeenCalledWith('sbx-box', { wait: false });
   });
 
   it('passes on what a sandbox may reach and its credentials to the proxy', async () => {

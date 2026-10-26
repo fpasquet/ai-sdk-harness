@@ -37,6 +37,7 @@ describe('the service configuration', () => {
       subnetwork: undefined,
       tags: ['ai-sdk-sandbox'],
       spot: false,
+      spotFallback: true,
     });
     expect(config.instancePrefix).toBe('sbx-');
     expect(config.agentPort).toBe(8100);
@@ -55,6 +56,10 @@ describe('the service configuration', () => {
         SANDBOX_ALLOWED_HOSTS: 'registry.npmjs.org, *.github.com',
         SANDBOX_BASE_URLS: 'GATEWAY_URL=https://gateway.example.com',
         SANDBOX_SPOT: 'true',
+        SANDBOX_SPOT_FALLBACK: 'false',
+        SANDBOX_MAX_RUNNING: '10',
+        SANDBOX_MAX_RUN_HOURS: '1.5',
+        SANDBOX_PROXY_INSTANCE: 'sandbox-proxy',
         SANDBOX_IMAGES: 'python=family/sandbox-python, go=projects/images-project/global/images/go',
       },
       silentLogger,
@@ -65,11 +70,26 @@ describe('the service configuration', () => {
       python: 'projects/my-project/global/images/family/sandbox-python',
       go: 'projects/images-project/global/images/go',
     });
-    expect(config.machine.spot).toBe(true);
+    expect(config.machine).toMatchObject({ spot: true, spotFallback: false });
+    expect(config.maxRunning).toBe(10);
+    expect(config.machine.maxRunSeconds).toBe(5400);
+    expect(config.proxyInstance).toBe('sandbox-proxy');
     expect(config.network).toEqual({
       allowedHosts: ['registry.npmjs.org', '*.github.com'],
       baseUrls: { GATEWAY_URL: 'https://gateway.example.com' },
     });
+  });
+
+  it('refuses a limit of running sandboxes that is no positive integer', async () => {
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_MAX_RUNNING: '0' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_MAX_RUNNING: `0` is not a positive integer.');
+  });
+
+  it('refuses a run limit under 30 s', async () => {
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_MAX_RUN_HOURS: '0.001' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_MAX_RUN_HOURS: `0.001` is not a number of hours, 30 s at least.');
   });
 
   it('says what is missing', async () => {

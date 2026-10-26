@@ -44,6 +44,18 @@ export class ProxyAdmin {
     return ((await response.json()) as { refused?: boolean }).refused === true;
   }
 
+  /** Whether the proxy answers: its machine booted and its process listens. */
+  async healthy(): Promise<boolean> {
+    try {
+      const response = await fetch(new URL('health', `${this.url.replace(/\/$/, '')}/`), {
+        signal: AbortSignal.timeout(2000),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   /** Forgets the sandbox `name` and its credentials. Idempotent. */
   async remove(name: string): Promise<void> {
     await this.call('DELETE', name);

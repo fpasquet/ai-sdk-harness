@@ -42,7 +42,7 @@ export function main(env: Environment): void {
     );
   }
   const registry = new SandboxRegistry(config.allowPrivateNetwork);
-  const proxy = new EgressProxy((address) => registry.policyFor(address));
+  const proxy = new EgressProxy((address) => registry.policyFor(address), logger);
   const admin = createAdminServer({ registry, token: config.token, logger });
   proxy.server.listen(config.port, config.host, () =>
     logger.info(`Egress proxy listening on ${config.host}:${config.port}`),

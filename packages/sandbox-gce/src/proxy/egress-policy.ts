@@ -6,6 +6,8 @@ type KeyValueMatcher = { key?: Matcher; value?: Matcher };
 
 /** What one sandbox may reach, and the credentials its requests leave with. */
 export interface EgressPolicy {
+  /** The sandbox's name, which the proxy's log lines name it by. */
+  readonly name?: string;
   /** Hosts it may reach, `*.domain` for a domain's subdomains, `*` for any. */
   readonly allowedHosts: readonly string[];
   /** Hosts its base URLs point to: the model APIs, always reachable through their routes. */
