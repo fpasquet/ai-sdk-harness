@@ -45,8 +45,10 @@ export function sameSecret(given: string | string[] | undefined, expected: strin
 
 /** The bearer token of an `Authorization` header, if it carries one. */
 export function bearer(header: string | undefined): string | undefined {
-  const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
-  return match?.[1]?.trim();
+  // No regular expression past the scheme: one over the token backtracks on a run of spaces.
+  if (header === undefined || !/^Bearer\s/i.test(header)) return undefined;
+  const token = header.slice('Bearer'.length).trim();
+  return token === '' ? undefined : token;
 }
 
 /** Waits for `exited`, `waitMs` at most: its exit code, or that the process still runs. */
