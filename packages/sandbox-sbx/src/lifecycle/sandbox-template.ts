@@ -2,8 +2,12 @@ import type { HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 
 import { createHash, randomBytes } from 'node:crypto';
 
+import type { SbxCreationSettings } from '../sbx-settings.js';
 import type { SbxCli } from '../transport/sbx-cli.js';
 
+import { blockedRequests } from '../network/blocked-requests.js';
+import { applyNetworkPolicy } from '../network/network-policy.js';
+import { createArgs } from './create-args.js';
 import { openSandbox, runSetup } from './open-sandbox.js';
 import { assertRequiredCommands } from './required-commands.js';
 
@@ -21,6 +25,11 @@ export interface TemplateSource {
   setup: readonly string[];
   /** Commands the image must have once set up: not part of the template's reference. */
   requiredCommands: readonly string[];
+  /**
+   * The network of the sandbox the template is for: its setup and the harness's install run under
+   * it, as they would in that sandbox. Not part of the template's reference.
+   */
+  network: Pick<SbxCreationSettings, 'allowNetwork' | 'denyNetwork' | 'networkPolicy'>;
 }
 
 /** Images being built by this process, by reference: one build per reference at a time. */
@@ -58,11 +67,13 @@ export async function ensureTemplateImage(
  * `ai-sdk-harness-template-<digest>` in the cloud.
  */
 export function templateReference(
-  { template, agent, image, setup }: Omit<TemplateSource, 'requiredCommands'>,
+  { template, agent, image, setup }: Omit<TemplateSource, 'network' | 'requiredCommands'>,
   cloud = false,
 ): string {
+  // 2: templates are built under the network of their sandbox. Those of 1 ran their setup with
+  // the machine's whole network, and are built again.
   const digest = createHash('sha256')
-    .update(JSON.stringify([1, template.identity, agent, image ?? null, setup]))
+    .update(JSON.stringify([2, template.identity, agent, image ?? null, setup]))
     .digest('hex')
     .slice(0, 24);
   return cloud
@@ -97,9 +108,27 @@ async function imageExists(
   return images.some(({ repository, tag }) => `${repository}:${tag}` === reference);
 }
 
+/**
+ * `error`, with the hosts the network refused to the builder sandbox when there were some: the
+ * likely reason its setup or the harness's install failed.
+ */
+async function withRefusedHosts(cli: SbxCli, builder: string, error: unknown): Promise<unknown> {
+  // Only a local sandbox has a policy log.
+  if (cli.cloud) return error;
+  const refused = await blockedRequests(cli, builder).catch(() => []);
+  if (refused.length === 0) return error;
+  const hosts = [...new Set(refused.map(({ host }) => host))].join(', ');
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `${message}\nThe template was built under the sandbox's network, which refused ${hosts}: ` +
+      'allow what its setup and the harness install need in `networkPolicy`.',
+    { cause: error },
+  );
+}
+
 async function buildImage({
   cli,
-  source: { template, agent, image, setup, requiredCommands },
+  source: { template, agent, image, setup, requiredCommands, network },
   reference,
   abortSignal,
 }: {
@@ -109,11 +138,19 @@ async function buildImage({
   abortSignal?: AbortSignal;
 }): Promise<string> {
   const builder = `${TEMPLATE_REPOSITORY}-${reference.slice(-12)}-${randomBytes(3).toString('hex')}`;
-  await cli.check(['create', '--name', builder, ...(image ? ['--template', image] : []), agent], {
-    abortSignal,
-    unbounded: true,
-  });
+  // The setup runs under the network of the sandbox the template is for, never the machine's whole
+  // network: what that sandbox could not reach, its template does not reach either.
+  await cli.check(
+    createArgs({
+      name: builder,
+      image,
+      fromTemplate: false,
+      settings: { agent, cloud: cli.cloud, ...network },
+    }),
+    { abortSignal, unbounded: true },
+  );
   try {
+    if (network.networkPolicy) await applyNetworkPolicy(cli, builder, network.networkPolicy);
     await runSetup(cli, builder, { setup, abortSignal });
     await assertRequiredCommands(cli, builder, { commands: requiredCommands, abortSignal });
     const session = await openSandbox(cli, builder, { abortSignal });
@@ -125,6 +162,8 @@ async function buildImage({
       unbounded: true,
     });
     return reference;
+  } catch (error) {
+    throw await withRefusedHosts(cli, builder, error);
   } finally {
     await cli.run(['rm', '--force', builder]);
   }

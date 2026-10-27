@@ -243,6 +243,71 @@ describe('createSbxNetworkSandboxSession', () => {
       );
     });
 
+    it("builds the template under the sandbox's network, before its setup", async () => {
+      const recipe = template('recipe-fenced');
+
+      await createSbxNetworkSandboxSession({
+        binary: sbx.binary,
+        sandboxId: 'box',
+        template: recipe,
+        setup: ['echo setup'],
+        denyNetwork: ['github.com'],
+        networkPolicy: { mode: 'custom', allowedHosts: ['registry.npmjs.org'] },
+      });
+
+      const builderCreation = sbx.callsOf('create')[0];
+      expect(builderCreation).toEqual(expect.arrayContaining(['--deny-network', 'github.com']));
+      const builder = builderCreation?.[2];
+      expect(builder).toMatch(/^ai-sdk-harness-template-/);
+      const calls = sbx.calls();
+      const fenced = calls.findIndex(
+        (call) => call.includes('policy') && call.includes(`--sandbox`) && call.includes(builder!),
+      );
+      const setup = calls.findIndex((call) => call.at(-1) === 'echo setup');
+      expect(fenced).toBeGreaterThan(-1);
+      expect(fenced).toBeLessThan(setup);
+      expect(calls[fenced]).toEqual(expect.arrayContaining(['allow', 'registry.npmjs.org']));
+    });
+
+    it('names the hosts the network refused when the build fails', async () => {
+      const refused: HarnessV1SandboxTemplate = {
+        identity: 'recipe-refused',
+        prepare: vi.fn(() => {
+          const builder = Object.keys(sbx.state().sandboxes).find((name) =>
+            name.startsWith('ai-sdk-harness-template-'),
+          )!;
+          sbx.update((state) => {
+            const seen = new Date().toISOString();
+            state.policyLog = {
+              allowed: [],
+              blocked: [
+                {
+                  sandbox_id: builder,
+                  host: 'registry.npmjs.org:443',
+                  proxy_type: 'forward',
+                  reason: 'Denied by local rule',
+                  count: 1,
+                  first_seen: seen,
+                  last_seen: seen,
+                },
+              ],
+            };
+          });
+          return Promise.reject(new Error('npm install failed'));
+        }),
+      };
+
+      const creation = createSbxNetworkSandboxSession({
+        binary: sbx.binary,
+        sandboxId: 'box',
+        template: refused,
+        networkPolicy: { mode: 'custom', allowedHosts: ['example.com'] },
+      });
+
+      await expect(creation).rejects.toThrow(/npm install failed\n.*refused registry\.npmjs\.org/);
+      expect(sbx.state().sandboxes).toEqual({});
+    });
+
     it('removes the builder sandbox when preparing fails, and builds again next time', async () => {
       const failing: HarnessV1SandboxTemplate = {
         identity: 'recipe-3',

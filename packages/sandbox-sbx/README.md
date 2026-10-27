@@ -101,7 +101,7 @@ const sandboxSession = await createSbxNetworkSandboxSession({
 });
 ```
 
-The first call creates a throwaway sandbox, runs `setup` in it, lets the harness prepare it, saves it with `sbx template save` and removes it. The image is named `ai-sdk-harness-template:<digest>`, the digest covering the harness recipe, the agent kit, the `image` and the `setup` commands, so a new harness version gets an image of its own. Every later sandbox starts from it with `sbx create --template … --pull never`.
+The first call creates a throwaway sandbox, under the network of the sandbox it is for (`networkPolicy`, `denyNetwork`, `allowNetwork`), runs `setup` in it, lets the harness prepare it, saves it with `sbx template save` and removes it. What the sandbox could not reach, its template does not reach either: allow what `setup` and the harness's install need, its registry for one (`harnessHosts()` of [`ai-sdk-harness-network`](https://ai-sdk-harness.pages.dev/docs/packages/harness-network) lists them). A build that fails names the hosts the network refused to it. The image is named `ai-sdk-harness-template:<digest>`, the digest covering the harness recipe, the agent kit, the `image` and the `setup` commands, so a new harness version gets an image of its own. Every later sandbox starts from it with `sbx create --template … --pull never`.
 
 The images stay in the sandbox runtime's store: list them with `sbx template ls`, remove an outdated one with `sbx template rm`.
 

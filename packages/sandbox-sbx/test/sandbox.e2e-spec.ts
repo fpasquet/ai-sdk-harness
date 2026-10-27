@@ -130,6 +130,18 @@ describe('the network of a Docker Sandbox', () => {
     expect(await status('https://github.com')).toBe('403');
   });
 
+  it("builds a template under the sandbox's network, and says what it refused", async () => {
+    const creation = createSbxNetworkSandboxSession({
+      binary,
+      sandboxId: `ai-sdk-sbx-e2e-${run}-tpl-net`,
+      networkPolicy: { mode: 'custom', allowedHosts: ['example.com'] },
+      template: { identity: `e2e-fenced-${run}`, prepare: () => Promise.resolve() },
+      setup: ['curl -sf -m 8 -o /dev/null https://example.com', 'curl -sf -m 8 https://github.com'],
+    });
+
+    await expect(creation).rejects.toThrow(/refused .*github\.com/);
+  });
+
   it('keeps reaching them once the same policy is applied again, as on a restart', async () => {
     await fenced.setNetworkPolicy?.({ mode: 'custom', allowedHosts: ['example.com'] });
 
