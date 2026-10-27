@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { silentLogger } from '../common/logger.js';
 import { listenConfig, sandboxesConfig } from './config.js';
@@ -118,5 +118,22 @@ describe('the credentials of the Kubernetes API', () => {
     expect(credentials.namespace()).toBe('sandboxes');
     expect(credentials.bearer()).toBe('token-1');
     expect(new KubernetesCredentials('none').bearer()).toBeUndefined();
+    expect(new KubernetesCredentials('none').namespace()).toBeUndefined();
+  });
+
+  it('keep the token a minute, then read the rotated one', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'service-account-'));
+    writeFileSync(join(directory, 'ca.crt'), 'certificate');
+    writeFileSync(join(directory, 'token'), 'token-1\n');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+    const credentials = new KubernetesCredentials('service-account', directory);
+
+    expect(credentials.bearer()).toBe('token-1');
+    writeFileSync(join(directory, 'token'), 'token-2\n');
+    now.mockReturnValue(59_999);
+    expect(credentials.bearer()).toBe('token-1');
+    now.mockReturnValue(60_000);
+    expect(credentials.bearer()).toBe('token-2');
+    now.mockRestore();
   });
 });

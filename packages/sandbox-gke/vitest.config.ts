@@ -7,8 +7,13 @@ export default vitestConfig({
     globalSetup: ['test/build-helpers.ts'],
     testTimeout: 20_000,
     coverage: {
-      // Run as child processes or as the command line: v8 does not see them.
-      exclude: ['src/in-pod/main.ts', 'src/proxy/main.ts', 'src/server/main.ts', 'src/cli.ts'],
+      // Run as child processes, in the pods or as the command line: v8 does not see them.
+      exclude: [
+        'src/in-pod/!(environment).ts',
+        'src/proxy/main.ts',
+        'src/server/main.ts',
+        'src/cli.ts',
+      ],
     },
   },
 });
