@@ -132,6 +132,30 @@ export interface ChangedFile {
   /** Lines removed; `0` for a binary file. */
   deletions: number;
   binary: boolean;
+  /**
+   * Its Git mode once changed: `100644` a file, `100755` an executable, `120000` a symbolic link,
+   * `160000` a submodule. Absent for a deleted file.
+   */
+  mode?: GitFileMode;
+  /**
+   * What the repository would hold, byte for byte, once the change is committed: the content of a
+   * file, the target of a symbolic link. With `{ contents: true }` only; absent for a deleted file
+   * and a submodule.
+   */
+  content?: Uint8Array;
+}
+
+/** A file's mode, as Git records it. */
+export type GitFileMode = '100644' | '100755' | '120000' | '160000';
+
+/** What {@link CheckoutOperations.changedFiles} reads. */
+export interface ChangedFilesOptions {
+  /**
+   * Reads each file's `content` too, as Git stores it: enough to publish the change through a
+   * forge's API — blobs, a tree, a commit — without pushing from the sandbox.
+   */
+  contents?: boolean;
+  abortSignal?: AbortSignal;
 }
 
 /** What a session's checkout, or all of them at once, can be asked. */
@@ -155,8 +179,11 @@ interface CheckoutOperations {
    * nothing changed.
    */
   changes(options?: { abortSignal?: AbortSignal }): Promise<Uint8Array>;
-  /** The files {@link changes} holds, with how many lines each gained and lost. */
-  changedFiles(options?: { abortSignal?: AbortSignal }): Promise<ChangedFile[]>;
+  /**
+   * The files {@link changes} holds, with how many lines each gained and lost and its mode; their
+   * content too with `contents: true`.
+   */
+  changedFiles(options?: ChangedFilesOptions): Promise<ChangedFile[]>;
   /** Where it all happens. */
   readonly directory: string;
 }

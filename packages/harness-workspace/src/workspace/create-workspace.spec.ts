@@ -1,7 +1,7 @@
 import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
 
 import { execFile } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -151,7 +151,11 @@ describe('createWorkspace', () => {
         { path: 'logo.bin', status: 'modified', additions: 0, deletions: 0, binary: true },
         { path: 'new.txt', status: 'added', additions: 1, deletions: 0, binary: false },
         { path: 'old.txt', status: 'deleted', additions: 0, deletions: 1, binary: false },
-      ].map((file) => ({ ...file, repository })),
+      ].map((file) => ({
+        ...file,
+        repository,
+        ...(file.status !== 'deleted' && { mode: '100644' }),
+      })),
     );
     expect(session.repositories.map(({ name, directory: at }) => ({ name, at }))).toEqual([
       { name: repository, at: directory },
@@ -167,6 +171,37 @@ describe('createWorkspace', () => {
     expect([...(await readFile(join(copy, 'logo.bin')))]).toEqual([0, 1, 2, 3, 4]);
     expect(await exists(join(copy, 'old.txt'))).toBe(false);
     expect(await exists(join(copy, 'node_modules'))).toBe(false);
+  });
+
+  it('reads what each changed file holds, as git stores it, with its mode', async () => {
+    const { directory } = await start('a');
+    await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+    await writeFile(join(directory, 'logo.bin'), Buffer.from([0, 10, 255, 10, 0]));
+    await writeFile(join(directory, 'run.sh'), '#!/bin/sh\necho run\n', { mode: 0o755 });
+    await symlink('index.js', join(directory, 'link.js'));
+    await unlink(join(directory, 'old.txt'));
+
+    const session = workspace.session('a')!;
+    const files = await session.changedFiles({ contents: true });
+
+    const byPath = new Map(files.map((file) => [file.path, file]));
+    const text = (path: string) => new TextDecoder().decode(byPath.get(path)?.content);
+    expect(byPath.get('index.js')).toMatchObject({ mode: '100644' });
+    expect(text('index.js')).toBe('export const answer = 42;\n');
+    expect([...(byPath.get('logo.bin')?.content ?? [])]).toEqual([0, 10, 255, 10, 0]);
+    expect(byPath.get('run.sh')).toMatchObject({ mode: '100755', status: 'added' });
+    expect(text('run.sh')).toBe('#!/bin/sh\necho run\n');
+    // A symbolic link holds its target.
+    expect(byPath.get('link.js')).toMatchObject({ mode: '120000' });
+    expect(text('link.js')).toBe('index.js');
+    expect(byPath.get('old.txt')).toMatchObject({ status: 'deleted' });
+    expect(byPath.get('old.txt')).not.toHaveProperty('content');
+    expect(byPath.get('old.txt')).not.toHaveProperty('mode');
+    // Without it, the list alone.
+    expect((await session.changedFiles()).some((file) => 'content' in file)).toBe(false);
+    expect(
+      await session.repository(session.repositories[0]!.name)!.changedFiles({ contents: true }),
+    ).toEqual(files);
   });
 
   it("leaves the agent's own index as it was", async () => {
@@ -447,6 +482,7 @@ describe('createWorkspace', () => {
           additions: 1,
           deletions: 1,
           binary: false,
+          mode: '100644',
         },
         {
           path: 'apps/web/new.txt',
@@ -455,6 +491,7 @@ describe('createWorkspace', () => {
           additions: 1,
           deletions: 0,
           binary: false,
+          mode: '100644',
         },
       ]);
       expect(await session.repository('apps/web')!.changedFiles()).toEqual([
@@ -465,6 +502,7 @@ describe('createWorkspace', () => {
           additions: 1,
           deletions: 0,
           binary: false,
+          mode: '100644',
         },
       ]);
       expect(await readFile(join(directory, 'api/.env.local'), 'utf8')).toBe('TOKEN=placeholder\n');

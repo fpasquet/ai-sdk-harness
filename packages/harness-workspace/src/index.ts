@@ -1,6 +1,8 @@
 export type { SourceFetchContext, WorkspaceSource } from './definitions/source.js';
 export type {
   ChangedFile,
+  ChangedFilesOptions,
+  GitFileMode,
   MultiRepositoryWorkspaceOptions,
   SessionSandboxes,
   SessionSandboxLease,

@@ -266,6 +266,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 `changes()` compares the checkout with the commit it started from, `base`: edits, new files, deletions, binary files, and the commits the agent made, files the repository ignores left out. It never touches the agent's own index. The patch applies with `git apply --binary` on a clone at `base`, where your server commits and pushes it with its own identity and credentials: the agent never needs either. Each file of `changedFiles()` names its `repository` as well: with [several repositories](#several-repositories), group them by it, and publish each repository's `changes()` on a clone of it at its own `base`.
 
+To publish without a clone — through a forge's API, blobs, a tree and a commit on top of `base` — ask `changedFiles({ contents: true })`: each file comes with its Git `mode` (`100644`, `100755` for an executable, `120000` for a symbolic link, `160000` for a submodule) and its `content`, the bytes the repository would hold once the change is committed, a symbolic link's target included. They are read from the blobs Git staged, not from the disk, so they are what `changes()` holds; a deleted file has neither, a submodule no content.
+
+```ts
+const files = await checkout.changedFiles({ contents: true });
+// The entries of a GitHub tree on top of `base`; `createBlob` is yours, `POST /git/blobs`.
+const tree = await Promise.all(
+  files
+    .filter(({ mode }) => mode !== '160000')
+    .map(async ({ path, mode = '100644', content }) => ({
+      path,
+      mode,
+      type: 'blob',
+      // A deleted file leaves the tree.
+      sha: content === undefined ? null : await createBlob(Buffer.from(content).toString('base64')),
+    })),
+);
+```
+
 ### Tools that work in the checkout
 
 A tool of your server receives the session's sandbox as `experimental_sandbox`. `workspace.fromSandbox()` finds the checkout from it, to run a command where the agent works:
@@ -343,7 +361,7 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 | `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
 | `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
-A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles()`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
+A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
 
 ### Errors
 
