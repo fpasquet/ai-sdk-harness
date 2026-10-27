@@ -39,6 +39,15 @@ export const REGISTRY_COMPONENTS: RegistryComponent[] = [
     dependencies: ['ai-sdk-harness-approval', 'lucide-react'],
     registryDependencies: ['button', 'input'],
   },
+  {
+    name: 'agent-tasks',
+    title: 'Agent tasks',
+    description:
+      'The task list a harness agent keeps while it works, from tasksOf(messages): how many are done, the task in progress, the done ones struck through.',
+    source: 'components/harness/agent-tasks.tsx',
+    dependencies: ['ai-sdk-harness-sessions', 'lucide-react'],
+    registryDependencies: ['collapsible'],
+  },
 ];
 
 const fileName = (source: string): string => source.slice(source.lastIndexOf('/') + 1);

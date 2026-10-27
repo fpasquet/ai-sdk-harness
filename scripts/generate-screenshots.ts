@@ -7,7 +7,7 @@
  * commands the prompt completes, each answered conversation and the command the agent ran, then
  * one conversation per plugin use case, then the sessions: two conversations working side by side,
  * one resumed after a suspension; then the approvals: a policy allowing, refusing and asking, a
- * command waiting for approval, the agent's questions. All at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
+ * command waiting for approval, the agent's questions; then the task list the agent keeps. All at the same fixed size. Like the example itself, it needs Docker Sandboxes and a
  * Claude credential; the real turns run on Haiku, and on Codex with its credential or the login
  * of its CLI. The library-docs use case needs the server to reach the Context7 MCP server.
  *
@@ -20,7 +20,8 @@
  * USE_CASES=item-http,plugin-hook takes only the use cases named, and nothing else; `sessions`
  * among them takes the screenshots of the sessions too, `approvals` those of the approvals,
  * `marketplace` the empty chat and the details of a plugin, `plugin-check` the pages that check
- * a plugin and an item, `blocked-hosts` the hosts the Docker Sandbox refused, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
+ * a plugin and an item, `blocked-hosts` the hosts the Docker Sandbox refused, `tasks` the agent's
+ * task list, and `workspace` that of the workspace: the example then works on a repository of its own (`EXAMPLE_REPOSITORY`), which the
  * other screenshots do without.
  *
  * Other env: EXAMPLE_URL, CHROME_BIN (default: the installed Chrome), OUT_DIR, WIDTH, HEIGHT, PROMPT,
@@ -437,6 +438,16 @@ async function captureApprovals(page: Page): Promise<void> {
   await settled(page);
 }
 
+/** The task list Claude Code keeps while it works, above the prompt, once every task is done. */
+async function captureTasks(page: Page): Promise<void> {
+  await startChat(page);
+  await converse(
+    page,
+    'Keep a task list with TaskCreate and TaskUpdate while you work, one task per step: write primes.js that prints the first five prime numbers, run it, then show them in a Markdown table. Mark each task in progress when you start it and completed when it is done.',
+  );
+  await capture(page, 'tasks');
+}
+
 async function shoot(browser: Browser): Promise<void> {
   const page = await browser.newPage({
     viewport: { width: WIDTH, height: HEIGHT },
@@ -470,6 +481,7 @@ async function shootPage(page: Page): Promise<void> {
     if (ONLY.includes('workspace')) await captureWorkspace(page);
     if (ONLY.includes('plugin-check')) await capturePluginCheck(page);
     if (ONLY.includes('blocked-hosts')) await captureBlockedHosts(page);
+    if (ONLY.includes('tasks')) await captureTasks(page);
     return;
   }
   await captureMarketplace(page);
@@ -486,6 +498,7 @@ async function shootPage(page: Page): Promise<void> {
   await captureApprovals(page);
   await capturePluginCheck(page);
   await captureBlockedHosts(page);
+  await captureTasks(page);
 }
 
 async function main(): Promise<void> {

@@ -49,6 +49,7 @@ return turn.toUIMessageStreamResponse();
 | Your server crashes                    | Marks the sessions it held `interrupted` at the next start: their conversation can still be read                     |
 | Your server runs on several instances  | With a store that gives leases, each instance runs the sessions it holds, and takes over those of one that crashed   |
 | You want the conversation again        | `get(id)` gives it as `useChat` shows it, `list()` every session, `subscribe()` every change, for a list to follow   |
+| The agent keeps a task list            | `tasksOf(messages)` reads it from the conversation, over every turn, in the browser too                              |
 
 ## Installation
 
@@ -164,6 +165,37 @@ export function GET(request: Request) {
   return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
 }
 ```
+
+### The agent's task list
+
+Claude Code keeps a task list while it works: whole, with `TodoWrite`, or task by task, with `TaskCreate` then `TaskUpdate` and the id the creation returned. `tasksOf()` replays those calls over the whole conversation, every turn of it, and gives the list as it stands. It comes from `ai-sdk-harness-sessions/tasks`, which imports nothing that runs on a server, so a page reads it from `useChat`'s messages:
+
+```tsx
+import { isTaskToolName, tasksOf } from 'ai-sdk-harness-sessions/tasks';
+
+const tasks = useMemo(() => tasksOf(messages), [messages]);
+// [{ id: '1', subject: 'Fix the bug', activeForm: 'Fixing the bug', status: 'in-progress' }, …]
+
+// Show the list once, rather than the calls that keep it.
+if (isToolUIPart(part) && isTaskToolName(getToolName(part))) return null;
+```
+
+The [`AgentTasks` component](https://ai-sdk-harness.pages.dev/docs/ui-components) shows it: how many are done, the task in progress, the done ones struck through.
+
+![The task list Claude Code keeps, above the prompt of the Next.js example](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/tasks.png)
+
+A server that reads the turn's chunks rather than its messages follows the list with `createTaskList()`: pass each tool call to `call()` and its output to `result()`, with the same list for every turn of the session; each returns the whole list when it changed.
+
+```ts
+const list = createTaskList();
+for await (const chunk of turn.stream) {
+  if (chunk.type === 'tool-input-available') list.call(chunk);
+  if (chunk.type === 'tool-output-available') list.result(chunk);
+  if (chunk.type === 'tool-output-error') list.result({ ...chunk, failed: true });
+}
+```
+
+Claude Code gives these tools to some models only: set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` in the harness's environment for the others, `createClaudeCode({ env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } })`, and ask the agent to keep its list in its instructions when it matters. A runtime that keeps no list gives an empty one.
 
 ## The lifecycle
 
@@ -478,6 +510,19 @@ The lease's expiry is read on the database's clock, the one clock all instances 
 | `shutdown()`               | Suspends every live session and shuts the sandboxes down                                                   |
 
 A `SessionTurn` has the turn as a UI message `stream`, `toUIMessageStreamResponse()` for a route, and `done`, the session once the turn is over and written.
+
+### The task list
+
+From `ai-sdk-harness-sessions/tasks`, or the package's root on a server.
+
+| Export                 | What it does                                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `tasksOf(messages)`    | The agent's task list as a conversation leaves it: `AgentTask[]`, empty when it kept none                       |
+| `createTaskList()`     | A list followed call by call: `call({ toolCallId, toolName, input })`, `result({ toolCallId, output, failed })` |
+| `isTaskToolName(name)` | Whether a tool keeps the list: `TodoWrite`, `TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`                   |
+| `TASK_TOOL_NAMES`      | Those tools                                                                                                     |
+
+An `AgentTask` has an `id`, a `subject`, a `status` (`pending`, `in-progress` or `completed`), and the `description` and `activeForm` ("Running the tests") the agent gave.
 
 ### Errors
 

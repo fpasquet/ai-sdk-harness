@@ -1,8 +1,8 @@
 ---
 title: UI components
-description: shadcn/ui components for harness agents — the approval of a tool call, with "Always allow", and the agent's questions — installed from this site's registry.
+description: shadcn/ui components for harness agents — the approval of a tool call, with "Always allow", the agent's questions and its task list — installed from this site's registry.
 seo:
-  description: 'Install ToolApproval and QuestionsForm, shadcn/ui components for AI SDK harness agents, with npx shadcn add: approve, deny or always allow a tool call of Claude Code, and answer its AskUserQuestion questions in a useChat page.'
+  description: 'Install ToolApproval, QuestionsForm and AgentTasks, shadcn/ui components for AI SDK harness agents, with npx shadcn add: approve, deny or always allow a tool call of Claude Code, answer its AskUserQuestion questions and follow its task list in a useChat page.'
 ---
 
 Components for a `useChat` page talking to a `HarnessAgent`, in the line of [AI Elements](https://ai-sdk.dev/elements): they are [shadcn/ui](https://ui.shadcn.com) components, copied into your project, yours to change. They run in the [Next.js example](/docs/examples/next-chat), whose source is what the registry serves.
@@ -12,9 +12,10 @@ Components for a `useChat` page talking to a `HarnessAgent`, in the line of [AI 
 ```bash
 npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/tool-approval.json
 npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
+npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/agent-tasks.json
 ```
 
-Each goes to `components/harness/`, with what it needs: [`ai-sdk-harness-approval`](/docs/packages/harness-approval) for its helpers, and the shadcn/ui `button` and `input`. The index of the registry is at [`/r/registry.json`](/r/registry.json).
+Each goes to `components/harness/`, with what it needs: [`ai-sdk-harness-approval`](/docs/packages/harness-approval) or [`ai-sdk-harness-sessions`](/docs/packages/harness-sessions) for its helpers, and the shadcn/ui `button`, `input` and `collapsible`. The index of the registry is at [`/r/registry.json`](/r/registry.json).
 
 ## `ToolApproval`
 
@@ -68,3 +69,25 @@ if (getToolName(part) === 'askUserQuestions') {
 | `questions` | The input of the call, `AgentQuestions`                                           |
 | `onSubmit`  | Called with its output, `AgentAnswers`: answered, partially answered, or declined |
 | `disabled`  | Locks the form, while the answers are sent                                        |
+
+## `AgentTasks`
+
+The task list the agent keeps while it works — Claude Code's `TodoWrite`, `TaskCreate` and `TaskUpdate` —, as [`tasksOf()`](/docs/packages/harness-sessions#the-agents-task-list) reads it from the conversation: how many are done, the task in progress in what the agent is doing ("Running the tests"), the done ones struck through. Its header folds it; it renders nothing while the agent kept no list.
+
+![The task list Claude Code keeps, above the prompt](/screenshots/next-chat/tasks.png)
+
+```tsx
+import { tasksOf } from 'ai-sdk-harness-sessions/tasks';
+
+import { AgentTasks } from '@/components/harness/agent-tasks';
+
+const tasks = useMemo(() => tasksOf(messages), [messages]);
+
+<AgentTasks tasks={tasks} />;
+```
+
+| Prop          | Description                                    |
+| ------------- | ---------------------------------------------- |
+| `tasks`       | The list, `AgentTask[]`, from `tasksOf()`      |
+| `defaultOpen` | Whether it shows open at first: `true` default |
+| `className`   | Classes for its container                      |

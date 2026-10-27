@@ -3,6 +3,7 @@ import type { AgentAnswers, AgentQuestions } from 'ai-sdk-harness-approval';
 
 import { getToolName, isToolUIPart } from 'ai';
 import { QUESTIONS_TOOL_NAME } from 'ai-sdk-harness-approval';
+import { isTaskToolName } from 'ai-sdk-harness-sessions/tasks';
 
 import type { ToolApprovalResponse } from '@/components/harness/tool-approval';
 
@@ -30,7 +31,8 @@ export interface PartAnswers {
 /**
  * One part of a message: the agent's answer, rendered as Markdown while it streams in, its
  * reasoning, its questions, or a tool it ran in the sandbox, such as Claude Code's own `Bash`,
- * `Read`, `Write`…
+ * `Read`, `Write`… Its task list shows above the prompt: the calls that keep it do not show here,
+ * unless one waits for an approval.
  */
 export function MessagePart({
   answers,
@@ -51,7 +53,9 @@ export function MessagePart({
     );
   }
   if (!isToolUIPart(part)) return null;
-  if (getToolName(part) === QUESTIONS_TOOL_NAME) {
+  const toolName = getToolName(part);
+  if (isTaskToolName(toolName) && part.state !== 'approval-requested') return null;
+  if (toolName === QUESTIONS_TOOL_NAME) {
     return <Questions onAnswers={answers.onAnswers} part={part} />;
   }
   return <ToolCall onApproval={answers.onApproval} part={part} />;

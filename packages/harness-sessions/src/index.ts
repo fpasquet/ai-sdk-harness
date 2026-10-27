@@ -35,3 +35,11 @@ export type {
   SharedSandboxOptions,
 } from './sandboxes/shared-sandbox.js';
 export { createMemorySessionStore } from './store/memory-session-store.js';
+export { createTaskList, isTaskToolName, TASK_TOOL_NAMES, tasksOf } from './tasks/task-list.js';
+export type {
+  AgentTask,
+  AgentTaskStatus,
+  TaskList,
+  TaskToolCall,
+  TaskToolResult,
+} from './tasks/task-list.js';
