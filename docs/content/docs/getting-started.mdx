@@ -6,8 +6,9 @@ description: Run a first Claude Code turn in a local Docker Sandbox.
 <Callout>
   This guide uses Docker Sandboxes, which run on your machine with nothing to deploy. To run the
   agent on Google Cloud instead, start from
-  [ai-sdk-sandbox-cloud-run](/docs/packages/sandbox-cloud-run): it begins with deploying the sandbox
-  service.
+  [ai-sdk-sandbox-cloud-run](/docs/packages/sandbox-cloud-run) or
+  [ai-sdk-sandbox-gce](/docs/packages/sandbox-gce): each begins with deploying its sandbox service.
+  [Choosing a sandbox](/docs/choosing-a-sandbox) compares them all.
 </Callout>
 
 <Steps>
@@ -91,4 +92,5 @@ The first run installs Claude Code in a sandbox and saves it as a template image
 - [Add plugins](/docs/adding-plugins) to the agent: a hook that guards it, slash commands, skills and MCP servers.
 - [Resume a sandbox](/docs/packages/sandbox-sbx#resuming-a-sandbox) across processes instead of creating one per run.
 - [Mount your project](/docs/packages/sandbox-sbx#working-on-your-files) so the agent works on your files.
+- [Work on a Python, Go or Rust project](/docs/choosing-a-sandbox#working-on-a-python-go-or-rust-project): an image with its toolchain, and its registries opened.
 - Look at the [Next.js chat example](/docs/examples/next-chat) for a streamed, multi-turn conversation.
