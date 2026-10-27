@@ -20,7 +20,7 @@ export type {
   TurnReport,
   TurnStepReport,
 } from './definitions/session.js';
-export type { SessionClaim, SessionStore } from './definitions/store.js';
+export type { SessionOwnership, SessionStore } from './definitions/store.js';
 export { SessionCapacityError } from './errors/session-capacity-error.js';
 export { SessionConflictError } from './errors/session-conflict-error.js';
 export { SessionNotFoundError } from './errors/session-not-found-error.js';
@@ -34,7 +34,10 @@ export type {
   SandboxView,
   SharedSandboxOptions,
 } from './sandboxes/shared-sandbox.js';
+export { aesGcmCipher, withEncryptedResumeState } from './store/encrypted-resume-state.js';
+export type { ResumeStateCipher } from './store/encrypted-resume-state.js';
 export { createMemorySessionStore } from './store/memory-session-store.js';
+export type { MemorySessionStoreOptions } from './store/memory-session-store.js';
 export { createTaskList, isTaskToolName, TASK_TOOL_NAMES, tasksOf } from './tasks/task-list.js';
 export type {
   AgentTask,

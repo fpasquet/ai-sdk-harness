@@ -107,8 +107,11 @@ describe('several managers sharing a store', () => {
 
   it('refuses a session another manager is creating', async () => {
     const a = manager('a');
-    await store.claimSession('s1', 'b');
-    await store.renewLease('b', 60_000);
+    await store.writeOwnership('s1', {
+      owner: 'b',
+      expiresAt: new Date(Date.now() + 60_000),
+      version: 1,
+    });
 
     await expect(a.create({ id: 's1', metadata: { title: 'One' } })).rejects.toMatchObject({
       owner: 'b',
@@ -156,10 +159,24 @@ describe('several managers sharing a store', () => {
     await until(async () => (await b.get('s1'))?.status === 'interrupted');
   });
 
-  it('refuses a store that gives some of the lease methods only', () => {
-    const { renewLease: _renew, ...partial } = leasingStore<Metadata>();
+  it('lets one manager win a session that two claim at once', async () => {
+    await store.writeOwnership('s1', { owner: 'gone', expiresAt: new Date(0), version: 1 });
+    const a = manager('a');
+    const b = manager('b');
 
-    expect(() => manager('a', { store: partial })).toThrow(/all three/);
+    const created = await Promise.allSettled([
+      a.create({ id: 's2', metadata: { title: 'Two' } }),
+      b.create({ id: 's2', metadata: { title: 'Two' } }),
+    ]);
+
+    expect(created.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    expect(['a', 'b']).toContain(store.owners.get('s2'));
+  });
+
+  it('refuses a store that gives some of the lease methods only', () => {
+    const { renewOwnerships: _renew, ...partial } = leasingStore<Metadata>();
+
+    expect(() => manager('a', { store: partial })).toThrow(/all four/);
     expect(manager('b', { store: createMemorySessionStore() }).managerId).toBe('b');
   });
 });

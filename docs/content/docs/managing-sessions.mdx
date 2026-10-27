@@ -108,7 +108,7 @@ After `idleTimeoutMs` without a message, a session is suspended: its harness ses
 
 ![A conversation resumed after a suspension: the agent remembers what it did](/screenshots/next-chat/resumed.png)
 
-The default store keeps the sessions in memory. Implement `SessionStore` on your database to keep them across restarts: five methods, described in [Keeping sessions](/docs/packages/harness-sessions#keeping-sessions).
+The default store keeps the sessions in memory. Implement `SessionStore` on your database to keep them across restarts: five methods, plus four for several instances, each one plain read or write of a row, with recipes for Drizzle, Prisma and MikroORM in [Keeping sessions](/docs/packages/harness-sessions#keeping-sessions). `withEncryptedResumeState()` seals the resume states, and `sessionStoreChecks()` checks your store against the contract.
 
 </Step>
 <Step>
