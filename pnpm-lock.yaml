@@ -243,6 +243,9 @@ importers:
       ai-sdk-sandbox-cloud-run:
         specifier: workspace:*
         version: link:../../packages/sandbox-cloud-run
+      ai-sdk-sandbox-gce:
+        specifier: workspace:*
+        version: link:../../packages/sandbox-gce
       ai-sdk-sandbox-microsandbox:
         specifier: workspace:*
         version: link:../../packages/sandbox-microsandbox
@@ -340,6 +343,9 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.15
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -633,6 +639,45 @@ importers:
         version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(@vitest/coverage-v8@5.0.5)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/sandbox-cloud-run:
+    devDependencies:
+      '@ai-sdk/harness':
+        specifier: ^1.0.153
+        version: 1.0.153(ws@8.22.0)(zod@4.6.7)
+      '@ai-sdk/provider-utils':
+        specifier: ^5.0.61
+        version: 5.0.61(zod@4.6.7)
+      '@repo/build':
+        specifier: workspace:*
+        version: link:../configs/build
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../configs/eslint
+      '@repo/prettier-config':
+        specifier: workspace:*
+        version: link:../configs/prettier
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../configs/typescript
+      '@repo/vitest-config':
+        specifier: workspace:*
+        version: link:../configs/vitest
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      '@vitest/coverage-v8':
+        specifier: ^5.0.5
+        version: 5.0.5(vitest@5.0.5)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(@vitest/coverage-v8@5.0.5)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/sandbox-gce:
     devDependencies:
       '@ai-sdk/harness':
         specifier: ^1.0.153

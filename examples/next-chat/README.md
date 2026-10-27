@@ -1,6 +1,6 @@
 # Next.js chat example
 
-A chat with the coding agents of the [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-adapters): **Claude Code**, **Codex**, **OpenCode**, **Pi**, **Cline**, **Deep Agents**, **Grok Build**, **fx**, **GitHub Copilot** and **Cursor**. They run in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md). The app is a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
+A chat with the coding agents of the [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-adapters): **Claude Code**, **Codex**, **OpenCode**, **Pi**, **Cline**, **Deep Agents**, **Grok Build**, **fx**, **GitHub Copilot** and **Cursor**. They run in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](../../packages/sandbox-sbx/README.md), in a local [microsandbox](https://github.com/superradcompany/microsandbox) through [`ai-sdk-sandbox-microsandbox`](../../packages/sandbox-microsandbox/README.md), in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) through [`ai-sdk-sandbox-cloud-run`](../../packages/sandbox-cloud-run/README.md), in a Compute Engine virtual machine through [`ai-sdk-sandbox-gce`](../../packages/sandbox-gce/README.md), or on your machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) through [`ai-sdk-sandbox-runtime`](../../packages/sandbox-runtime/README.md). The app is a Next.js page using `useChat`, and one route handler streaming a `HarnessAgent` turn back to it. Each conversation is a session of [`ai-sdk-harness-sessions`](../../packages/harness-sessions/README.md): several run at once in the one sandbox, each is suspended when idle and resumed on its next message, and they outlive the dev server.
 
 The interface is built with [Tailwind CSS](https://tailwindcss.com), [shadcn/ui](https://ui.shadcn.com) and [AI Elements](https://ai-sdk.dev/elements), the shadcn registry of AI components: the conversation, the prompt input, the agent's reasoning, and every tool it ran in the sandbox with its input and output. Answers are rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai).
 
@@ -104,6 +104,34 @@ curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
 ```
 
+## Run it on Compute Engine
+
+The chat runs its agents in a Compute Engine virtual machine of their own, Docker and Docker Compose included, once the sandbox service of [`ai-sdk-sandbox-gce`](../../packages/sandbox-gce/README.md#deploying) is deployed in your Google Cloud project and your gcloud account is granted `roles/run.invoker` on it. In `.env.local`:
+
+```dotenv
+EXAMPLE_SANDBOX=gce
+GCE_SANDBOX_URL=<the URL of the service>
+# GCE_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
+# GCE_SANDBOX_SERVICE_TOKEN=  # when the service has a token of its own (SANDBOX_SERVICE_TOKEN)
+```
+
+Make the template with Claude Code and Codex once, when you deploy, rather than in the first conversation: some 5 minutes, during which Compute Engine saves it as an image. Run it again after a deploy that changes the harnesses or the sandbox image:
+
+```bash
+pnpm template
+```
+
+Every machine then boots from it in some 40 s; without it, the first message makes it. As on Cloud Run, a conversation is suspended after 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), and the machine is stopped once no conversation holds it: only its disk is billed. The next message starts it again, in some 30 s, on the same disk. A conversation kept live costs some 10 cents an hour: under 2 for an `e2-medium` Spot machine, and some 8 for the service's Cloud Run instance, which its bridge keeps busy, past Cloud Run's free 50 hours a month. A longer delay keeps the machine warm longer, for those cents.
+
+A turn goes on when the page is closed: start one in the evening, read its answer in the morning. It stops after an hour at the latest (`EXAMPLE_TURN_TIMEOUT_MS`), and the stop button interrupts it on the server. On the service, `SANDBOX_MAX_RUN_HOURS` has Compute Engine stop a machine after so long whatever happens, and `SANDBOX_MAX_RUNNING` caps the machines running at once. The machine reaches the model APIs, the npm registry, Docker Hub and the host of [a repository](#a-repository) through the service's egress proxy, nothing else.
+
+To delete the machine:
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  "$GCE_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
+```
+
 ## Run it behind srt
 
 On Linux or macOS, the chat can run its agents on your machine itself, behind srt, with neither Docker Sandboxes nor a cloud account. On Linux, install what srt needs first (see [the requirements](../../packages/sandbox-runtime/README.md#linux)):
@@ -157,7 +185,7 @@ The policy is offered to the agents whose adapter can ask before their own comma
 
 ![A conversation suspended from the list, then resumed: the agent answers from what it did before](../../docs/public/screenshots/next-chat/resumed.png)
 
-**What it shows:** the conversation was suspended ("Suspend now" in its menu, or 15 minutes without a message, 5 on Cloud Run), its port handed back. Its next message resumed it, and Claude Code answered from the conversation it had before.
+**What it shows:** the conversation was suspended ("Suspend now" in its menu, or 15 minutes without a message, 5 on Cloud Run and Compute Engine), its port handed back. Its next message resumed it, and Claude Code answered from the conversation it had before.
 
 **What the package does:** `suspend()` stops the harness session, keeps its resume state in the store, and releases the sandbox view. The next `send()` takes a view again and resumes the harness session from that state. On Cloud Run, the sandbox itself is suspended once no conversation holds it (`stopWhenUnused`). The sessions are kept in `.data/sessions`, as JSON files (`lib/session-store.ts`): stopping the dev server suspends them (`shutdown()`), and they resume after it starts again.
 

@@ -1,0 +1,19 @@
+---
+title: ai-sdk-sandbox-gce
+description: The options of createGceNetworkSandboxSession and resumeGceNetworkSandboxSession, generated from the source.
+---
+
+## `createGceNetworkSandboxSession(options)`
+
+Creates a sandbox, a Compute Engine machine of its own, through the sandbox service and returns a `GceNetworkSandboxSession` on it. Besides the settings below, it takes `sandboxId`, `template` and `abortSignal`.
+
+<AutoTypeTable path="packages/sandbox-gce/src/client/gce-settings.ts" name="GceCreationSettings" />
+
+## `resumeGceNetworkSandboxSession(options)`
+
+Reattaches to a running sandbox, or starts a stopped one again on its disk. Besides the settings below, it takes `sandboxId` (required) and `abortSignal`. Throws `GceSandboxNotFoundError` when no sandbox has that name.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceConnectionSettings"
+/>

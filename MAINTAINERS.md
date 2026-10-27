@@ -52,17 +52,28 @@ Packages are versioned independently: only the packages that changed are release
 
 ### First publish of a new package
 
-npm trusted publishing (OIDC) is declared per package on npmjs.com, and the package has to exist there before a trusted publisher can be attached to it. The very first version is therefore published by hand, from the `fpasquet` npm account:
+npm trusted publishing (OIDC) is declared per package on npmjs.com, and the package has to exist there before a trusted publisher can be attached to it. The very first version is therefore published by hand, from the `fpasquet` npm account, from the package's own pull request before it is merged: nothing reaches `main` but through a pull request.
 
 ```bash
+# On the pull request's branch, with `.changeset/` holding its changeset alone
 npm whoami                                   # fpasquet
-pnpm changeset version                       # consumes the pending changesets, e.g. 0.0.0 → 0.1.0
+pnpm changeset version                       # consumes the changeset, e.g. 0.0.0 → 0.1.0, writes the CHANGELOG
+git commit -am "chore(release): ai-sdk-sandbox-sbx@0.1.0" && git push
+# Once its CI is green, from that very commit:
 pnpm --filter ai-sdk-sandbox-sbx build
 pnpm --filter ai-sdk-sandbox-sbx publish --access public --no-provenance
-git commit -am "chore(release): ai-sdk-sandbox-sbx@0.1.0" && git tag ai-sdk-sandbox-sbx@0.1.0
 ```
 
 Provenance needs a CI identity, hence `--no-provenance` from a laptop. Then, on npmjs.com, open the package's **Settings → Trusted publishing** and declare GitHub Actions, repository `fpasquet/ai-sdk-harness`, workflow `release.yml`. Every release after that goes through CI, with provenance and no token at all.
+
+Change nothing in the pull request after the publish, and merge it. The release workflow finds the version on npm already and publishes nothing, so it tags nothing either: tag the merge commit and cut its release by hand.
+
+```bash
+git checkout main && git pull
+git tag ai-sdk-sandbox-sbx@0.1.0 && git push origin ai-sdk-sandbox-sbx@0.1.0
+gh release create ai-sdk-sandbox-sbx@0.1.0 --title ai-sdk-sandbox-sbx@0.1.0 \
+  --notes-file <(sed -n '/## 0.1.0/,$p' packages/sandbox-sbx/CHANGELOG.md)
+```
 
 Before choosing the name of a new package, check it is free:
 

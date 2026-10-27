@@ -21,6 +21,12 @@ export const SANDBOXES = {
     where: 'a Cloud Run sandbox on Google Cloud',
     description: 'running in a Cloud Run sandbox on Google Cloud',
   },
+  gce: {
+    label: 'Compute Engine sandbox',
+    packageName: 'ai-sdk-sandbox-gce',
+    where: 'a Compute Engine virtual machine on Google Cloud',
+    description: 'running in a Compute Engine virtual machine on Google Cloud',
+  },
   srt: {
     label: 'srt sandbox',
     packageName: 'ai-sdk-sandbox-runtime',

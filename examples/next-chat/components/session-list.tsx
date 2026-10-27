@@ -7,6 +7,7 @@ import Link from 'next/link';
 
 import type { Conversation } from '@/lib/conversations';
 
+import { formatDuration } from '@/components/turn-timings';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { STATUS_LABELS } from '@/lib/conversations';
+import { lastSandboxOpening, STATUS_LABELS } from '@/lib/conversations';
 import { HARNESSES, modelLabelOf } from '@/lib/harnesses';
 import { cn } from '@/lib/utils';
 
@@ -148,6 +149,7 @@ function SessionItem({
         <span className="mt-0.5 block text-[11px] text-muted-foreground/80">
           {session.turns} {session.turns === 1 ? 'turn' : 'turns'} · {ago(session.updatedAt, now)}
         </span>
+        <SandboxLine metadata={metadata} />
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -170,5 +172,17 @@ function SessionItem({
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+
+/** The sandbox the conversation runs in, and how long it took to open the last time. */
+function SandboxLine({ metadata }: { metadata: Conversation }) {
+  const opening = lastSandboxOpening(metadata.timings);
+  if (metadata.sandbox === undefined && opening === undefined) return null;
+  return (
+    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/80">
+      {metadata.sandbox ?? 'sandbox'}
+      {opening && ` · ${opening.kind} in ${formatDuration(opening.ms)}`}
+    </span>
   );
 }

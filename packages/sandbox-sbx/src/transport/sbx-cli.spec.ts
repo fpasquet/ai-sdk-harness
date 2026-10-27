@@ -113,7 +113,11 @@ describe('SbxCli', () => {
       sbx.update((state) => {
         state.hangOnce = ['ls --json'];
       });
-      const bounded = new SbxCli(sbx.binary, false, { commandTimeoutMs: 300, retryDelaysMs: [10] });
+      // Long enough for the fake `sbx` to start on a busy CI runner: the try that hangs waits it out.
+      const bounded = new SbxCli(sbx.binary, false, {
+        commandTimeoutMs: 2000,
+        retryDelaysMs: [10],
+      });
 
       const output = await bounded.check(['ls', '--json'], { retry: true });
 

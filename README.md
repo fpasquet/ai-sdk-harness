@@ -17,6 +17,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 | [`ai-sdk-sandbox-sbx`](packages/sandbox-sbx)                   | Runs a harness agent in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) microVM, through `sbx`                                                   | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-sbx)](https://www.npmjs.com/package/ai-sdk-sandbox-sbx)                   |
 | [`ai-sdk-sandbox-microsandbox`](packages/sandbox-microsandbox) | Runs a harness agent in a local [microsandbox](https://github.com/superradcompany/microsandbox) microVM, booted from any OCI image                               | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-microsandbox)](https://www.npmjs.com/package/ai-sdk-sandbox-microsandbox) |
 | [`ai-sdk-sandbox-cloud-run`](packages/sandbox-cloud-run)       | Runs a harness agent in a [Cloud Run sandbox](https://docs.cloud.google.com/run/docs/code-execution) on Google Cloud, scaled to zero between turns               | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-cloud-run)](https://www.npmjs.com/package/ai-sdk-sandbox-cloud-run)       |
+| [`ai-sdk-sandbox-gce`](packages/sandbox-gce)                   | Runs a harness agent in a [Compute Engine](https://cloud.google.com/compute) virtual machine of its own on Google Cloud, Docker included, stopped between turns  | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-gce)](https://www.npmjs.com/package/ai-sdk-sandbox-gce)                   |
 | [`ai-sdk-sandbox-runtime`](packages/sandbox-runtime)           | Runs a harness agent on this machine behind [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) (srt), with no container                  | [![npm](https://img.shields.io/npm/v/ai-sdk-sandbox-runtime)](https://www.npmjs.com/package/ai-sdk-sandbox-runtime)           |
 | [`ai-sdk-harness-plugins`](packages/harness-plugins)           | Plugins for a harness agent: tools, skills, rules, slash commands, hooks, subagents and MCP servers, Claude Code plugins included                                | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-plugins)](https://www.npmjs.com/package/ai-sdk-harness-plugins)           |
 | [`ai-sdk-harness-sessions`](packages/harness-sessions)         | The lifecycle of a harness agent's sessions: suspended when idle, resumed on the next message and after a restart, several in one sandbox                        | [![npm](https://img.shields.io/npm/v/ai-sdk-harness-sessions)](https://www.npmjs.com/package/ai-sdk-harness-sessions)         |
@@ -48,6 +49,7 @@ packages/
   sandbox-sbx/        ai-sdk-sandbox-sbx, published to npm
   sandbox-microsandbox/  ai-sdk-sandbox-microsandbox, published to npm
   sandbox-cloud-run/  ai-sdk-sandbox-cloud-run, published to npm (client and sandbox service)
+  sandbox-gce/        ai-sdk-sandbox-gce, published to npm (client, sandbox service, egress proxy, agent)
   sandbox-runtime/    ai-sdk-sandbox-runtime, published to npm (srt on this host)
   harness-plugins/    ai-sdk-harness-plugins, published to npm
   harness-sessions/   ai-sdk-harness-sessions, published to npm
