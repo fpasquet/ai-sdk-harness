@@ -5,16 +5,24 @@ import type { Sandbox } from '../sandboxes/sandbox.js';
 
 import { encodeData, encodeFrame, FrameType, STDERR, STDOUT } from '../../protocol/frames.js';
 import { HttpError } from './http-error.js';
-import { optionalString, parseObject, requiredString, stringRecord } from './request-body.js';
+import {
+  optionalBoolean,
+  optionalString,
+  parseObject,
+  requiredString,
+  stringRecord,
+} from './request-body.js';
 
 /** The longest command line accepted before its standard input. */
 const MAX_COMMAND_BYTES = 1 << 20;
 
 /**
- * `POST /v1/sandboxes/:name/exec`. The body is a line of JSON, `{ command, workingDirectory?, env? }`,
- * then the command's standard input. The answer streams frames, its stdout and stderr then its exit
- * code, the process named in `X-Process-Id`. The process outlives the request: Cloud Run cuts any
- * request after its timeout, and the caller then waits for its exit by id.
+ * `POST /v1/sandboxes/:name/exec`. The body is a line of JSON,
+ * `{ command, workingDirectory?, env?, stdin? }`, then the command's standard input: with `stdin`,
+ * the line alone, the input then written by requests of their own. The answer streams frames, its
+ * stdout and stderr then its exit code, the process named in `X-Process-Id`. The process outlives
+ * the request: Cloud Run cuts any request after its timeout, and the caller then waits for its exit
+ * by id.
  */
 export async function execStream(
   sandbox: Sandbox,
@@ -29,8 +37,12 @@ export async function execStream(
   // again, starts it.
   response.flushHeaders();
   response.write(encodeFrame(FrameType.Open, 0, Buffer.from(id)));
-  child.stdin.write(rest);
-  request.pipe(child.stdin);
+  if (command.stdin === true) {
+    request.resume();
+  } else {
+    child.stdin.write(rest);
+    request.pipe(child.stdin);
+  }
   // Once the caller is gone, the output is drained still: the process must not block on it.
   const send = (frame: Buffer): void => {
     if (!response.destroyed) response.write(frame);
@@ -81,5 +93,6 @@ function toCommand(line: Buffer): SandboxCommand {
     command: requiredString(body, 'command'),
     workingDirectory: optionalString(body, 'workingDirectory'),
     env: stringRecord(body, 'env'),
+    stdin: optionalBoolean(body, 'stdin'),
   };
 }

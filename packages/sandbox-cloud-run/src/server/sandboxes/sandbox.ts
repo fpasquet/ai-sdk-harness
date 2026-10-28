@@ -12,6 +12,7 @@ import { EgressLink } from '../egress/egress-link.js';
 import { EgressProxy } from '../egress/egress-proxy.js';
 import { hostsOf, relayRoute } from '../egress/relay-routes.js';
 import { HttpError } from '../http/http-error.js';
+import { ProcessInput } from './process-input.js';
 import { COMMAND, KILL_ALL, KILL_TREE, PREPARE } from './sandbox-scripts.js';
 
 /** What every sandbox is made with: the service's to give. */
@@ -44,6 +45,8 @@ export interface SandboxProcess {
   readonly child: RuntimeProcess;
   /** Stops the process in the sandbox, and everything it started. */
   kill(): Promise<void>;
+  /** Its standard input, when it was started with `stdin`: written by requests of their own. */
+  readonly input?: ProcessInput;
 }
 
 /** How many times a process is looked for, 100 ms apart, before giving up on stopping it. */
@@ -174,11 +177,12 @@ export class Sandbox implements EgressPolicy {
   }
 
   /**
-   * Starts `command`; its standard input is the caller's to write and end. The process outlives
+   * Starts `command`; its standard input is the caller's to write and end, through
+   * {@link SandboxProcess.input} with `stdin`. The process outlives
    * whoever started it, a request Cloud Run cut say: it is found again by its id until a while
    * after it exits, and stopped only by {@link SandboxProcess.kill}.
    */
-  exec({ command, workingDirectory, env = {} }: SandboxCommand): SandboxProcess {
+  exec({ command, workingDirectory, env = {}, stdin = false }: SandboxCommand): SandboxProcess {
     const id = randomUUID();
     const pidFile = join(this.processDirectory, id);
     const directory = workingDirectory ?? this.settings.workingDirectory;
@@ -202,7 +206,7 @@ export class Sandbox implements EgressPolicy {
       }
       child.kill();
     };
-    const started = { id, child, kill };
+    const started = { id, child, kill, input: stdin ? new ProcessInput(child.stdin) : undefined };
     this.processes.set(id, started);
     void child.exited.then(() =>
       setTimeout(() => this.processes.delete(id), EXITED_KEPT_MS).unref(),

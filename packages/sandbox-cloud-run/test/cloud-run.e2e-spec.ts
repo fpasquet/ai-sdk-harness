@@ -92,6 +92,17 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     expect(await session.readBinaryFile({ path: 'bytes.bin' })).toEqual(bytes);
   });
 
+  it('writes to the stdin of a process, its close the end of the input', async () => {
+    const spawned = await session.spawn({ command: 'cat; echo " (end)"', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    for (const word of ['one ', 'two ', 'three'])
+      await writer.write(new TextEncoder().encode(word));
+    await writer.close();
+
+    expect(await new Response(spawned.stdout).text()).toBe('one two three (end)\n');
+    expect(await spawned.wait()).toEqual({ exitCode: 0 });
+  });
+
   it('runs a command with bash, as the harnesses write it', async () => {
     const { stdout } = await session.run({ command: 'words=(one two); echo "${words[1]}"' });
 

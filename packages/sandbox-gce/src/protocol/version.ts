@@ -4,7 +4,7 @@
  * speaks the same; a side that speaks another one is refused, rather than answered with errors
  * nobody could make sense of.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** The header a caller names its protocol version in, and the callee answers with its own. */
 export const PROTOCOL_HEADER = 'x-ai-sdk-sandbox-protocol';

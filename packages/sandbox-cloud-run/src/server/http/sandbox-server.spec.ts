@@ -29,8 +29,8 @@ describe('the sandbox service', () => {
   it('answers its health check', async () => {
     const response = await call('GET', '/health');
 
-    expect(await response.json()).toEqual({ status: 'ok', protocol: 1, version: PACKAGE_VERSION });
-    expect(response.headers.get('x-ai-sdk-sandbox-protocol')).toBe('1');
+    expect(await response.json()).toEqual({ status: 'ok', protocol: 2, version: PACKAGE_VERSION });
+    expect(response.headers.get('x-ai-sdk-sandbox-protocol')).toBe('2');
   });
 
   it('answers 404 to an unknown route, 405 to a known one with another method', async () => {
@@ -122,6 +122,49 @@ describe('the sandbox service', () => {
       exitCode: 5,
     });
     expect((await call('GET', '/v1/sandboxes/box/processes/unknown')).status).toBe(404);
+  });
+
+  it('writes the input of a process by offset, nothing twice and with no gap', async () => {
+    await call('POST', '/v1/sandboxes', { name: 'box' });
+    const response = await call(
+      'POST',
+      '/v1/sandboxes/box/exec',
+      `${JSON.stringify({ command: 'cat', stdin: true })}\n`,
+    );
+    const id = response.headers.get('x-process-id') ?? '';
+    const stdin = `/v1/sandboxes/box/processes/${id}/stdin`;
+
+    expect((await call('POST', `${stdin}?offset=0`, 'ab')).status).toBe(204);
+    // Sent again, then again with more: only what is new is written.
+    expect((await call('POST', `${stdin}?offset=0`, 'ab')).status).toBe(204);
+    expect((await call('POST', `${stdin}?offset=1`, 'bc')).status).toBe(204);
+    expect(await errorOf(await call('POST', `${stdin}?offset=5`, 'x'))).toEqual([
+      409,
+      'The input of the process is at byte 3, not 5: a write is missing.',
+    ]);
+    expect((await call('POST', stdin, 'x')).status).toBe(400);
+    expect((await call('DELETE', stdin)).status).toBe(204);
+    expect((await call('DELETE', stdin)).status).toBe(204);
+    expect((await call('POST', `${stdin}?offset=3`, 'd')).status).toBe(409);
+
+    const output = [];
+    for await (const { type, payload } of readFrames(response.body ?? new Blob().stream())) {
+      if (type === FrameType.Data) output.push(payload.toString());
+    }
+    expect(output.join('')).toBe('abc');
+  });
+
+  it('refuses to write the input of a process started without stdin', async () => {
+    await call('POST', '/v1/sandboxes', { name: 'box' });
+    const response = await call('POST', '/v1/sandboxes/box/exec', '{"command":"sleep 1"}\n');
+    const id = response.headers.get('x-process-id') ?? '';
+
+    expect(
+      await errorOf(await call('POST', `/v1/sandboxes/box/processes/${id}/stdin?offset=0`, 'x')),
+    ).toEqual([409, `The process ${id} was started without a writable standard input.`]);
+    expect((await call('DELETE', `/v1/sandboxes/box/processes/${id}/stdin`)).status).toBe(409);
+    expect((await call('DELETE', '/v1/sandboxes/box/processes/unknown/stdin')).status).toBe(404);
+    await response.body?.cancel();
   });
 
   it('refuses a command it cannot read, or in a sandbox that does not run', async () => {

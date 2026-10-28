@@ -22,7 +22,8 @@ async function errorOf(answer: IncomingMessage): Promise<HttpError> {
 /**
  * `POST /v1/sandboxes/:name/exec`, passed on to the agent of the sandbox's machine once the proxy
  * found no credential of the sandbox in the command. The body is a line of JSON,
- * `{ command, workingDirectory?, env? }`, then the command's standard input; the answer streams the
+ * `{ command, workingDirectory?, env?, stdin? }`, then the command's standard input (with `stdin`,
+ * the line alone: the input is written by requests of their own); the answer streams the
  * agent's frames, the process named in `X-Process-Id`. The process outlives the request: Cloud Run
  * cuts any request after its timeout, and the caller then waits for its exit by id.
  */

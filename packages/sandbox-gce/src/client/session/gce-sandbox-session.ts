@@ -11,6 +11,7 @@ import type { SandboxServiceClient } from '../transport/sandbox-service-client.j
 
 import { FrameType, readFrames, STDERR, STDOUT } from '../../protocol/frames.js';
 import { abortReason } from '../utils/abort.js';
+import { processInput } from './process-input.js';
 
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
 type ReadTextOptions = Parameters<SandboxSession['readTextFile']>[0];
@@ -106,8 +107,8 @@ export class GceSandboxSession implements SandboxSession {
     return { exitCode, stdout, stderr };
   };
 
-  // The overloads of `spawn` promise a writable stdin when `stdin` is `true`: the protocol of the
-  // service carries none yet, so such a call is refused before the command starts.
+  // The overloads of `spawn` promise a writable stdin when `stdin` is `true`: a function type
+  // cannot check them.
   spawn = (async ({
     command,
     workingDirectory,
@@ -116,20 +117,26 @@ export class GceSandboxSession implements SandboxSession {
     stdin = false,
   }: SpawnOptions): Promise<SandboxProcess | WritableSandboxProcess> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
-    if (stdin) {
-      throw new Error(
-        'A Compute Engine sandbox does not give a process a writable stdin yet: spawn it without `stdin`.',
-      );
-    }
     const invalid = Object.keys(env).find((name) => !ENV_NAME.test(name));
     if (invalid !== undefined) throw new Error(`Not an environment variable name: ${invalid}`);
     const { client, name, processes } = this.handle;
     const response = await client.exec(name, {
-      command: { command, workingDirectory: this.resolve(workingDirectory ?? '.'), env },
+      command: {
+        command,
+        workingDirectory: this.resolve(workingDirectory ?? '.'),
+        env,
+        ...(stdin ? { stdin } : {}),
+      },
     });
     const id = response.headers.get('x-process-id') ?? '';
     processes.add(id);
-    return this.attach(response, id, abortSignal);
+    const spawned = this.attach(response, id, abortSignal);
+    if (!stdin) return spawned;
+    const input = processInput({
+      write: (offset, bytes) => client.writeInput(name, id, { offset, bytes }),
+      end: () => client.endInput(name, id),
+    });
+    return { ...spawned, stdin: input };
   }) as SandboxSession['spawn'];
 
   readBinaryFile = async ({ path, abortSignal }: ReadOptions): Promise<null | Uint8Array> => {

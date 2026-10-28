@@ -4,7 +4,9 @@ import type { Reply } from '../../common/http-reply.js';
 import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
 import {
+  offsetOf,
   optionalString,
+  readBytes,
   readJson,
   requiredString,
   stringList,
@@ -13,6 +15,7 @@ import {
 } from '../../common/http-body.js';
 import { NO_CONTENT } from '../../common/http-reply.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
+import { MAX_INPUT_WRITE_BYTES } from '../../protocol/api.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { execRelay } from './exec-relay.js';
 
@@ -105,6 +108,24 @@ export const ROUTES: Route[] = [
     new RegExp(`^${SANDBOX}/processes/([^/]+)$`),
     async ({ sandboxes, params: [name = '', id = ''] }) => {
       await (await sandboxes.agent(name)).kill(id);
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)/stdin$`),
+    async ({ sandboxes, params: [name = '', id = ''], request }) => {
+      const offset = offsetOf(request);
+      const bytes = await readBytes(request, MAX_INPUT_WRITE_BYTES);
+      await (await sandboxes.agent(name)).writeInput(id, offset, bytes);
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'DELETE',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)/stdin$`),
+    async ({ sandboxes, params: [name = '', id = ''] }) => {
+      await (await sandboxes.agent(name)).endInput(id);
       return NO_CONTENT;
     },
   ),

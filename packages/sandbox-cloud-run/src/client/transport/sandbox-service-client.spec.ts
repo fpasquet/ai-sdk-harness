@@ -12,12 +12,19 @@ describe('SandboxServiceClient', () => {
   let server: ReturnType<typeof createServer>;
   let url: string;
   let answer: { body: string; status: number };
+  /** Answers to give before `answer`, one per request. */
+  let firstAnswers: { body: string; status: number }[];
+  let requests: string[];
   let authorization: string | undefined;
 
   beforeEach(async () => {
+    firstAnswers = [];
+    requests = [];
     server = createServer((request, response) => {
       authorization = request.headers.authorization;
-      response.writeHead(answer.status).end(answer.body);
+      requests.push(`${request.method} ${request.url}`);
+      const { status, body } = firstAnswers.shift() ?? answer;
+      response.writeHead(status).end(body);
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -53,6 +60,23 @@ describe('SandboxServiceClient', () => {
     const error = await client.remove('box').catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(CloudRunSandboxServiceError);
     expect(error).toMatchObject({ status: 502, request: 'DELETE /v1/sandboxes/box' });
+  });
+
+  it('sends the input of a process again after a passing error, never after a refusal', async () => {
+    const client = new SandboxServiceClient(url);
+    firstAnswers = [
+      { status: 503, body: 'Service Unavailable' },
+      { status: 502, body: 'Bad gateway' },
+    ];
+    answer = { status: 204, body: '' };
+
+    await client.writeInput('box', 'p1', { offset: 4, bytes: new Uint8Array(1) });
+    expect(requests).toEqual(Array(3).fill('POST /v1/sandboxes/box/processes/p1/stdin?offset=4'));
+
+    requests = [];
+    answer = { status: 409, body: JSON.stringify({ error: 'Closed.' }) };
+    await expect(client.endInput('box', 'p1')).rejects.toThrow('409: Closed.');
+    expect(requests).toHaveLength(1);
   });
 
   it('reaches a port over a secure WebSocket, with a token read at each connection', async () => {

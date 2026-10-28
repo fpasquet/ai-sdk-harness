@@ -1,6 +1,7 @@
 import type { HarnessV1PortEndpoint, HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { SandboxCommand, SandboxDescription, SandboxNetwork } from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
@@ -23,6 +24,12 @@ const templatePath = (id: string, image: string | undefined): string =>
   image === undefined
     ? `v1/templates/${id}`
     : `v1/templates/${id}?image=${encodeURIComponent(image)}`;
+
+/** Statuses of a call worth sending again: Cloud Run's front end, or an instance starting. */
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+/** How long to wait before each new attempt of a call that may be sent again. */
+const RETRY_DELAYS_MS = [200, 500, 1000, 2000];
 
 /**
  * The HTTP API of the sandbox service (`ai-sdk-sandbox-gce serve`). Each call carries an
@@ -114,6 +121,24 @@ export class SandboxServiceClient {
     return exitCode;
   }
 
+  /**
+   * Gives a process started with `stdin` the bytes of its input from `offset` on. Sent again after
+   * a passing error: the service writes nothing twice.
+   */
+  async writeInput(
+    name: string,
+    id: string,
+    { offset, bytes }: { bytes: Uint8Array; offset: number },
+  ): Promise<void> {
+    const path = `v1/sandboxes/${name}/processes/${id}/stdin?offset=${offset}`;
+    await this.retried(() => this.call('POST', path, { body: bytes }));
+  }
+
+  /** Ends the input of a process started with `stdin`. */
+  async endInput(name: string, id: string): Promise<void> {
+    await this.retried(() => this.call('DELETE', `v1/sandboxes/${name}/processes/${id}/stdin`));
+  }
+
   /** Stops a process and everything it started. A process already gone is no error. */
   async kill(name: string, id: string): Promise<void> {
     await this.call('DELETE', `v1/sandboxes/${name}/processes/${id}`, { accept: [404] });
@@ -189,6 +214,22 @@ export class SandboxServiceClient {
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
       ...(this.serviceToken === undefined ? {} : { [SERVICE_TOKEN_HEADER]: this.serviceToken }),
     };
+  }
+
+  /** A call that may be sent again, sent again while it fails on the way rather than at the service. */
+  private async retried<T>(call: () => Promise<T>): Promise<T> {
+    for (const delay of RETRY_DELAYS_MS) {
+      try {
+        return await call();
+      } catch (error) {
+        const transient =
+          error instanceof TypeError ||
+          (error instanceof GceSandboxServiceError && TRANSIENT_STATUSES.has(error.status));
+        if (!transient) throw error;
+      }
+      await sleep(delay);
+    }
+    return call();
   }
 
   private async call(method: string, path: string, options: CallOptions = {}): Promise<Response> {

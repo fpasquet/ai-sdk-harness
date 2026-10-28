@@ -62,6 +62,20 @@ export class AgentClient {
     await this.call('DELETE', `/v1/processes/${encodeURIComponent(id)}`);
   }
 
+  /** Gives a process started with `stdin` the bytes of its input from `offset` on. */
+  async writeInput(id: string, offset: number, bytes: Uint8Array): Promise<void> {
+    await this.call(
+      'POST',
+      `/v1/processes/${encodeURIComponent(id)}/stdin?offset=${offset}`,
+      bytes,
+    );
+  }
+
+  /** Ends the input of a process started with `stdin`. */
+  async endInput(id: string): Promise<void> {
+    await this.call('DELETE', `/v1/processes/${encodeURIComponent(id)}/stdin`);
+  }
+
   async killAll(): Promise<void> {
     await this.call('DELETE', '/v1/processes');
   }
@@ -94,10 +108,17 @@ export class AgentClient {
   private async call(method: string, path: string, body?: unknown): Promise<Response> {
     let response: Response;
     try {
+      const bytes = body instanceof Uint8Array;
       response = await fetch(`${this.origin}${path}`, {
         method,
-        headers: this.headers(body === undefined ? {} : { 'content-type': 'application/json' }),
-        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: this.headers(
+          body === undefined || bytes ? {} : { 'content-type': 'application/json' },
+        ),
+        body: bytes
+          ? (body as Uint8Array<ArrayBuffer>)
+          : body === undefined
+            ? undefined
+            : JSON.stringify(body),
       });
     } catch (error) {
       throw unreachable(error);
