@@ -6,13 +6,12 @@ import { createUIMessageStream } from 'ai';
 
 import type {
   SessionAgent,
-  SessionClaim,
   SessionSandboxes,
   SessionStore,
   SessionStreamResult,
 } from '../src/index.js';
 
-import { createMemorySessionStore } from '../src/index.js';
+import { createMemorySessionStore } from '../src/memory.js';
 import { FakeHandle } from './fake-handle.js';
 
 export { FakeHandle, resumeState } from './fake-handle.js';
@@ -210,11 +209,11 @@ export interface LeasingStore<METADATA> extends Required<SessionStore<METADATA>>
 }
 
 export function leasingStore<METADATA>(): LeasingStore<METADATA> {
-  const store = createMemorySessionStore<METADATA>();
+  const store = createMemorySessionStore<METADATA>({ shared: true }) as Required<
+    SessionStore<METADATA>
+  >;
   const owners = new Map<string, string>();
-  const leases = new Map<string, number>();
   const crashed = new Set<string>();
-  const alive = (owner: string) => (leases.get(owner) ?? 0) > Date.now();
   return {
     ...store,
     owners,
@@ -223,24 +222,16 @@ export function leasingStore<METADATA>(): LeasingStore<METADATA> {
       owners.delete(id);
       await store.delete(id);
     },
-    claimSession: (id, owner) => {
-      const current = owners.get(id);
-      if (current !== undefined && current !== owner && alive(current)) {
-        return Promise.resolve({ claimed: false, owner: current } satisfies SessionClaim);
-      }
-      owners.set(id, owner);
-      return Promise.resolve({
-        claimed: true,
-        previousOwner: current ?? null,
-      } satisfies SessionClaim);
+    writeOwnership: async (id, ownership, expectedVersion) => {
+      const written = await store.writeOwnership(id, ownership, expectedVersion);
+      if (written) owners.set(id, ownership.owner);
+      return written;
     },
-    renewLease: (owner, ttlMs) => {
-      if (!crashed.has(owner)) leases.set(owner, Date.now() + ttlMs);
-      return Promise.resolve();
-    },
-    releaseSession: (id, owner) => {
+    renewOwnerships: (owner, expiresAt) =>
+      crashed.has(owner) ? Promise.resolve() : store.renewOwnerships(owner, expiresAt),
+    releaseOwnership: async (id, owner) => {
       if (owners.get(id) === owner) owners.delete(id);
-      return Promise.resolve();
+      await store.releaseOwnership(id, owner);
     },
   };
 }

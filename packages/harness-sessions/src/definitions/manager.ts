@@ -22,8 +22,8 @@ export interface SessionManagerOptions<METADATA> {
   sandboxes: SessionSandboxes;
   /**
    * Where sessions are kept. Default: in memory, `createMemorySessionStore()`. A store that gives
-   * leases (`claimSession`, `renewLease`, `releaseSession`) is shared by several managers: the
-   * instances of an application.
+   * leases (`getOwnership`, `writeOwnership`, `renewOwnerships`, `releaseOwnership`) is shared by
+   * several managers: the instances of an application.
    */
   store?: SessionStore<METADATA>;
   /**

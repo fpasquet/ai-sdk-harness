@@ -376,7 +376,7 @@ To run ten turns at the same time, give ten ports — `Array.from({ length: 10 }
 
 ## Keeping sessions
 
-The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, the default, keeps them in memory, lost with the process. To keep them across restarts, implement the five methods on your database:
+The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, from `ai-sdk-harness-sessions/memory`, is the default: it keeps them in memory, lost with the process. To keep them across restarts, implement the five methods on your database:
 
 ```ts
 import type { SessionStore } from 'ai-sdk-harness-sessions';
@@ -399,7 +399,28 @@ const store: SessionStore<Metadata> = {
 };
 ```
 
-A resume state holds secrets: the token of the harness bridge, the placeholders of the credentials. Keep it apart from what you show, as you would a session token. The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions in JSON files (`lib/session-store.ts`).
+A resume state holds secrets: the token of the harness bridge, the placeholders of the credentials. Keep it apart from what you show, and seal it before it reaches the database: `withEncryptedResumeState(store, aesGcmCipher(key))` encrypts it with AES-256-GCM, a key of 32 bytes kept out of the database, each state bound to its session; pass a `cipher` of your own (`seal`, `open`) to use your key management instead.
+
+```ts
+import { aesGcmCipher, withEncryptedResumeState } from 'ai-sdk-harness-sessions';
+
+const sessions = createSessionManager<Metadata>({
+  // …
+  store: withEncryptedResumeState(store, aesGcmCipher(process.env.SESSIONS_KEY!)),
+});
+```
+
+`sessionStoreChecks()`, from `ai-sdk-harness-sessions/testing`, says whether your store does what the manager expects: run its checks with your test runner, against your database. They use sessions of their own, and check the lease methods too when the store gives them.
+
+```ts
+import { sessionStoreChecks } from 'ai-sdk-harness-sessions/testing';
+
+describe('the session store', () => {
+  for (const { name, run } of sessionStoreChecks(() => store)) it(name, run);
+});
+```
+
+The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions in JSON files (`lib/session-store.ts`).
 
 Keep one manager per store, unless the store gives leases (below): at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
 
@@ -432,47 +453,175 @@ The steps and the raw events come from the agent's result, `steps` and `fullStre
 
 ### Several instances
 
-An application that runs on several instances — behind a load balancer, scaled out, or a new version deployed beside the old one — shares one store between their managers. The store tells them apart with leases: three more methods, on the same database, and the managers share it.
+An application that runs on several instances — behind a load balancer, scaled out, or a new version deployed beside the old one — shares one store between their managers. The store tells them apart with four more methods on a small table of its own, who holds each session: each is one plain read or write of a row, what any ORM does, and the manager does the rest.
 
-- Each manager holds the sessions it runs, and renews its own lease three times within `leaseTtlMs` (30 seconds by default).
+- Each manager holds the sessions it runs, and renews their lease three times within `leaseTtlMs` (30 seconds by default).
 - A request for a session another manager runs fails with `SessionOwnedElsewhereError`, which names it (`owner`, its `managerId`): send the request there, or answer 409 and let the client try again. Reading a session, `get()` and `list()`, works from any instance.
 - A suspended session is held by nobody: the next message resumes it on whichever instance receives it.
 - A manager that crashed stops renewing its lease. Once it expired, the others mark its live sessions `interrupted`, within a lease or so, and so does any manager that starts.
 
+| Method                                           | What it does on the table of owners                                                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `getOwnership(id)`                               | Reads the row of the session: `{ owner, expiresAt, version }`, or `undefined`                                     |
+| `writeOwnership(id, ownership)`                  | Inserts it, `false` when the session has one already (the primary key refuses it)                                 |
+| `writeOwnership(id, ownership, expectedVersion)` | Updates the row whose `version` is `expectedVersion`, `false` when no row matched: another manager wrote it first |
+| `renewOwnerships(owner, expiresAt)`              | Updates `expiresAt` on every row of `owner`                                                                       |
+| `releaseOwnership(id, owner)`                    | Deletes the row of the session, when `owner` holds it                                                             |
+
+Taking a session over is a compare-and-set: the manager reads its row, and replaces it at the version it read, so two managers never both win. `delete()` forgets the row too. The leases are read on the managers' clocks: keep them in time (NTP), a lease of 30 seconds leaves room for a skew of seconds. Give each manager a `managerId` you can route by — the instance's address, a pod name — to send a request to the instance that runs the session; never two running managers the same.
+
+`createMemorySessionStore({ shared: true })`, from `ai-sdk-harness-sessions/memory`, gives them in memory: several managers of one process, in tests.
+
+#### With Drizzle
+
+Two tables, the sessions and who holds them, with the summary and the messages apart so that `list()` reads no conversation:
+
 ```ts
-const store: SessionStore<Metadata> = {
-  // …the five methods above, and:
-  claimSession: async (id, owner) => {
-    // One statement, so that two managers never both win: take the session unless a manager
-    // whose lease has not expired holds it.
-    const row = await db.query(
-      `INSERT INTO session_owners (session_id, owner) VALUES ($1, $2)
-       ON CONFLICT (session_id) DO UPDATE SET owner = $2
-         WHERE session_owners.owner = $2
-            OR NOT EXISTS (SELECT 1 FROM manager_leases l
-                           WHERE l.owner = session_owners.owner AND l.expires_at > now())
-       RETURNING (SELECT owner FROM session_owners WHERE session_id = $1) AS previous_owner`,
-      [id, owner],
-    );
-    if (row) return { claimed: true, previousOwner: row.previous_owner };
-    const { owner: holder } = await db.query(
-      'SELECT owner FROM session_owners WHERE session_id = $1',
-      [id],
-    );
-    return { claimed: false, owner: holder };
+import type { HarnessAgentResumeSessionState } from '@ai-sdk/harness/agent';
+import type { UIMessage } from 'ai';
+import type { SessionStore, SessionSummary } from 'ai-sdk-harness-sessions';
+
+import { and, eq } from 'drizzle-orm';
+import { integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const harnessSessions = pgTable('harness_session', {
+  id: text('id').primaryKey(),
+  summary: jsonb('summary').$type<SessionSummary<Metadata>>().notNull(),
+  messages: jsonb('messages').$type<UIMessage[]>().notNull(),
+  resumeState: jsonb('resume_state').$type<HarnessAgentResumeSessionState>(),
+});
+
+export const harnessSessionOwners = pgTable('harness_session_owner', {
+  sessionId: text('session_id').primaryKey(),
+  owner: text('owner').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  version: integer('version').notNull(),
+});
+
+const sessions = harnessSessions;
+const owners = harnessSessionOwners;
+
+export const store: SessionStore<Metadata> = {
+  save: async ({ messages, ...summary }, resumeState) => {
+    const values = { summary, messages, resumeState: resumeState ?? null };
+    await db
+      .insert(sessions)
+      .values({ id: summary.id, ...values })
+      .onConflictDoUpdate({ target: sessions.id, set: values });
   },
-  renewLease: (owner, ttlMs) =>
-    db.query(
-      `INSERT INTO manager_leases (owner, expires_at) VALUES ($1, now() + $2 * interval '1 ms')
-       ON CONFLICT (owner) DO UPDATE SET expires_at = excluded.expires_at`,
-      [owner, ttlMs],
-    ),
-  releaseSession: (id, owner) =>
-    db.query('DELETE FROM session_owners WHERE session_id = $1 AND owner = $2', [id, owner]),
+  get: async (id) => {
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, id));
+    return row && { ...row.summary, messages: row.messages };
+  },
+  list: async () =>
+    (await db.select({ summary: sessions.summary }).from(sessions)).map((row) => row.summary),
+  getResumeState: async (id) => {
+    const [row] = await db
+      .select({ resumeState: sessions.resumeState })
+      .from(sessions)
+      .where(eq(sessions.id, id));
+    return row?.resumeState ?? undefined;
+  },
+  delete: async (id) => {
+    await db.delete(owners).where(eq(owners.sessionId, id));
+    await db.delete(sessions).where(eq(sessions.id, id));
+  },
+  getOwnership: async (id) => {
+    const [row] = await db.select().from(owners).where(eq(owners.sessionId, id));
+    return row;
+  },
+  writeOwnership: async (id, ownership, expectedVersion) => {
+    const written =
+      expectedVersion === undefined
+        ? await db
+            .insert(owners)
+            .values({ sessionId: id, ...ownership })
+            .onConflictDoNothing()
+            .returning()
+        : await db
+            .update(owners)
+            .set(ownership)
+            .where(and(eq(owners.sessionId, id), eq(owners.version, expectedVersion)))
+            .returning();
+    return written.length === 1;
+  },
+  renewOwnerships: async (owner, expiresAt) => {
+    await db.update(owners).set({ expiresAt }).where(eq(owners.owner, owner));
+  },
+  releaseOwnership: async (id, owner) => {
+    await db.delete(owners).where(and(eq(owners.sessionId, id), eq(owners.owner, owner)));
+  },
 };
 ```
 
-The lease's expiry is read on the database's clock, the one clock all instances share. `delete()` forgets who holds the session too. Give each manager a `managerId` you can route by — the instance's address, a pod name — to send a request to the instance that runs the session; never two running managers the same.
+Add your own columns beside them — the project a session belongs to, with a foreign key — and write them in `save` from `summary.metadata`.
+
+#### With Prisma
+
+```prisma
+model HarnessSession {
+  id          String @id
+  summary     Json
+  messages    Json
+  resumeState Json?  @map("resume_state")
+
+  @@map("harness_session")
+}
+
+model HarnessSessionOwner {
+  sessionId String   @id @map("session_id")
+  owner     String
+  expiresAt DateTime @map("expires_at")
+  version   Int
+
+  @@index([owner])
+  @@map("harness_session_owner")
+}
+```
+
+The five methods are `upsert`, `findUnique`, `findMany({ select: { summary: true } })` and `deleteMany`, as with Drizzle above. The four of the leases:
+
+```ts
+import { Prisma } from '@prisma/client';
+
+const owners = prisma.harnessSessionOwner;
+
+const leases: Pick<
+  Required<SessionStore<Metadata>>,
+  'getOwnership' | 'releaseOwnership' | 'renewOwnerships' | 'writeOwnership'
+> = {
+  getOwnership: async (id) => (await owners.findUnique({ where: { sessionId: id } })) ?? undefined,
+  writeOwnership: async (id, ownership, expectedVersion) => {
+    if (expectedVersion !== undefined) {
+      const { count } = await owners.updateMany({
+        where: { sessionId: id, version: expectedVersion },
+        data: ownership,
+      });
+      return count === 1;
+    }
+    try {
+      await owners.create({ data: { sessionId: id, ...ownership } });
+      return true;
+    } catch (error) {
+      // P2002: the primary key refused it, another manager holds the session.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return false;
+      }
+      throw error;
+    }
+  },
+  renewOwnerships: async (owner, expiresAt) => {
+    await owners.updateMany({ where: { owner }, data: { expiresAt } });
+  },
+  releaseOwnership: async (id, owner) => {
+    await owners.deleteMany({ where: { sessionId: id, owner } });
+  },
+};
+```
+
+#### With MikroORM
+
+The same with `em.upsert()`, `em.findOne()`, `em.find(…, { fields: ['summary'] })`, and for the leases `em.insert()` — a `UniqueConstraintViolationException` when the session has an owner already — and `em.nativeUpdate()`, which returns how many rows it changed: `1` when the version matched. Fork the entity manager in each method (`em.fork()`): the store runs outside your requests.
 
 ## Reference
 
@@ -535,7 +684,7 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 
 ## Limitations
 
-- **One process per store, unless it gives leases.** Without `claimSession`, `renewLease` and `releaseSession`, the live sessions are held in the memory of one process: run the manager on one instance. With them, a turn under way is still read from the instance that runs it: a client whose request reaches another one gets `SessionOwnedElsewhereError`. And a manager stalled for longer than its lease — a process frozen, not crashed — may find its sessions taken over by another one when it wakes up.
+- **One process per store, unless it gives leases.** Without the ownership methods (`getOwnership`, `writeOwnership`, `renewOwnerships`, `releaseOwnership`), the live sessions are held in the memory of one process: run the manager on one instance. With them, a turn under way is still read from the instance that runs it: a client whose request reaches another one gets `SessionOwnedElsewhereError`. And a manager stalled for longer than its lease — a process frozen, not crashed — may find its sessions taken over by another one when it wakes up.
 - **A turn does not survive a crash.** A session the process held when it crashed is `interrupted`; a clean `shutdown()` suspends it instead. Streams that reconnect after a page reload are not supported yet: a reload cuts the turn its request carried when it passed `abortSignal: request.signal`.
 - **Approvals after a resume, with Claude Code.** A resumed Claude Code session (`@ai-sdk/harness-claude-code` up to 1.0.152) sends "Continue." in place of the answers to the approvals it asks afterwards: the tool call is rejected, and asked again ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)). Approvals work in a session until it is suspended; a session that resumed asks again and again. A turn that was waiting for an approval when its session was suspended resumes without it: `continue()` tells the agent the answers in a message.
 - **No approvals of Codex's own tools.** `@ai-sdk/harness-codex` (up to 1.0.150) runs Codex with approvals turned off and refuses any `permissionMode` but `'allow-all'`, though Codex itself can ask before a command or a patch ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). Your own tools can still ask, through `toolApproval`.

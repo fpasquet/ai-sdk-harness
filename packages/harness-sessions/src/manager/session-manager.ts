@@ -182,9 +182,9 @@ function settingsOf<METADATA>(options: SessionManagerOptions<METADATA>): Setting
  * 6. `close()` ends a session for good.
  *
  * Every change is written to the store and sent to the subscribers. Several managers share a store
- * that gives them leases (`claimSession`, `renewLease`, `releaseSession`): each runs the sessions it
- * holds. Without them, keep one manager per store: a second one would take the sessions of the
- * first for those of a crashed process.
+ * that gives them leases (`getOwnership`, `writeOwnership`, `renewOwnerships`, `releaseOwnership`):
+ * each runs the sessions it holds. Without them, keep one manager per store: a second one would take
+ * the sessions of the first for those of a crashed process.
  */
 export function createSessionManager<METADATA = unknown>(
   options: SessionManagerOptions<METADATA>,

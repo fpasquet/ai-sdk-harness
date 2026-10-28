@@ -9,13 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { SessionManager } from '../src/index.js';
 
-import {
-  createMemorySessionStore,
-  createSessionManager,
-  createTaskList,
-  sharedSandbox,
-  tasksOf,
-} from '../src/index.js';
+import { createSessionManager, createTaskList, sharedSandbox, tasksOf } from '../src/index.js';
+import { createMemorySessionStore } from '../src/memory.js';
 
 /**
  * The task list of a real Claude Code session, over two turns, in a Docker Sandbox: needs `sbx`

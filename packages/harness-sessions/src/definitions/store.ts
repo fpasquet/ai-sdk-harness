@@ -26,40 +26,46 @@ export interface SessionStore<METADATA = unknown> {
   list(): Promise<SessionSummary<METADATA>[]>;
   /** What a suspended session needs to resume. */
   getResumeState(id: string): Promise<HarnessAgentResumeSessionState | undefined>;
-  /** Forgets the session and its resume state, and who holds it. */
+  /** Forgets the session, its resume state, and who holds it. */
   delete(id: string): Promise<void>;
   /**
-   * Optional, with `renewLease` and `releaseSession`: lets several managers share the store — the
-   * instances of an application behind a load balancer, or a new version deployed beside the old
-   * one. A manager holds each session it runs, and keeps its lease alive while it runs: another
-   * manager leaves its sessions alone, and takes them over once its lease expired.
+   * Optional, with `writeOwnership`, `renewOwnerships` and `releaseOwnership`: lets several
+   * managers share the store — the instances of an application behind a load balancer, or a new
+   * version deployed beside the old one. A manager holds each session it runs, and renews its
+   * lease while it runs: another manager leaves its sessions alone, and takes them over once the
+   * lease expired. Each method is one plain read or write of a row, keyed by session: what any ORM
+   * does.
    *
-   * Makes `owner` hold the session `id`, in one atomic step (a compare-and-set on a database row),
-   * unless another manager whose lease has not expired holds it. The session need not be saved
-   * yet: `create()` takes it before writing it.
+   * Who holds the session `id`, if anyone.
    */
-  claimSession?(id: string, owner: string): Promise<SessionClaim>;
+  getOwnership?(id: string): Promise<SessionOwnership | undefined>;
   /**
-   * Keeps the lease of the manager `owner` alive for `ttlMs` milliseconds from now, by the store's
-   * clock: what decides whether the sessions it holds may be taken over.
+   * Writes who holds the session `id`, in one atomic step, and says whether it did. Without
+   * `expectedVersion`, creates it, unless one exists already: an insert, refused by the primary
+   * key. With it, replaces the one whose `version` is `expectedVersion`, unless it changed
+   * meanwhile: an update filtered on the id and that version. The session need not be saved yet:
+   * `create()` takes it before writing it.
    */
-  renewLease?(owner: string, ttlMs: number): Promise<void>;
-  /** Lets go of the session `id`, when `owner` holds it. */
-  releaseSession?(id: string, owner: string): Promise<void>;
+  writeOwnership?(
+    id: string,
+    ownership: SessionOwnership,
+    expectedVersion?: number,
+  ): Promise<boolean>;
+  /** Moves the expiry of every session `owner` holds to `expiresAt`: an update filtered on `owner`. */
+  renewOwnerships?(owner: string, expiresAt: Date): Promise<void>;
+  /** Forgets who holds the session `id`, when it is `owner`: a delete filtered on both. */
+  releaseOwnership?(id: string, owner: string): Promise<void>;
 }
 
-/** What `claimSession` made of a claim. */
-export type SessionClaim =
-  | {
-      claimed: false;
-      /** The manager that holds the session, its lease alive. */
-      owner: string;
-    }
-  | {
-      claimed: true;
-      /**
-       * Who held the session before: `null` when nobody did, the claiming manager itself when it
-       * held it already, or a manager whose lease expired.
-       */
-      previousOwner: null | string;
-    };
+/** Who holds a session, among the managers sharing a store. */
+export interface SessionOwnership {
+  /** The `managerId` of the manager that runs it. */
+  owner: string;
+  /**
+   * When its lease runs out, unless its manager renews it: another manager may take the session
+   * over then. Read on the managers' clocks.
+   */
+  expiresAt: Date;
+  /** Grows by one each time the session changes hands: what `writeOwnership` compares. */
+  version: number;
+}

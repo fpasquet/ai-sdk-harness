@@ -30,10 +30,20 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "import": "./dist/memory.js",
+      "default": "./dist/memory.js"
+    },
     "./tasks": {
       "types": "./dist/tasks.d.ts",
       "import": "./dist/tasks.js",
       "default": "./dist/tasks.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     }
   },
   "files": [
