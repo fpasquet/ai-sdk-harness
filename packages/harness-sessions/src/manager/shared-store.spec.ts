@@ -26,7 +26,8 @@ describe('several managers sharing a store', () => {
       sandboxes: fake.sandboxes,
       store,
       managerId,
-      leaseTtlMs: 60,
+      // Long enough for a busy machine to renew it in time: the tests of an expiry set their own.
+      leaseTtlMs: 5000,
       onError: () => undefined,
       ...options,
     });
@@ -132,8 +133,8 @@ describe('several managers sharing a store', () => {
   });
 
   it('interrupts the sessions of a manager that crashed, once its lease expired', async () => {
-    const a = manager('a');
-    const b = manager('b');
+    const a = manager('a', { leaseTtlMs: 60 });
+    const b = manager('b', { leaseTtlMs: 60 });
     await ready(a, 's1');
     await ready(a, 's2');
 
@@ -149,12 +150,12 @@ describe('several managers sharing a store', () => {
   });
 
   it('interrupts, when it starts, the sessions of a manager that crashed', async () => {
-    const a = manager('a');
+    const a = manager('a', { leaseTtlMs: 60 });
     await ready(a, 's1');
     store.crash('a');
     await new Promise((resolve) => setTimeout(resolve, 80));
 
-    const b = manager('b');
+    const b = manager('b', { leaseTtlMs: 60 });
 
     await until(async () => (await b.get('s1'))?.status === 'interrupted');
   });
