@@ -1,5 +1,12 @@
 # ai-sdk-sandbox-gce
 
+## 0.2.1
+
+### Patch Changes
+
+- ec23275: Git over HTTPS takes the credentials brokered for its server, such as a repository of `ai-sdk-harness-workspace`. Its requests went through the proxy's TLS tunnel, which the proxy cannot read, so the server got the placeholder and refused the fetch. The agent now sends them to the proxy's routes, through a `url.<proxy>/https/.insteadOf https://` setting added after the command's own `GIT_CONFIG_*` entries. Build the sandbox image again with this version.
+- bd8f6da: The proxy's startup script in the README upgrades the package when its pinned version changes, and restarts the proxy on it: it used to install the package only on a machine that had none, so a proxy kept its first version. The README says how to hand the new script to the machine.
+
 ## 0.2.0
 
 ### Minor Changes
