@@ -64,6 +64,7 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     await Promise.all(sessions.map((created) => created.destroy()));
     const client = new SandboxServiceClient(options.url, {
       token: identityToken(auth, options.url),
+      serviceToken: options.serviceToken,
     });
     await client.deleteTemplate(templateId({ template, setup: [] }));
   });
