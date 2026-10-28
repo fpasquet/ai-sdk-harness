@@ -113,11 +113,22 @@ describe('workspaces on a real runtime', () => {
         additions: 1,
         deletions: 1,
         binary: false,
+        mode: '100644',
       },
     ]);
     expect(new TextDecoder().decode(await alpha.changes())).toContain('+export const answer = 42;');
+    const [edited] = await alpha.changedFiles({ contents: true });
+    expect(new TextDecoder().decode(edited?.content)).toContain('export const answer = 42;');
     expect(await beta.changedFiles()).toEqual([
-      { path: 'NOTES.md', repository, status: 'added', additions: 1, deletions: 0, binary: false },
+      {
+        path: 'NOTES.md',
+        repository,
+        status: 'added',
+        additions: 1,
+        deletions: 0,
+        binary: false,
+        mode: '100644',
+      },
     ]);
     expect((await beta.run('git log -1 --format=%s')).stdout).toMatch(/^Notes/);
   });

@@ -1,9 +1,10 @@
 import type { Experimental_SandboxSession as SandboxSession } from 'ai';
 
-import type { ChangedFile } from '../definitions/workspace.js';
+import type { ChangedFile, GitFileMode } from '../definitions/workspace.js';
 
 import { checkScript, runScript, scriptError } from './sandbox-script.js';
 import {
+  BLOBS,
   CHANGED_FILES,
   CHANGES,
   CHECKOUT,
@@ -147,7 +148,10 @@ export async function readChanges(
   }
 }
 
-/** The files that changed in the checkout of `repository` since `base`, their paths under `prefix`. */
+/**
+ * The files that changed in the checkout of `repository` since `base`, their paths under `prefix`;
+ * with `contents`, what each holds.
+ */
 export async function listChanges(
   sandbox: SandboxSession,
   {
@@ -155,8 +159,15 @@ export async function listChanges(
     base,
     repository,
     prefix = '',
+    contents = false,
     ...options
-  }: Signal & { directory: string; base: string; repository: string; prefix?: string },
+  }: Signal & {
+    directory: string;
+    base: string;
+    repository: string;
+    prefix?: string;
+    contents?: boolean;
+  },
 ): Promise<ChangedFile[]> {
   const output = await runScript(sandbox, {
     script: CHANGED_FILES,
@@ -164,11 +175,65 @@ export async function listChanges(
     ...signal(options),
   });
   if (output.exitCode !== 0) throw scriptError('changes', output);
-  return parseChangedFiles(output.stdout).map((file) => ({
-    ...file,
-    path: prefix === '' ? file.path : `${prefix}/${file.path}`,
-    repository,
-  }));
+  const listed = parseChangedFiles(output.stdout);
+  const blobs = contents
+    ? await readBlobs(sandbox, {
+        directory,
+        ids: listed.flatMap(({ blob }) => blob ?? []),
+        ...options,
+      })
+    : new Map<string, Uint8Array>();
+  return listed.map(({ blob, ...file }) => {
+    const content = blob === undefined ? undefined : blobs.get(blob);
+    return {
+      ...file,
+      path: prefix === '' ? file.path : `${prefix}/${file.path}`,
+      repository,
+      ...(content !== undefined && { content }),
+    };
+  });
+}
+
+/** The blobs `ids` of the repository of the checkout in `directory`, read in one go. */
+async function readBlobs(
+  sandbox: SandboxSession,
+  { directory, ids, ...options }: Signal & { directory: string; ids: string[] },
+): Promise<Map<string, Uint8Array>> {
+  if (ids.length === 0) return new Map();
+  const path = await checkScript(sandbox, 'changes', {
+    script: BLOBS,
+    args: [directory, ...ids],
+    ...signal(options),
+  });
+  try {
+    const batch = (await sandbox.readBinaryFile({ path, ...signal(options) })) ?? new Uint8Array();
+    return parseBlobBatch(batch);
+  } finally {
+    await runScript(sandbox, { script: REMOVE_FILE, args: [path] });
+  }
+}
+
+const LINE_FEED = 0x0a;
+
+/**
+ * Reads `git cat-file --batch`: `<id> blob <size>\n`, the blob's bytes and a line feed, for each
+ * object; `<id> missing\n` for one the repository does not have.
+ */
+export function parseBlobBatch(batch: Uint8Array): Map<string, Uint8Array> {
+  const blobs = new Map<string, Uint8Array>();
+  const decoder = new TextDecoder();
+  let offset = 0;
+  while (offset < batch.length) {
+    const end = batch.indexOf(LINE_FEED, offset);
+    if (end === -1) break;
+    const [id = '', type = '', size = ''] = decoder.decode(batch.subarray(offset, end)).split(' ');
+    offset = end + 1;
+    if (type === 'missing' || size === '') continue;
+    const length = Number(size);
+    if (type === 'blob') blobs.set(id, batch.slice(offset, offset + length));
+    offset += length + 1;
+  }
+  return blobs;
 }
 
 /** Keeps `path` of the checkout out of its changes. */
@@ -223,8 +288,13 @@ const STATUSES: Record<string, ChangedFile['status']> = {
   T: 'type-changed',
 };
 
-/** A changed file, before it is told which repository it is in. */
-type ListedFile = Omit<ChangedFile, 'repository'>;
+/**
+ * A changed file, before it is told which repository it is in, with the blob that holds its
+ * content once changed.
+ */
+type ListedFile = Omit<ChangedFile, 'content' | 'repository'> & { blob?: string };
+
+const MODES: ReadonlySet<string> = new Set<GitFileMode>(['100644', '100755', '120000', '160000']);
 
 /** Reads `git diff --raw --numstat -z`: each file's status, then its line counts. */
 export function parseChangedFiles(output: string): ListedFile[] {
@@ -245,15 +315,21 @@ export function parseChangedFiles(output: string): ListedFile[] {
   return [...files.values()];
 }
 
-/** A file from its `--raw` entry, `:<modes> <shas> <status>`. */
+/**
+ * A file from its `--raw` entry, `:<old mode> <new mode> <old id> <new id> <status>`: its mode and
+ * its blob once changed, none for a deleted file, no blob for a submodule.
+ */
 function statusOf(entry: string, path: string): ListedFile {
-  const letter = entry.split(' ').at(-1)?.charAt(0) ?? 'M';
+  const [, mode = '', , id = '', status = ''] = entry.slice(1).split(' ');
+  const known = MODES.has(mode) ? (mode as GitFileMode) : undefined;
   return {
     path,
-    status: STATUSES[letter] ?? 'modified',
+    status: STATUSES[status.charAt(0)] ?? 'modified',
     additions: 0,
     deletions: 0,
     binary: false,
+    ...(known !== undefined && { mode: known }),
+    ...(known !== undefined && known !== '160000' && { blob: id }),
   };
 }
 

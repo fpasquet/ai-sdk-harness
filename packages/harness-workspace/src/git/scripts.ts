@@ -112,10 +112,25 @@ export const CHANGES = [
   'printf "%s" "$out"',
 ].join('\n');
 
-/** Lists what changed in the checkout `$1` since commit `$2`: `--raw` and `--numstat`, `-z`. */
+/**
+ * Lists what changed in the checkout `$1` since commit `$2`: `--raw` and `--numstat`, `-z`, the
+ * objects named in full. Staging writes each file's blob: {@link BLOBS} reads them afterwards.
+ */
 export const CHANGED_FILES = [
   STAGE_ALL,
-  'GIT_INDEX_FILE=$index git diff --cached --no-renames --raw --numstat -z "$2^{commit}"',
+  'GIT_INDEX_FILE=$index git diff --cached --no-renames --no-abbrev --raw --numstat -z "$2^{commit}"',
+].join('\n');
+
+/**
+ * Writes the blobs `$2`… of the repository of the checkout `$1` to a file, as `git cat-file
+ * --batch` prints them, and prints the file's path.
+ */
+export const BLOBS = [
+  'cd "$1"',
+  'shift',
+  'out="$(git rev-parse --absolute-git-dir)/ai-sdk-harness-$$.blobs"',
+  'printf "%s\\n" "$@" | git cat-file --batch > "$out"',
+  'printf "%s" "$out"',
 ].join('\n');
 
 /**

@@ -297,11 +297,18 @@ export class WorkspaceSlot {
         );
         return concat(patches);
       },
-      changedFiles: async ({ abortSignal } = {}) => {
+      changedFiles: async ({ abortSignal, contents } = {}) => {
         this.live();
         const lists = await Promise.all(
           checkouts.map(({ repository: { name, path: prefix }, directory: at, base }) =>
-            listChanges(sandbox, { directory: at, base, repository: name, prefix, abortSignal }),
+            listChanges(sandbox, {
+              directory: at,
+              base,
+              repository: name,
+              prefix,
+              contents,
+              abortSignal,
+            }),
           ),
         );
         return lists.flat();
@@ -328,9 +335,15 @@ export class WorkspaceSlot {
         this.live();
         return readChanges(sandbox, { directory, base, abortSignal });
       },
-      changedFiles: async ({ abortSignal } = {}) => {
+      changedFiles: async ({ abortSignal, contents } = {}) => {
         this.live();
-        return listChanges(sandbox, { directory, base, repository: repository.name, abortSignal });
+        return listChanges(sandbox, {
+          directory,
+          base,
+          repository: repository.name,
+          contents,
+          abortSignal,
+        });
       },
     };
   }

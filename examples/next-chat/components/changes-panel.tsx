@@ -1,7 +1,7 @@
 'use client';
 
 import type { SessionSummary } from 'ai-sdk-harness-sessions';
-import type { ChangedFile } from 'ai-sdk-harness-workspace';
+import type { ChangedFile, GitFileMode } from 'ai-sdk-harness-workspace';
 
 import { ChevronDownIcon, GitBranchIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -19,6 +19,13 @@ interface Changes {
   files: ChangedFile[];
   patch: string;
 }
+
+/** The modes worth a word: a plain file needs none. */
+const MODE_LABELS: Partial<Record<GitFileMode, string>> = {
+  '100755': 'executable',
+  '120000': 'symbolic link',
+  '160000': 'submodule',
+};
 
 const STATUS_MARKS: Record<ChangedFile['status'], string> = {
   added: 'A',
@@ -132,6 +139,9 @@ function FileRow({ file }: { file: ChangedFile }) {
         {STATUS_MARKS[file.status]}
       </span>
       <span className="truncate">{file.path}</span>
+      {file.mode !== undefined && MODE_LABELS[file.mode] !== undefined && (
+        <span className="shrink-0 text-muted-foreground">{MODE_LABELS[file.mode]}</span>
+      )}
       <span className="ml-auto text-muted-foreground">
         {file.binary ? 'binary' : `+${file.additions} −${file.deletions}`}
       </span>
