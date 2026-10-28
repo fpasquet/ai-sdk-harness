@@ -1,5 +1,19 @@
 # ai-sdk-harness-sessions
 
+## 0.4.0
+
+### Minor Changes
+
+- c29ba23: A store shared by several managers no longer needs SQL of its own. Each lease method is now one plain read or write of a row, what any ORM does: `getOwnership`, `writeOwnership` (an insert, or an update at the version read), `renewOwnerships` and `releaseOwnership`. The manager claims a session by a compare-and-set on that row, and every session of a manager expires with its lease. The README gives the whole store for Drizzle, and the lease methods for Prisma and MikroORM.
+  
+  Also new: `withEncryptedResumeState(store, cipher)` seals the resume states before the store keeps them, with `aesGcmCipher(key)` or a cipher of your own; `sessionStoreChecks()`, from `ai-sdk-harness-sessions/testing`, checks a store against the contract with any test runner; and `createMemorySessionStore({ shared: true })` lets several managers of one process share a store.
+  
+  BREAKING: `claimSession`, `renewLease` and `releaseSession` are replaced by the four ownership methods, and the `SessionClaim` type is gone. A store on a database moves its owners to a table of `(session_id, owner, expires_at, version)` and drops its table of leases; the expiry is now read on the managers' clocks. `createMemorySessionStore` moves to its own entry: import it from `ai-sdk-harness-sessions/memory`.
+
+### Patch Changes
+
+- 29abf48: Read the task list the agent keeps while it works. `tasksOf(messages)` replays Claude Code's `TodoWrite`, `TaskCreate` and `TaskUpdate` calls over every turn of a conversation and gives the list as it stands; `createTaskList()` follows it call by call, for a server that reads a turn's chunks. Both come from `ai-sdk-harness-sessions/tasks` too, an entry that runs in the browser, and the docs' registry gains an `AgentTasks` component that shows the list.
+
 ## 0.3.0
 
 ### Minor Changes
