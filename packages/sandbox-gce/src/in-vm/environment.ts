@@ -26,9 +26,10 @@ export function noProxy(config: AgentConfig): string {
 
 /**
  * The variables a command runs with: the sandbox's, its base URLs routed through the egress proxy,
- * then the command's own. A command's own value for a base URL variable is routed too: a harness
- * that points its client at the real API still goes through the proxy. Before the service configured
- * the agent, commands get no proxy: the firewall leaves them no way out.
+ * then the command's own, and git's HTTPS sent to the proxy's routes. A command's own value for a
+ * base URL variable is routed too: a harness that points its client at the real API still goes
+ * through the proxy. Before the service configured the agent, commands get no proxy: the firewall
+ * leaves them no way out.
  */
 export function commandEnvironment(
   settings: CommandSettings,
@@ -60,5 +61,22 @@ export function commandEnvironment(
   for (const [name, value] of Object.entries(env)) {
     variables[name] = name in config.baseUrls ? route(value) : value;
   }
-  return variables;
+  return withGitRoutes(variables, origin);
+}
+
+/**
+ * Git over HTTPS through the proxy's routes rather than a TLS tunnel, after the command's own
+ * `GIT_CONFIG_*` entries: the proxy then reads its requests, and swaps in a credential brokered for
+ * the Git server, which a tunnel would carry to it as the placeholder.
+ */
+function withGitRoutes(variables: Record<string, string>, origin: string): Record<string, string> {
+  const count = variables['GIT_CONFIG_COUNT'] ?? '0';
+  // A count git would refuse: the command fails on it whatever is added.
+  if (!/^\d+$/.test(count)) return variables;
+  return {
+    ...variables,
+    GIT_CONFIG_COUNT: String(Number(count) + 1),
+    [`GIT_CONFIG_KEY_${count}`]: `url.${origin}/https/.insteadOf`,
+    [`GIT_CONFIG_VALUE_${count}`]: 'https://',
+  };
 }

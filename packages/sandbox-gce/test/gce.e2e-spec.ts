@@ -84,6 +84,22 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
     expect(stdout).not.toContain('default/');
   });
 
+  it('fetches with git over HTTPS through a route of the proxy, which reads its requests', async () => {
+    await session.setNetworkPolicy({
+      mode: 'custom',
+      allowedHosts: ['registry.npmjs.org', 'github.com'],
+    });
+
+    const { stdout, stderr, exitCode } = await session.run({
+      command:
+        'GIT_TRACE_CURL=1 git ls-remote https://github.com/fpasquet/ai-sdk-harness HEAD 2>trace.txt; ' +
+        'grep -c "/https/github.com/fpasquet/ai-sdk-harness" trace.txt',
+    });
+
+    expect(exitCode, stderr).toBe(0);
+    expect(stdout).toMatch(/^[0-9a-f]{40}\tHEAD\n[1-9]\d*\n$/);
+  });
+
   it('runs Docker, its images pulled through the proxy', async () => {
     await session.setNetworkPolicy({
       mode: 'custom',
