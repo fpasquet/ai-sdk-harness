@@ -3,7 +3,7 @@
  * release of the package speak the same; the service refuses a client that speaks another one,
  * rather than answering it with errors nobody could make sense of.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** The header the client names its protocol version in, and the service answers with its own. */
 export const PROTOCOL_HEADER = 'x-ai-sdk-sandbox-protocol';

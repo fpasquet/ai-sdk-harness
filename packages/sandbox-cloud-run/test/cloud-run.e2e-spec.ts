@@ -13,6 +13,7 @@ import {
   createCloudRunNetworkSandboxSession,
   resumeCloudRunNetworkSandboxSession,
 } from '../src/index.js';
+import { PROTOCOL_VERSION } from '../src/protocol/version.js';
 
 /**
  * Against a sandbox service deployed on Cloud Run: set CLOUD_RUN_SANDBOX_URL to its URL, and have
@@ -63,6 +64,7 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     await Promise.all(sessions.map((created) => created.destroy()));
     const client = new SandboxServiceClient(options.url, {
       token: identityToken(auth, options.url),
+      serviceToken: options.serviceToken,
     });
     await client.deleteTemplate(templateId({ template, setup: [] }));
   });
@@ -90,6 +92,17 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     const bytes = new Uint8Array(256).map((_, index) => index);
     await session.writeBinaryFile({ path: 'bytes.bin', content: bytes });
     expect(await session.readBinaryFile({ path: 'bytes.bin' })).toEqual(bytes);
+  });
+
+  it('writes to the stdin of a process, its close the end of the input', async () => {
+    const spawned = await session.spawn({ command: 'cat; echo " (end)"', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    for (const word of ['one ', 'two ', 'three'])
+      await writer.write(new TextEncoder().encode(word));
+    await writer.close();
+
+    expect(await new Response(spawned.stdout).text()).toBe('one two three (end)\n');
+    expect(await spawned.wait()).toEqual({ exitCode: 0 });
   });
 
   it('runs a command with bash, as the harnesses write it', async () => {
@@ -172,7 +185,7 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     const forwarded = JSON.parse(received) as Record<string, string>;
     expect(forwarded['upgrade']).toBe('websocket');
     expect(forwarded['authorization']).toBeUndefined();
-    expect(forwarded['x-ai-sdk-sandbox-protocol']).toBe('1');
+    expect(forwarded['x-ai-sdk-sandbox-protocol']).toBe(String(PROTOCOL_VERSION));
   });
 
   it('is suspended to its snapshot and resumed with its files', async () => {

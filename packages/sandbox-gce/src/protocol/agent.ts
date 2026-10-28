@@ -8,6 +8,8 @@
  *   answer streams the frames of `frames.ts`, the process named in `x-process-id`;
  * - `GET /v1/processes/:id`: waits for the process to exit, a few minutes at most:
  *   `{ exitCode }`, or `{ running: true }`;
+ * - `POST /v1/processes/:id/stdin?offset=…`: bytes of the standard input of a process started with
+ *   `stdin`, from that offset on; `DELETE /v1/processes/:id/stdin` ends it;
  * - `DELETE /v1/processes/:id`, `DELETE /v1/processes`: stop one process, or every one;
  * - `GET /v1/ports/:port/…` with `Upgrade`: the request passed on to `127.0.0.1:<port>`.
  */

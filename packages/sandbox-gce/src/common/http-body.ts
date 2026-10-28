@@ -12,14 +12,28 @@ const invalid = (message: string): HttpError => new HttpError(400, message);
 
 /** The request's JSON body, an object; `{}` when it has none. */
 export async function readJson(request: IncomingMessage): Promise<Json> {
+  return parseObject((await readBytes(request, MAX_JSON_BYTES)).toString() || '{}');
+}
+
+/** The request's body as it came, `max` bytes at most. */
+export async function readBytes(request: IncomingMessage, max: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > MAX_JSON_BYTES) throw new HttpError(413, 'The request body is too large.');
+    if (size > max) throw new HttpError(413, 'The request body is too large.');
     chunks.push(chunk);
   }
-  return parseObject(Buffer.concat(chunks).toString() || '{}');
+  return Buffer.concat(chunks);
+}
+
+/** Where a write starts in the input of a process: the `offset` of the query. */
+export function offsetOf(request: IncomingMessage): number {
+  const offset = new URL(request.url ?? '/', 'http://service').searchParams.get('offset') ?? '';
+  if (!/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))) {
+    throw invalid('`offset` must be a whole number of bytes.');
+  }
+  return Number(offset);
 }
 
 /** `text` as a JSON object. */
@@ -40,6 +54,13 @@ export function optionalString(body: Json, field: string): string | undefined {
   const value = body[field];
   if (value === undefined) return undefined;
   if (typeof value !== 'string') throw invalid(`\`${field}\` must be a string.`);
+  return value;
+}
+
+export function optionalBoolean(body: Json, field: string): boolean | undefined {
+  const value = body[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw invalid(`\`${field}\` must be a boolean.`);
   return value;
 }
 

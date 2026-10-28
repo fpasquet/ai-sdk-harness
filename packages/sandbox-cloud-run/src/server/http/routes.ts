@@ -1,12 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import type { SandboxProcess } from '../sandboxes/sandbox.js';
 import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
+import { MAX_INPUT_WRITE_BYTES } from '../../protocol/api.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { PACKAGE_VERSION } from '../package-version.js';
 import { execStream } from './exec-stream.js';
+import { HttpError } from './http-error.js';
 import {
   optionalString,
+  readBytes,
   readJson,
   requiredString,
   stringList,
@@ -61,6 +65,23 @@ async function waitFor(exited: Promise<number>): Promise<Reply> {
   const exitCode = await Promise.race([exited, timeout]);
   clearTimeout(timer);
   return { status: 200, body: exitCode === undefined ? { running: true } : { exitCode } };
+}
+
+/** The standard input of a process, refused for one started without `stdin`. */
+function inputOf({ id, input }: SandboxProcess): NonNullable<SandboxProcess['input']> {
+  if (input === undefined) {
+    throw new HttpError(409, `The process ${id} was started without a writable standard input.`);
+  }
+  return input;
+}
+
+/** Where a write starts in the input of the process: the `offset` of the query. */
+function offsetOf(request: IncomingMessage): number {
+  const offset = new URL(request.url ?? '/', 'http://service').searchParams.get('offset') ?? '';
+  if (!/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))) {
+    throw new HttpError(400, '`offset` must be a whole number of bytes.');
+  }
+  return Number(offset);
 }
 
 const SANDBOX = '/v1/sandboxes/([^/]+)';
@@ -119,6 +140,23 @@ export const ROUTES: Route[] = [
     async ({ sandboxes, params: [name = '', id = ''] }) => {
       await sandboxes.process(name, id).kill();
       return NO_CONTENT;
+    },
+  ),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)/stdin$`),
+    async ({ sandboxes, params: [name = '', id = ''], request }) => {
+      const input = inputOf(sandboxes.process(name, id));
+      await input.write(offsetOf(request), await readBytes(request, MAX_INPUT_WRITE_BYTES));
+      return NO_CONTENT;
+    },
+  ),
+  route(
+    'DELETE',
+    new RegExp(`^${SANDBOX}/processes/([^/]+)/stdin$`),
+    ({ sandboxes, params: [name = '', id = ''] }) => {
+      inputOf(sandboxes.process(name, id)).end();
+      return Promise.resolve(NO_CONTENT);
     },
   ),
   route(

@@ -132,13 +132,30 @@ describe('a Cloud Run sandbox', () => {
     );
   });
 
-  it('refuses a writable stdin before the command starts', async () => {
+  it('hands a writable stdin when asked, its end the end of the input', async () => {
     const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
-    await expect(session.spawn({ command: 'touch started', stdin: true })).rejects.toThrow(
-      'does not give a process a writable stdin yet',
-    );
-    expect((await session.run({ command: 'test -e started' })).exitCode).toBe(1);
+    const spawned = await session.spawn({ command: 'cat; echo " (end)"', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    const lines = Array.from({ length: 200 }, (_, index) => `${index}\n`);
+    for (const line of lines) await writer.write(new TextEncoder().encode(line));
+    await writer.close();
+
+    const [stdout, { exitCode }] = await Promise.all([
+      new Response(spawned.stdout).text(),
+      spawned.wait(),
+    ]);
+    expect(stdout).toBe(`${lines.join('')} (end)\n`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('closes stdin, with no stream to write to, unless asked', async () => {
+    const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+
+    const spawned = await session.spawn({ command: 'cat; echo done' });
+
+    expect('stdin' in spawned).toBe(false);
+    expect(await new Response(spawned.stdout).text()).toBe('done\n');
   });
 
   it('runs a command in a working directory relative to its own', async () => {
@@ -680,7 +697,7 @@ describe('the ports of a Cloud Run sandbox', () => {
     const answer = await upgrade(endpoint.url, /ping/);
 
     expect(endpoint.url).toBe(`${fake.url.replace('http', 'ws')}/v1/sandboxes/box/ports/${port}`);
-    expect(endpoint.headers).toEqual({ 'x-ai-sdk-sandbox-protocol': '1' });
+    expect(endpoint.headers).toEqual({ 'x-ai-sdk-sandbox-protocol': '2' });
     expect(answer).toContain('101 Switching Protocols');
     expect(answer).toContain(`{"url":"/path?q=1","authorization":null}`);
     expect(answer).toMatch(/ping$/);

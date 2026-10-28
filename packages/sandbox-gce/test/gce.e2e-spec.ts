@@ -59,6 +59,17 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
     expect(stdout).toBe(`agent\n${session.defaultWorkingDirectory}\nsudo\n`);
   });
 
+  it('writes to the stdin of a process, its close the end of the input', async () => {
+    const spawned = await session.spawn({ command: 'cat; echo " (end)"', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    for (const word of ['one ', 'two ', 'three'])
+      await writer.write(new TextEncoder().encode(word));
+    await writer.close();
+
+    expect(await new Response(spawned.stdout).text()).toBe('one two three (end)\n');
+    expect(await spawned.wait()).toEqual({ exitCode: 0 });
+  });
+
   it('reaches the allowed hosts through the proxy, and nothing else', async () => {
     const { stdout } = await session.run({
       command:

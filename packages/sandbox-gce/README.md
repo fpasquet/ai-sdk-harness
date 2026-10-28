@@ -144,7 +144,7 @@ systemctl restart systemd-networkd systemd-resolved
 if ! command -v ai-sdk-sandbox-gce >/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
-  npm install --global ai-sdk-sandbox-gce@0.1.0
+  npm install --global ai-sdk-sandbox-gce@0.2.0
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
 if [ ! -d /opt/google-cloud-ops-agent ]; then
@@ -214,7 +214,7 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 # Node.js, the agent, and pnpm: the Claude Code and Codex bridges install their dependencies with it.
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 apt-get install -y nodejs
-npm install --global ai-sdk-sandbox-gce@0.1.0 pnpm@10
+npm install --global ai-sdk-sandbox-gce@0.2.0 pnpm@10
 
 # The sandbox's user: sudo without a password, and Docker.
 useradd --create-home --shell /bin/bash agent
@@ -245,7 +245,7 @@ The service's image is the package and Node.js:
 
 ```dockerfile title="Dockerfile"
 FROM node:24-bookworm-slim
-RUN npm install --global --silent ai-sdk-sandbox-gce@0.1.0 && npm cache clean --force
+RUN npm install --global --silent ai-sdk-sandbox-gce@0.2.0 && npm cache clean --force
 CMD ["ai-sdk-sandbox-gce", "serve"]
 ```
 
@@ -642,7 +642,7 @@ The steps above set up the network, the proxy and the service as they ran on Goo
 - **32 MiB per request.** Cloud Run limits HTTP/1 request bodies: a larger file cannot be written in one call.
 - **A process's output stops after an hour**, the request timeout of the service. Its exit code is still found.
 - **One bridge per port.** Run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
-- **No writable stdin.** `spawn({ stdin: true })` is refused before the command starts: the service carries no input to a process. Write the input to a file first, or pipe it in the command.
+- **A writable stdin costs a request per write.** `spawn({ stdin: true })` hands a process a writable `stdin`, but each write reaches the service in a request of its own: what is written meanwhile leaves with the next one, and a request that fails on the way is sent again without writing anything twice. Fine for the messages of a protocol; for a large input written in small pieces, write a file first.
 
 ## Development
 

@@ -2,7 +2,13 @@ import type { IncomingMessage } from 'node:http';
 
 import type { SandboxCommand } from '../protocol/api.js';
 
-import { optionalString, parseObject, requiredString, stringRecord } from './http-body.js';
+import {
+  optionalBoolean,
+  optionalString,
+  parseObject,
+  requiredString,
+  stringRecord,
+} from './http-body.js';
 import { HttpError } from './http-error.js';
 
 /** The longest command line accepted before its standard input. */
@@ -44,6 +50,7 @@ export function readCommandLine(request: IncomingMessage): Promise<CommandLine> 
             command: requiredString(body, 'command'),
             workingDirectory: optionalString(body, 'workingDirectory'),
             env: stringRecord(body, 'env'),
+            stdin: optionalBoolean(body, 'stdin'),
           },
           line,
           rest: buffered.subarray(newline + 1),

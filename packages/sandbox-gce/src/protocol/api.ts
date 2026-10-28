@@ -23,4 +23,16 @@ export interface SandboxCommand {
   workingDirectory?: string;
   /** Variables of its own, beside those of the sandbox. */
   env?: Record<string, string>;
+  /**
+   * Keep its standard input open once the request ends: it is then written by
+   * `POST …/processes/:id/stdin` and ended by `DELETE …/processes/:id/stdin`. Without it, the
+   * standard input is what follows the command in the request, and ends with it.
+   */
+  stdin?: boolean;
 }
+
+/**
+ * The most bytes one `POST …/processes/:id/stdin` carries, well under the 32 MiB Cloud Run
+ * accepts in an HTTP/1 request.
+ */
+export const MAX_INPUT_WRITE_BYTES = 8 << 20;

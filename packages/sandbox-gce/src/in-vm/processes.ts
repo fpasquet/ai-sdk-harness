@@ -6,6 +6,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+import { ProcessInput } from './process-input.js';
+
 /** The user commands run as, when the agent runs as root and switches to it. */
 export interface CommandUser {
   uid: number;
@@ -18,6 +20,8 @@ export interface StartedProcess {
   readonly child: ChildProcessWithoutNullStreams;
   /** Its exit code, once it exited: 128 and the signal's number when a signal ended it. */
   readonly exited: Promise<number>;
+  /** Its standard input, when it was started with `stdin`: written by requests of their own. */
+  readonly input?: ProcessInput;
 }
 
 /**
@@ -89,8 +93,18 @@ export class Processes {
 
   constructor(private readonly user?: CommandUser) {}
 
-  /** Starts `command` in `directory`, with `env` and nothing else; its stdin is the caller's. */
-  exec(command: string, directory: string, env: Record<string, string>): StartedProcess {
+  /**
+   * Starts `command` in `directory`, with `env` and nothing else; its stdin is the caller's, written
+   * through {@link StartedProcess.input} with `stdin`.
+   */
+  exec(
+    command: string,
+    {
+      directory,
+      env,
+      stdin = false,
+    }: { directory: string; env: Record<string, string>; stdin?: boolean },
+  ): StartedProcess {
     const id = randomUUID();
     const shell = ['/bin/sh', '-c', COMMAND, 'sh', command, directory];
     // `setpriv` takes the user's groups too, `docker` among them, which Node.js's `uid` drops.
@@ -114,7 +128,7 @@ export class Processes {
         resolve(code ?? 128 + (name === null ? 0 : (constants.signals[name] ?? 15))),
       );
     });
-    const started = { id, child, exited };
+    const started = { id, child, exited, input: stdin ? new ProcessInput(child.stdin) : undefined };
     this.started.set(id, started);
     void exited.then(() => setTimeout(() => this.started.delete(id), EXITED_KEPT_MS).unref());
     return started;

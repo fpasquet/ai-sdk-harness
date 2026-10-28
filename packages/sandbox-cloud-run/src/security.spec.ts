@@ -215,7 +215,7 @@ describe('the service', () => {
 
     expect(response.status).toBe(400);
     expect(((await response.json()) as { error: string }).error).toContain(
-      'This client speaks protocol 99 of ai-sdk-sandbox-cloud-run, this service 1',
+      'This client speaks protocol 99 of ai-sdk-sandbox-cloud-run, this service 2',
     );
   });
 

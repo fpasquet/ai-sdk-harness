@@ -21,6 +21,7 @@ import {
   GceSandboxServiceError,
   resumeGceNetworkSandboxSession,
 } from '../../index.js';
+import { FrameType, readFrames } from '../../protocol/frames.js';
 import { templateId } from './sandbox-template.js';
 
 /** What a harness asks for to keep an Anthropic token out of the sandbox. */
@@ -124,13 +125,75 @@ describe('a Compute Engine sandbox', () => {
     );
   });
 
-  it('refuses a writable stdin before the command starts', async () => {
+  it('hands a writable stdin when asked, its end the end of the input', async () => {
     const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
-    await expect(session.spawn({ command: 'touch started', stdin: true })).rejects.toThrow(
-      'does not give a process a writable stdin yet',
+    const spawned = await session.spawn({ command: 'cat; echo " (end)"', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    const lines = Array.from({ length: 200 }, (_, index) => `${index}\n`);
+    for (const line of lines) await writer.write(new TextEncoder().encode(line));
+    await writer.close();
+
+    const [stdout, { exitCode }] = await Promise.all([
+      new Response(spawned.stdout).text(),
+      spawned.wait(),
+    ]);
+    expect(stdout).toBe(`${lines.join('')} (end)\n`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('closes stdin, with no stream to write to, unless asked', async () => {
+    const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+
+    const spawned = await session.spawn({ command: 'cat; echo done' });
+
+    expect('stdin' in spawned).toBe(false);
+    expect(await new Response(spawned.stdout).text()).toBe('done\n');
+  });
+
+  it('writes the input of a process by offset, nothing twice and with no gap', async () => {
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    const call = (method: string, path: string, body?: string): Promise<Response> =>
+      fetch(`${fake.url}${path}`, { method, body });
+    const errorOf = async (response: Response): Promise<[number, string]> => [
+      response.status,
+      ((await response.json()) as { error: string }).error,
+    ];
+    const response = await call(
+      'POST',
+      '/v1/sandboxes/box/exec',
+      `${JSON.stringify({ command: 'cat', stdin: true })}\n`,
     );
-    expect((await session.run({ command: 'test -e started' })).exitCode).toBe(1);
+    const id = response.headers.get('x-process-id') ?? '';
+    const stdin = `/v1/sandboxes/box/processes/${id}/stdin`;
+
+    expect((await call('POST', `${stdin}?offset=0`, 'ab')).status).toBe(204);
+    // Sent again, then again with more: only what is new is written.
+    expect((await call('POST', `${stdin}?offset=0`, 'ab')).status).toBe(204);
+    expect((await call('POST', `${stdin}?offset=1`, 'bc')).status).toBe(204);
+    expect(await errorOf(await call('POST', `${stdin}?offset=5`, 'x'))).toEqual([
+      409,
+      'The input of the process is at byte 3, not 5: a write is missing.',
+    ]);
+    expect((await call('POST', stdin, 'x')).status).toBe(400);
+    expect((await call('DELETE', stdin)).status).toBe(204);
+    expect((await call('DELETE', stdin)).status).toBe(204);
+    expect((await call('POST', `${stdin}?offset=3`, 'd')).status).toBe(409);
+    const output = [];
+    for await (const { type, payload } of readFrames(response.body ?? new Blob().stream())) {
+      if (type === FrameType.Data) output.push(payload.toString());
+    }
+    expect(output.join('')).toBe('abc');
+
+    const plain = await call('POST', '/v1/sandboxes/box/exec', '{"command":"sleep 1"}\n');
+    const plainId = plain.headers.get('x-process-id') ?? '';
+    expect(
+      await errorOf(
+        await call('POST', `/v1/sandboxes/box/processes/${plainId}/stdin?offset=0`, 'x'),
+      ),
+    ).toEqual([409, `The process ${plainId} was started without a writable standard input.`]);
+    expect((await call('DELETE', '/v1/sandboxes/box/processes/unknown/stdin')).status).toBe(404);
+    await plain.body?.cancel();
   });
 
   it('runs a command in a working directory relative to its own', async () => {
@@ -732,7 +795,7 @@ describe('the ports of a Compute Engine sandbox', () => {
     const answer = await upgrade(endpoint.url, /ping/);
 
     expect(endpoint.url).toBe(`${fake.url.replace('http', 'ws')}/v1/sandboxes/box/ports/${port}`);
-    expect(endpoint.headers).toEqual({ 'x-ai-sdk-sandbox-protocol': '1' });
+    expect(endpoint.headers).toEqual({ 'x-ai-sdk-sandbox-protocol': '2' });
     expect(answer).toContain('101 Switching Protocols');
     expect(answer).toContain(`{"url":"/path?q=1","authorization":null}`);
     expect(answer).toMatch(/ping$/);
