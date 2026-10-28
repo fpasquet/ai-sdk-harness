@@ -71,7 +71,18 @@ export async function createSbxNetworkSandboxSession(
   const image = template
     ? await ensureTemplateImage(
         cli,
-        { template, agent, image: options.image, setup, requiredCommands },
+        {
+          template,
+          agent,
+          image: options.image,
+          setup,
+          requiredCommands,
+          network: {
+            allowNetwork: options.allowNetwork,
+            denyNetwork: options.denyNetwork,
+            networkPolicy: options.networkPolicy,
+          },
+        },
         abortSignal,
       )
     : options.image;

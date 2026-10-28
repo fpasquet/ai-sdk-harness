@@ -104,12 +104,16 @@ export interface SbxCreationSettings extends SbxConnectionSettings {
    * machine's own, which keeps private networks and this host out of reach. `allow-all` is the
    * machine's policy as it is; `deny-all` denies every host; `custom` allows the listed hosts and
    * blocks only, a `*.example.com` entry standing for the domain's subdomains, and `deniedCIDRs`
-   * win over everything. Applied before `setup`. Local sandboxes only.
+   * win over everything. Applied before `setup`, and to the sandbox a `template` is built in: its
+   * setup and the harness's install reach no more than the sandbox does. Local sandboxes only.
    *
    * @defaultValue the machine's policy (`sbx policy ls`)
    */
   networkPolicy?: HarnessV1NetworkPolicy;
-  /** Hosts a cloud sandbox may reach, on top of the account's policy. Cloud sandboxes only. */
+  /**
+   * Hosts a cloud sandbox may reach, on top of the account's policy, the sandbox a `template` is
+   * built in included. Cloud sandboxes only.
+   */
   allowNetwork?: readonly string[];
   /**
    * CPUs given to the microVM. Default: decided by `sbx`. In the cloud, `cpus` and `memory` must
@@ -133,7 +137,8 @@ export interface SbxCreationSettings extends SbxConnectionSettings {
   /**
    * Commands run once, right after the sandbox is created, to install a tool the harness needs,
    * say. They run as the sandbox user, who has passwordless `sudo` in the Docker Sandboxes kits.
-   * With a `template`, they run before it is prepared and are baked into it.
+   * With a `template`, they run before it is prepared, under the sandbox's network, and are baked
+   * into it.
    */
   setup?: readonly string[];
   /**
