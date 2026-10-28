@@ -78,7 +78,10 @@ function exitCodeOf(code: null | number, signal: NodeJS.Signals | null): number 
   return 128 + (signal === null ? constants.signals.SIGKILL : constants.signals[signal]);
 }
 
-function run(channel: number, { command, cwd, env }: Extract<Request, { kind: 'spawn' }>): void {
+function run(
+  channel: number,
+  { command, cwd, env, stdin = false }: Extract<Request, { kind: 'spawn' }>,
+): void {
   if (statSync(cwd, { throwIfNoEntry: false })?.isDirectory() !== true) {
     sendData(channel, Buffer.from(`sh: cd: ${cwd}: No such file or directory\n`), FrameType.Stderr);
     close(channel, { exitCode: 2 });
@@ -88,10 +91,21 @@ function run(channel: number, { command, cwd, env }: Extract<Request, { kind: 's
     cwd,
     env: { ...process.env, HOME: settings.home, TMPDIR: settings.tmpdir, ...env },
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: 'pipe',
   });
   processes.add(child);
-  channels.set(channel, { kill: () => killTree(child) });
+  // A command that exits before reading its stdin must not take the supervisor down on EPIPE.
+  child.stdin.on('error', () => undefined);
+  if (stdin) {
+    channels.set(channel, {
+      data: (chunk) => child.stdin.write(chunk),
+      end: () => child.stdin.end(),
+      kill: () => killTree(child),
+    });
+  } else {
+    child.stdin.end();
+    channels.set(channel, { kill: () => killTree(child) });
+  }
   child.stdout.on('data', (chunk: Buffer) => sendData(channel, chunk));
   child.stderr.on('data', (chunk: Buffer) => sendData(channel, chunk, FrameType.Stderr));
   child.once('error', (error) => {

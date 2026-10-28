@@ -1,6 +1,8 @@
 import type {
   Experimental_SandboxProcess as SandboxProcess,
   Experimental_SandboxSession as SandboxSession,
+  Experimental_SandboxSpawnOptions as SpawnOptions,
+  Experimental_WritableSandboxProcess as WritableSandboxProcess,
 } from '@ai-sdk/provider-utils';
 
 import { posix } from 'node:path';
@@ -10,7 +12,6 @@ import type { SandboxServiceClient } from '../transport/sandbox-service-client.j
 import { FrameType, readFrames, STDERR, STDOUT } from '../../protocol/frames.js';
 import { abortReason } from '../utils/abort.js';
 
-type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
 type ReadTextOptions = Parameters<SandboxSession['readTextFile']>[0];
 type WriteOptions = Parameters<SandboxSession['writeFile']>[0];
@@ -94,7 +95,7 @@ export class GceSandboxSession implements SandboxSession {
   }
 
   run = async (
-    options: ProcessOptions,
+    options: SpawnOptions,
   ): Promise<{ exitCode: number; stderr: string; stdout: string }> => {
     const spawned = await this.spawn(options);
     const [stdout, stderr, { exitCode }] = await Promise.all([
@@ -105,13 +106,21 @@ export class GceSandboxSession implements SandboxSession {
     return { exitCode, stdout, stderr };
   };
 
-  spawn = async ({
+  // The overloads of `spawn` promise a writable stdin when `stdin` is `true`: the protocol of the
+  // service carries none yet, so such a call is refused before the command starts.
+  spawn = (async ({
     command,
     workingDirectory,
     env = {},
     abortSignal,
-  }: ProcessOptions): Promise<SandboxProcess> => {
+    stdin = false,
+  }: SpawnOptions): Promise<SandboxProcess | WritableSandboxProcess> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
+    if (stdin) {
+      throw new Error(
+        'A Compute Engine sandbox does not give a process a writable stdin yet: spawn it without `stdin`.',
+      );
+    }
     const invalid = Object.keys(env).find((name) => !ENV_NAME.test(name));
     if (invalid !== undefined) throw new Error(`Not an environment variable name: ${invalid}`);
     const { client, name, processes } = this.handle;
@@ -121,7 +130,7 @@ export class GceSandboxSession implements SandboxSession {
     const id = response.headers.get('x-process-id') ?? '';
     processes.add(id);
     return this.attach(response, id, abortSignal);
-  };
+  }) as SandboxSession['spawn'];
 
   readBinaryFile = async ({ path, abortSignal }: ReadOptions): Promise<null | Uint8Array> => {
     const target = this.resolve(path);

@@ -100,6 +100,17 @@ describe('an srt sandbox', () => {
     await rm(`${marker}-visible`);
   });
 
+  it('writes to the stdin of a process, its close the end of the input', async () => {
+    const spawned = await session.spawn({ command: 'cat; echo end', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    await writer.write(new TextEncoder().encode('first\n'));
+    await writer.write(new TextEncoder().encode('second\n'));
+    await writer.close();
+
+    expect(await new Response(spawned.stdout).text()).toBe('first\nsecond\nend\n');
+    expect(await spawned.wait()).toEqual({ exitCode: 0 });
+  });
+
   it('serves an exposed port on the host loopback', async () => {
     const server = await session.spawn({
       command:

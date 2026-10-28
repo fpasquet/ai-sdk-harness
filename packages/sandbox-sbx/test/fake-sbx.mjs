@@ -9,7 +9,7 @@
 // `hangOnce` and `unavailableOnce` strings act once each, then are forgotten: the first matching
 // call never ends, or fails as `sbx` does while the Docker sign-in service is unavailable.
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const home = process.env.FAKE_SBX_HOME;
@@ -22,7 +22,12 @@ const statePath = join(home, 'state.json');
 const cloud = process.argv[2] === '--cloud';
 const args = process.argv.slice(cloud ? 3 : 2);
 const load = () => JSON.parse(readFileSync(statePath, 'utf8'));
-const save = (state) => writeFileSync(statePath, JSON.stringify(state, null, 2));
+// Written aside then renamed: a fake reading the state meanwhile never sees half of it.
+const save = (state) => {
+  const written = `${statePath}.${process.pid}`;
+  writeFileSync(written, JSON.stringify(state, null, 2));
+  renameSync(written, statePath);
+};
 const fail = (message, code = 1) => {
   process.stderr.write(`${message}\n`);
   process.exit(code);

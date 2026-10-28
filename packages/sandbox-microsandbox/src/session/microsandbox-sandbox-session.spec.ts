@@ -104,6 +104,24 @@ describe('MicrosandboxSandboxSession', () => {
       ).rejects.toThrow();
       expect(sandbox.execs).toHaveLength(0);
     });
+
+    it('hands a writable stdin when asked, its end the end of the input', async () => {
+      const spawned = await session.spawn({ command: 'cat; echo end', stdin: true });
+      const writer = spawned.stdin.getWriter();
+      await writer.write(new TextEncoder().encode('first\n'));
+      await writer.write(new TextEncoder().encode('second\n'));
+      await writer.close();
+
+      expect(await new Response(spawned.stdout).text()).toBe('first\nsecond\nend\n');
+      expect(await spawned.wait()).toEqual({ exitCode: 0 });
+    });
+
+    it('closes stdin, with no stream to write to, unless asked', async () => {
+      const spawned = await session.spawn({ command: 'cat; echo end' });
+
+      expect('stdin' in spawned).toBe(false);
+      expect(await new Response(spawned.stdout).text()).toBe('end\n');
+    });
   });
 
   describe('files', () => {

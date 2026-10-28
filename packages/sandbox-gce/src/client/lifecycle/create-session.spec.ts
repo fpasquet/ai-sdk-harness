@@ -124,6 +124,15 @@ describe('a Compute Engine sandbox', () => {
     );
   });
 
+  it('refuses a writable stdin before the command starts', async () => {
+    const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+
+    await expect(session.spawn({ command: 'touch started', stdin: true })).rejects.toThrow(
+      'does not give a process a writable stdin yet',
+    );
+    expect((await session.run({ command: 'test -e started' })).exitCode).toBe(1);
+  });
+
   it('runs a command in a working directory relative to its own', async () => {
     const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
     await session.run({ command: 'mkdir -p sub' });

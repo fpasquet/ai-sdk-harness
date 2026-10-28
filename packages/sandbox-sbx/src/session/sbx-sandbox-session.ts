@@ -1,11 +1,13 @@
 import type {
   Experimental_SandboxProcess as SandboxProcess,
   Experimental_SandboxSession as SandboxSession,
+  Experimental_SandboxSpawnOptions as SpawnOptions,
+  Experimental_WritableSandboxProcess as WritableSandboxProcess,
 } from '@ai-sdk/provider-utils';
 
 import { randomUUID } from 'node:crypto';
 import { posix } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 
 import type { SbxCli } from '../transport/sbx-cli.js';
 
@@ -20,7 +22,7 @@ import {
 } from '../transport/sandbox-scripts.js';
 import { abortReason } from '../utils/abort.js';
 
-type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
+type ProcessOptions = Parameters<SandboxSession['run']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
 type ReadTextOptions = Parameters<SandboxSession['readTextFile']>[0];
 type WriteOptions = Parameters<SandboxSession['writeFile']>[0];
@@ -76,13 +78,15 @@ export class SbxSandboxSession implements SandboxSession {
     return { exitCode, stdout, stderr };
   };
 
-  spawn = (options: ProcessOptions): Promise<SandboxProcess> => {
+  // A function type cannot check one implementation against the overloads of `spawn`: `start`
+  // gives a writable stdin exactly when `stdin` is `true`.
+  spawn = ((options: SpawnOptions): Promise<SandboxProcess | WritableSandboxProcess> => {
     try {
       return Promise.resolve(this.start(options));
     } catch (error) {
       return Promise.reject(error instanceof Error ? error : new Error(String(error)));
     }
-  };
+  }) as SandboxSession['spawn'];
 
   /** Starts `command` in the sandbox, its pid recorded so it can be stopped from outside. */
   private start({
@@ -90,15 +94,16 @@ export class SbxSandboxSession implements SandboxSession {
     workingDirectory,
     env = {},
     abortSignal,
-  }: ProcessOptions): SandboxProcess {
+    stdin = false,
+  }: SpawnOptions): SandboxProcess | WritableSandboxProcess {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
     assertEnvNames(Object.keys(env));
     const pidFile = `${PROCESS_DIR}/${randomUUID()}`;
     const cleared = this.handle.clearEnv.filter((name) => !(name in env));
     const script = cleared.length > 0 ? `unset ${cleared.join(' ')}; ${TRACKED}` : TRACKED;
     const child = this.handle.cli.start(
-      [...this.execArgs({ workingDirectory, env }), 'sh', '-c', script, pidFile, command],
-      { env },
+      [...this.execArgs({ workingDirectory, env, stdin }), 'sh', '-c', script, pidFile, command],
+      stdin ? { env, stdin: 'open' } : { env },
     );
     this.handle.processes.add(pidFile);
 
@@ -125,12 +130,15 @@ export class SbxSandboxSession implements SandboxSession {
     // `wait()` may never be called; an unobserved rejection must not take the process down.
     exited.catch(() => undefined);
 
-    return {
+    const spawned: SandboxProcess = {
       stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
       stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
       wait: () => exited,
       kill,
     };
+    if (!stdin) return spawned;
+    // `sbx exec -i` forwards what is written, and the end of it, to the command.
+    return { ...spawned, stdin: Writable.toWeb(child.stdin) as WritableStream<Uint8Array> };
   }
 
   readBinaryFile = async ({ path, abortSignal }: ReadOptions): Promise<null | Uint8Array> => {

@@ -1,4 +1,10 @@
-import type { ExecHandle, ModifyOptions, Sandbox, SandboxModificationPlan } from 'microsandbox';
+import type {
+  ExecHandle,
+  ExecSink,
+  ModifyOptions,
+  Sandbox,
+  SandboxModificationPlan,
+} from 'microsandbox';
 
 import { Sandbox as Sandboxes, SandboxNotFoundError, SandboxNotRunningError } from 'microsandbox';
 
@@ -38,8 +44,8 @@ export interface ExecOptions {
    * command, on microsandbox's own channel: never on a command line of this host or the sandbox.
    */
   env?: Record<string, string>;
-  /** Written to the command's stdin, which is then closed. */
-  stdin?: Uint8Array;
+  /** Written to the command's stdin, which is then closed; `'open'` leaves it to the caller. */
+  stdin?: 'open' | Uint8Array;
   /** Who the command runs as, instead of the sandbox's user. */
   user?: string;
 }
@@ -48,6 +54,8 @@ export interface ExecOptions {
 export interface SandboxExecution {
   readonly stdout: ReadableStream<Uint8Array>;
   readonly stderr: ReadableStream<Uint8Array>;
+  /** Its standard input, when started with `stdin: 'open'`: closing it sends the end of input. */
+  readonly stdin?: WritableStream<Uint8Array>;
   /** Resolves with its exit status, 137 when it was killed. */
   wait(): Promise<{ exitCode: number }>;
   /** Kills it and every process it started. */
@@ -220,11 +228,21 @@ async function startOn(
     if (options.cwd !== undefined) exec.cwd(options.cwd);
     if (options.env !== undefined) exec.envs(options.env);
     if (options.user !== undefined) exec.user(options.user);
-    return options.stdin === undefined
-      ? exec.stdinNull()
-      : exec.stdinBytes(Buffer.from(options.stdin));
+    if (options.stdin === undefined) return exec.stdinNull();
+    if (options.stdin === 'open') return exec.stdinPipe();
+    return exec.stdinBytes(Buffer.from(options.stdin));
   });
-  return execution(handle);
+  const sink = options.stdin === 'open' ? await handle.takeStdin() : null;
+  return execution(handle, sink);
+}
+
+/** `sink`, the stdin of a command, as a stream: its end is the end of the command's input. */
+function writableOf(sink: ExecSink): WritableStream<Uint8Array> {
+  return new WritableStream({
+    write: (chunk) => sink.write(chunk),
+    close: () => sink.close(),
+    abort: () => sink.close(),
+  });
 }
 
 /** What `running` left behind once it exited. */
@@ -243,7 +261,7 @@ function ignoreNotFound(error: unknown): undefined {
 }
 
 /** The events of `handle`, as the streams and the exit status of a process. */
-function execution(handle: ExecHandle): SandboxExecution {
+function execution(handle: ExecHandle, sink: ExecSink | null = null): SandboxExecution {
   let out!: ReadableStreamDefaultController<Uint8Array>;
   let err!: ReadableStreamDefaultController<Uint8Array>;
   const stdout = new ReadableStream<Uint8Array>({ start: (controller) => void (out = controller) });
@@ -286,6 +304,7 @@ function execution(handle: ExecHandle): SandboxExecution {
   return {
     stdout,
     stderr,
+    ...(sink === null ? {} : { stdin: writableOf(sink) }),
     wait: () => exited,
     // Killing a process that already exited is a no-op, not an error.
     kill: () => (killed ??= handle.kill().catch(() => undefined)),

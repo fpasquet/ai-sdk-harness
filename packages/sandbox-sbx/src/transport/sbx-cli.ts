@@ -20,8 +20,8 @@ export interface SbxResult {
 }
 
 export interface SbxCallOptions {
-  /** Written to the command's stdin, which is then closed. */
-  stdin?: ReadableStream<Uint8Array> | Uint8Array;
+  /** Written to the command's stdin, which is then closed; `'open'` leaves it to the caller. */
+  stdin?: 'open' | ReadableStream<Uint8Array> | Uint8Array;
   /**
    * Variables the `sbx` client itself sees, on top of this process's environment. `sbx exec -e NAME`
    * without a value forwards the client's own `NAME` into the sandbox, so a value never has to
@@ -117,6 +117,8 @@ export class SbxCli {
     const { stdin } = options;
     if (stdin === undefined) {
       child.stdin.end();
+    } else if (stdin === 'open') {
+      // Written and closed by the caller.
     } else if (stdin instanceof Uint8Array) {
       child.stdin.end(stdin);
     } else {

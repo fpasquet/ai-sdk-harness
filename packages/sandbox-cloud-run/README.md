@@ -507,6 +507,7 @@ What the sandbox does, or does not, against the essential risks of running an ag
 - **HTTPS only.** The proxy only tunnels to port 443: no plain HTTP but through a base URL, no SSH, no `git` over SSH.
 - **No Docker, no `docker compose`, no PostgreSQL** in the sandbox: see [Docker and docker compose](#docker-and-docker-compose). Use `ai-sdk-sandbox-sbx` for projects that need containers.
 - **`/tmp` is not part of a snapshot.**
+- **No writable stdin.** `spawn({ stdin: true })` is refused before the command starts: the service carries no input to a process. Write the input to a file first, or pipe it in the command.
 - **pnpm's side-effects cache is off** in the sandboxes (`npm_config_side_effects_cache=false`): it crashes a Cloud Run sandbox.
 - **One bridge per port.** Run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
 

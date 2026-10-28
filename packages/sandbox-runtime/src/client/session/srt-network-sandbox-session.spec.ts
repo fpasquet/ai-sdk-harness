@@ -95,6 +95,26 @@ describe('SrtNetworkSandboxSession', () => {
     expect(stderr).toContain('No such file or directory');
   });
 
+  it('hands a writable stdin when asked, its end the end of the input', async () => {
+    const { session } = await open();
+    const spawned = await session.spawn({ command: 'cat; echo end', stdin: true });
+    const writer = spawned.stdin.getWriter();
+    await writer.write(new TextEncoder().encode('first\n'));
+    await writer.write(new TextEncoder().encode('second\n'));
+    await writer.close();
+
+    expect(await new Response(spawned.stdout).text()).toBe('first\nsecond\nend\n');
+    expect(await spawned.wait()).toEqual({ exitCode: 0 });
+  });
+
+  it('closes stdin, with no stream to write to, unless asked', async () => {
+    const { session } = await open();
+    const spawned = await session.spawn({ command: 'cat; echo end' });
+
+    expect('stdin' in spawned).toBe(false);
+    expect(await new Response(spawned.stdout).text()).toBe('end\n');
+  });
+
   it('kills a process, and everything it started', async () => {
     const { session } = await open();
     const process = await session.spawn({ command: 'sleep 30 & sleep 30; wait' });
