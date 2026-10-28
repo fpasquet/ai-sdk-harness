@@ -62,6 +62,27 @@ describe('SandboxServiceClient', () => {
     expect(error).toMatchObject({ status: 502, request: 'DELETE /v1/sandboxes/box' });
   });
 
+  it('waits for a template whose save was cut on the way, and reports a refusal at once', async () => {
+    const client = new SandboxServiceClient(url);
+    firstAnswers = [
+      { status: 504, body: 'upstream request timeout' },
+      { status: 404, body: JSON.stringify({ error: 'No template.' }) },
+    ];
+    answer = { status: 200, body: JSON.stringify({ id: 't1' }) };
+
+    await client.saveTemplate('builder', 't1', { image: 'python' });
+    expect(requests).toEqual([
+      'POST /v1/sandboxes/builder/template',
+      'GET /v1/templates/t1?image=python',
+      'GET /v1/templates/t1?image=python',
+    ]);
+
+    requests = [];
+    firstAnswers = [{ status: 500, body: JSON.stringify({ error: 'Disk gone.' }) }];
+    await expect(client.saveTemplate('builder', 't2')).rejects.toThrow('500: Disk gone.');
+    expect(requests).toHaveLength(1);
+  });
+
   it('sends the input of a process again after a passing error, never after a refusal', async () => {
     const client = new SandboxServiceClient(url);
     firstAnswers = [

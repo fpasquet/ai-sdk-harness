@@ -31,6 +31,31 @@ const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
 /** How long to wait before each new attempt of a call that may be sent again. */
 const RETRY_DELAYS_MS = [200, 500, 1000, 2000];
 
+/** How long a template whose save was cut on the way may take to be ready. */
+const TEMPLATE_SAVE_TIMEOUT_MS = 30 * 60_000;
+
+/** The waits between two questions about a template being saved: soon at first, then every 10 s. */
+function* templatePolls(): Generator<number> {
+  yield* [1000, 2000, 5000];
+  for (;;) yield 10_000;
+}
+
+/** A call cut on the way, by the network or by Cloud Run's front end, which the service may go on with. */
+function isCut(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof GceSandboxServiceError && [502, 503, 504].includes(error.status))
+  );
+}
+
+/** A call that failed on the way rather than at the service: the network, or Cloud Run's front end. */
+function isTransient(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof GceSandboxServiceError && TRANSIENT_STATUSES.has(error.status))
+  );
+}
+
 /**
  * The HTTP API of the sandbox service (`ai-sdk-sandbox-gce serve`). Each call carries an
  * identity token when there is one: Cloud Run's IAM checks it. Nothing else of this process goes
@@ -169,8 +194,34 @@ export class SandboxServiceClient {
   }
 
   /** Saves the running sandbox as the template `id`. */
-  async saveTemplate(name: string, id: string, abortSignal?: AbortSignal): Promise<void> {
-    await this.call('POST', `v1/sandboxes/${name}/template`, { body: { id }, abortSignal });
+  /**
+   * Saves the sandbox `name` as the template `id`, made on `image`. Making the image of its disk
+   * takes minutes, sometimes longer than fetch waits for an answer: a call cut on the way, which
+   * the service goes on with, is followed by asking for the template until it is ready.
+   */
+  async saveTemplate(
+    name: string,
+    id: string,
+    { image, abortSignal }: { image?: string; abortSignal?: AbortSignal } = {},
+  ): Promise<void> {
+    const request = `POST /v1/sandboxes/${name}/template`;
+    try {
+      await this.call('POST', `v1/sandboxes/${name}/template`, { body: { id }, abortSignal });
+      return;
+    } catch (error) {
+      if (abortSignal?.aborted === true || !isCut(error)) throw error;
+    }
+    const deadline = Date.now() + TEMPLATE_SAVE_TIMEOUT_MS;
+    for (const delay of templatePolls()) {
+      if (await this.retried(() => this.templateExists(id, image, abortSignal))) return;
+      if (Date.now() + delay > deadline) break;
+      await sleep(delay, undefined, { signal: abortSignal });
+    }
+    throw new GceSandboxServiceError(
+      request,
+      504,
+      `the template ${id} was not ready ${TEMPLATE_SAVE_TIMEOUT_MS / 60_000} min after the call was cut.`,
+    );
   }
 
   /** Whether the template `id` exists, made on the image `image` (the service's default without). */
@@ -222,10 +273,7 @@ export class SandboxServiceClient {
       try {
         return await call();
       } catch (error) {
-        const transient =
-          error instanceof TypeError ||
-          (error instanceof GceSandboxServiceError && TRANSIENT_STATUSES.has(error.status));
-        if (!transient) throw error;
+        if (!isTransient(error)) throw error;
       }
       await sleep(delay);
     }
