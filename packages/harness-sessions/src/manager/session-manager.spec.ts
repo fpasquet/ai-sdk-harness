@@ -19,12 +19,12 @@ import {
   until,
 } from '../../test/fakes.js';
 import {
-  createMemorySessionStore,
   createSessionManager,
   SessionCapacityError,
   SessionConflictError,
   SessionNotFoundError,
 } from '../index.js';
+import { createMemorySessionStore } from '../memory.js';
 
 interface Metadata {
   title: string;

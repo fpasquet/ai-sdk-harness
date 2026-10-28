@@ -4,11 +4,11 @@ import type { SessionManager, SessionManagerOptions } from '../index.js';
 
 import { FakeAgent, fakeSandboxes, leasingStore, readAll, until } from '../../test/fakes.js';
 import {
-  createMemorySessionStore,
   createSessionManager,
   SessionConflictError,
   SessionOwnedElsewhereError,
 } from '../index.js';
+import { createMemorySessionStore } from '../memory.js';
 
 interface Metadata {
   title: string;

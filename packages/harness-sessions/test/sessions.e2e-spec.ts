@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { SessionManager, SessionStore } from '../src/index.js';
 
-import { createMemorySessionStore, createSessionManager, sharedSandbox } from '../src/index.js';
+import { createSessionManager, sharedSandbox } from '../src/index.js';
+import { createMemorySessionStore } from '../src/memory.js';
 
 /**
  * Real Claude Code sessions in one Docker Sandbox: needs `sbx` signed in, and a credential for

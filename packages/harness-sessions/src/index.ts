@@ -36,8 +36,6 @@ export type {
 } from './sandboxes/shared-sandbox.js';
 export { aesGcmCipher, withEncryptedResumeState } from './store/encrypted-resume-state.js';
 export type { ResumeStateCipher } from './store/encrypted-resume-state.js';
-export { createMemorySessionStore } from './store/memory-session-store.js';
-export type { MemorySessionStoreOptions } from './store/memory-session-store.js';
 export { createTaskList, isTaskToolName, TASK_TOOL_NAMES, tasksOf } from './tasks/task-list.js';
 export type {
   AgentTask,

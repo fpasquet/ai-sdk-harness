@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { SessionManager, TurnReport } from '../src/index.js';
 
-import { createMemorySessionStore, createSessionManager, sharedSandbox } from '../src/index.js';
+import { createSessionManager, sharedSandbox } from '../src/index.js';
+import { createMemorySessionStore } from '../src/memory.js';
 
 /**
  * What `onTurn` reports of a real Claude Code turn, in a Docker Sandbox: needs `sbx` signed in, and

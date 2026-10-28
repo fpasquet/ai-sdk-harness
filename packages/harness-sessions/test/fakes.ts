@@ -11,7 +11,7 @@ import type {
   SessionStreamResult,
 } from '../src/index.js';
 
-import { createMemorySessionStore } from '../src/index.js';
+import { createMemorySessionStore } from '../src/memory.js';
 import { FakeHandle } from './fake-handle.js';
 
 export { FakeHandle, resumeState } from './fake-handle.js';

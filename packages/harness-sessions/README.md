@@ -376,7 +376,7 @@ To run ten turns at the same time, give ten ports — `Array.from({ length: 10 }
 
 ## Keeping sessions
 
-The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, the default, keeps them in memory, lost with the process. To keep them across restarts, implement the five methods on your database:
+The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, from `ai-sdk-harness-sessions/memory`, is the default: it keeps them in memory, lost with the process. To keep them across restarts, implement the five methods on your database:
 
 ```ts
 import type { SessionStore } from 'ai-sdk-harness-sessions';
@@ -470,7 +470,7 @@ An application that runs on several instances — behind a load balancer, scaled
 
 Taking a session over is a compare-and-set: the manager reads its row, and replaces it at the version it read, so two managers never both win. `delete()` forgets the row too. The leases are read on the managers' clocks: keep them in time (NTP), a lease of 30 seconds leaves room for a skew of seconds. Give each manager a `managerId` you can route by — the instance's address, a pod name — to send a request to the instance that runs the session; never two running managers the same.
 
-`createMemorySessionStore({ shared: true })` gives them in memory: several managers of one process, in tests.
+`createMemorySessionStore({ shared: true })`, from `ai-sdk-harness-sessions/memory`, gives them in memory: several managers of one process, in tests.
 
 #### With Drizzle
 
@@ -684,7 +684,7 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 
 ## Limitations
 
-- **One process per store, unless it gives leases.** Without `claimSession`, `renewLease` and `releaseSession`, the live sessions are held in the memory of one process: run the manager on one instance. With them, a turn under way is still read from the instance that runs it: a client whose request reaches another one gets `SessionOwnedElsewhereError`. And a manager stalled for longer than its lease — a process frozen, not crashed — may find its sessions taken over by another one when it wakes up.
+- **One process per store, unless it gives leases.** Without the ownership methods (`getOwnership`, `writeOwnership`, `renewOwnerships`, `releaseOwnership`), the live sessions are held in the memory of one process: run the manager on one instance. With them, a turn under way is still read from the instance that runs it: a client whose request reaches another one gets `SessionOwnedElsewhereError`. And a manager stalled for longer than its lease — a process frozen, not crashed — may find its sessions taken over by another one when it wakes up.
 - **A turn does not survive a crash.** A session the process held when it crashed is `interrupted`; a clean `shutdown()` suspends it instead. Streams that reconnect after a page reload are not supported yet: a reload cuts the turn its request carried when it passed `abortSignal: request.signal`.
 - **Approvals after a resume, with Claude Code.** A resumed Claude Code session (`@ai-sdk/harness-claude-code` up to 1.0.152) sends "Continue." in place of the answers to the approvals it asks afterwards: the tool call is rejected, and asked again ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)). Approvals work in a session until it is suspended; a session that resumed asks again and again. A turn that was waiting for an approval when its session was suspended resumes without it: `continue()` tells the agent the answers in a message.
 - **No approvals of Codex's own tools.** `@ai-sdk/harness-codex` (up to 1.0.150) runs Codex with approvals turned off and refuses any `permissionMode` but `'allow-all'`, though Codex itself can ask before a command or a patch ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). Your own tools can still ask, through `toolApproval`.
