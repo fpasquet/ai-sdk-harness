@@ -141,10 +141,15 @@ for network in /run/systemd/network/*.network; do
   printf '[DHCPv4]\nUseDNS=false\n' > "/etc/systemd/network/$(basename "$network").d/no-dhcp-dns.conf"
 done
 systemctl restart systemd-networkd systemd-resolved
-if ! command -v ai-sdk-sandbox-gce >/dev/null; then
+if ! command -v npm >/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
+fi
+# Installed again whenever the pinned version changes: the proxy then restarts on it, below.
+restart=false
+if ! npm ls --global ai-sdk-sandbox-gce@0.2.0 >/dev/null 2>&1; then
   npm install --global ai-sdk-sandbox-gce@0.2.0
+  restart=true
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
 if [ ! -d /opt/google-cloud-ops-agent ]; then
@@ -177,19 +182,28 @@ DynamicUser=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
-# Started by systemd at boot, before this script: restarted only when its unit changed, since a
-# restart forgets the sandboxes registered meanwhile.
 if ! cmp -s /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox-proxy.service; then
   mv /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox-proxy.service
   systemctl daemon-reload
-  systemctl enable ai-sdk-sandbox-proxy
+  restart=true
+fi
+systemctl enable ai-sdk-sandbox-proxy
+# Started by systemd at boot, before this script: restarted only when its package or its unit
+# changed, since a restart forgets the sandboxes registered meanwhile.
+if [ "$restart" = true ]; then
   systemctl restart ai-sdk-sandbox-proxy
 else
-  systemctl enable --now ai-sdk-sandbox-proxy
+  systemctl start ai-sdk-sandbox-proxy
 fi
 ```
 
-Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol.
+Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol. To upgrade the proxy, change the version in the script, hand it to the machine again, and reboot it, or let the service start it with the next sandbox if it is stopped:
+
+```bash
+gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
+  --metadata-from-file=startup-script=proxy-startup.sh
+gcloud compute instances reset sandbox-proxy --zone=$ZONE
+```
 
 The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
 
