@@ -224,7 +224,7 @@ type ExecEvent =
   | { kind: 'started'; pid: number };
 
 class ExecOptionsBuilder {
-  options: Omit<FakeExec, 'argv'> & { args: string[]; stdinBytes?: Buffer } = {
+  options: Omit<FakeExec, 'argv'> & { args: string[]; stdinBytes?: Buffer; stdinPipe?: boolean } = {
     args: [],
     env: {},
   };
@@ -251,6 +251,23 @@ class ExecOptionsBuilder {
     this.options.stdinBytes = data;
     return this;
   }
+  stdinPipe(): this {
+    this.options.stdinPipe = true;
+    return this;
+  }
+}
+
+/** The stdin of a command started with `stdinPipe()`, as the SDK hands it. */
+class ExecSink {
+  constructor(private readonly child: ChildProcess) {}
+  write(data: string | Uint8Array): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.child.stdin?.write(data, (error) => (error ? reject(error) : resolve()));
+    });
+  }
+  close(): Promise<void> {
+    return new Promise((resolve) => this.child.stdin?.end(resolve));
+  }
 }
 
 export class ExecHandle {
@@ -262,6 +279,7 @@ export class ExecHandle {
   constructor(
     private readonly child: ChildProcess,
     sandbox: FakeSandbox,
+    private readonly piped = false,
   ) {
     this.push({ kind: 'started', pid: child.pid ?? 0 });
     child.stdout?.on('data', (data: Buffer) => this.push({ kind: 'stdout', data }));
@@ -311,6 +329,14 @@ export class ExecHandle {
 
   wait(): Promise<{ code: number; success: boolean }> {
     return this.exit;
+  }
+
+  private stdinTaken = false;
+
+  takeStdin(): Promise<ExecSink | null> {
+    if (this.stdinTaken || !this.piped) return Promise.resolve(null);
+    this.stdinTaken = true;
+    return Promise.resolve(new ExecSink(this.child));
   }
 
   kill(): Promise<void> {
@@ -434,7 +460,9 @@ export class Sandbox {
     if (sandbox.status !== 'running' || sandbox.generation !== this.generation) {
       return Promise.reject(new SandboxNotRunningError(sandbox.name));
     }
-    const { args, cwd, env, user, stdinBytes } = configure(new ExecOptionsBuilder()).options;
+    const { args, cwd, env, user, stdinBytes, stdinPipe } = configure(
+      new ExecOptionsBuilder(),
+    ).options;
     sandbox.execs.push({
       argv: [command, ...args],
       cwd,
@@ -458,8 +486,8 @@ export class Sandbox {
     });
     sandbox.running.add(child);
     child.stdin.on('error', () => undefined);
-    child.stdin.end(stdinBytes);
-    const handle = new ExecHandle(child, sandbox);
+    if (stdinPipe !== true) child.stdin.end(stdinBytes);
+    const handle = new ExecHandle(child, sandbox, stdinPipe === true);
     return new Promise((resolve, reject) => {
       child.once('spawn', () => resolve(handle));
       child.once('error', reject);

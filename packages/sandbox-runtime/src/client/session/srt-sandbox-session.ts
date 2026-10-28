@@ -1,6 +1,8 @@
 import type {
   Experimental_SandboxProcess as SandboxProcess,
   Experimental_SandboxSession as SandboxSession,
+  Experimental_SandboxSpawnOptions as SpawnOptions,
+  Experimental_WritableSandboxProcess as WritableSandboxProcess,
 } from '@ai-sdk/provider-utils';
 
 import { posix } from 'node:path';
@@ -11,7 +13,7 @@ import type { SupervisorHost } from './supervisor-host.js';
 
 import { abortReason } from '../utils/abort.js';
 
-type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
+type ProcessOptions = Parameters<SandboxSession['run']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
 type ReadTextOptions = Parameters<SandboxSession['readTextFile']>[0];
 type WriteOptions = Parameters<SandboxSession['writeFile']>[0];
@@ -89,18 +91,29 @@ export class SrtSandboxSession implements SandboxSession {
     return { exitCode, stdout, stderr };
   };
 
-  spawn = async ({
+  // A function type cannot check one implementation against the overloads of `spawn`: it gives a
+  // writable stdin exactly when `stdin` is `true`.
+  spawn = (async ({
     command,
     workingDirectory,
     env = {},
     abortSignal,
-  }: ProcessOptions): Promise<SandboxProcess> => {
+    stdin = false,
+  }: SpawnOptions): Promise<SandboxProcess | WritableSandboxProcess> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
     const link = await this.handle.supervisor.link();
     const cwd = this.resolve(workingDirectory ?? '.');
-    const channel = link.open({ kind: 'spawn', command, cwd, env });
-    return this.processOf(channel, abortSignal);
-  };
+    const channel = link.open({ kind: 'spawn', command, cwd, env, ...(stdin ? { stdin } : {}) });
+    const spawned = this.processOf(channel, abortSignal);
+    if (!stdin) return spawned;
+    // What is written goes to the process as the channel's data, its end as the channel's end.
+    const input = new WritableStream<Uint8Array>({
+      write: (chunk) => channel.write(chunk),
+      close: () => channel.end(),
+      abort: () => channel.end(),
+    });
+    return { ...spawned, stdin: input };
+  }) as SandboxSession['spawn'];
 
   readBinaryFile = async ({ path, abortSignal }: ReadOptions): Promise<null | Uint8Array> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);

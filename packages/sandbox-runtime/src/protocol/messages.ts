@@ -6,8 +6,12 @@ export type Request =
   | { kind: 'kill-all' }
   /** The content of a file, as the channel's data. */
   | { kind: 'read'; path: string }
-  /** Runs `sh -c <command>`: its output comes as data and stderr, its exit code on close. */
-  | { kind: 'spawn'; command: string; cwd: string; env: Record<string, string> }
+  /**
+   * Runs `sh -c <command>`: its output comes as data and stderr, its exit code on close. With
+   * `stdin`, the channel's data from the host is its standard input, and the channel's end the end
+   * of it; without, its standard input is closed.
+   */
+  | { kind: 'spawn'; command: string; cwd: string; env: Record<string, string>; stdin?: boolean }
   /** Writes the channel's data to a file, creating its directories, once the host ends it. */
   | { kind: 'write'; path: string };
 

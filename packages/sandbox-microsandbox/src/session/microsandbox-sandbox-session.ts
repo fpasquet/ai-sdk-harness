@@ -1,6 +1,8 @@
 import type {
   Experimental_SandboxProcess as SandboxProcess,
   Experimental_SandboxSession as SandboxSession,
+  Experimental_SandboxSpawnOptions as SpawnOptions,
+  Experimental_WritableSandboxProcess as WritableSandboxProcess,
 } from '@ai-sdk/provider-utils';
 
 import { posix } from 'node:path';
@@ -19,7 +21,7 @@ import {
 } from '../transport/sandbox-scripts.js';
 import { abortReason } from '../utils/abort.js';
 
-type ProcessOptions = Parameters<SandboxSession['spawn']>[0];
+type ProcessOptions = Parameters<SandboxSession['run']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
 type ReadTextOptions = Parameters<SandboxSession['readTextFile']>[0];
 type WriteOptions = Parameters<SandboxSession['writeFile']>[0];
@@ -69,38 +71,24 @@ export class MicrosandboxSandboxSession implements SandboxSession {
     return { exitCode, stdout, stderr };
   };
 
-  spawn = async ({
+  // A function type cannot check one implementation against the overloads of `spawn`: it gives a
+  // writable stdin exactly when `stdin` is `true`.
+  spawn = (async ({
     command,
     workingDirectory,
     env = {},
     abortSignal,
-  }: ProcessOptions): Promise<SandboxProcess> => {
+    stdin = false,
+  }: SpawnOptions): Promise<SandboxProcess | WritableSandboxProcess> => {
     if (abortSignal?.aborted) throw abortReason(abortSignal);
     const running = await this.handle.connection.start(['sh', '-c', COMMAND, 'sh', command], {
       cwd: this.resolve(workingDirectory ?? '.'),
       env,
+      ...(stdin ? { stdin: 'open' as const } : {}),
     });
-    this.handle.processes.add(running);
-
-    const kill = (): Promise<void> => running.kill();
-    const onAbort = (): void => void kill();
-    abortSignal?.addEventListener('abort', onAbort, { once: true });
-    // Aborted while the command was starting.
-    if (abortSignal?.aborted) onAbort();
-
-    const exited = running.wait().finally(() => {
-      this.handle.processes.delete(running);
-      abortSignal?.removeEventListener('abort', onAbort);
-    });
-    const waited = exited.then((result) => {
-      if (abortSignal?.aborted) throw abortReason(abortSignal);
-      return result;
-    });
-    // `wait()` may never be called; an unobserved rejection must not take the process down.
-    waited.catch(() => undefined);
-
-    return { stdout: running.stdout, stderr: running.stderr, wait: () => waited, kill };
-  };
+    const spawned = this.processOf(running, abortSignal);
+    return running.stdin === undefined ? spawned : { ...spawned, stdin: running.stdin };
+  }) as SandboxSession['spawn'];
 
   readBinaryFile = async ({ path, abortSignal }: ReadOptions): Promise<null | Uint8Array> => {
     abortSignal?.throwIfAborted();
@@ -165,6 +153,30 @@ export class MicrosandboxSandboxSession implements SandboxSession {
   protected async killAll(): Promise<void> {
     await Promise.all([...this.handle.processes].map((running) => running.kill()));
     this.handle.processes.clear();
+  }
+
+  /** `running` as a process of this view: stopped by `abortSignal`, forgotten once it exits. */
+  private processOf(running: SandboxExecution, abortSignal?: AbortSignal): SandboxProcess {
+    this.handle.processes.add(running);
+
+    const kill = (): Promise<void> => running.kill();
+    const onAbort = (): void => void kill();
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+    // Aborted while the command was starting.
+    if (abortSignal?.aborted) onAbort();
+
+    const exited = running.wait().finally(() => {
+      this.handle.processes.delete(running);
+      abortSignal?.removeEventListener('abort', onAbort);
+    });
+    const waited = exited.then((result) => {
+      if (abortSignal?.aborted) throw abortReason(abortSignal);
+      return result;
+    });
+    // `wait()` may never be called; an unobserved rejection must not take the process down.
+    waited.catch(() => undefined);
+
+    return { stdout: running.stdout, stderr: running.stderr, wait: () => waited, kill };
   }
 
   private resolve(path: string): string {

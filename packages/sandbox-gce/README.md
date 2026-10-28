@@ -642,6 +642,7 @@ The steps above set up the network, the proxy and the service as they ran on Goo
 - **32 MiB per request.** Cloud Run limits HTTP/1 request bodies: a larger file cannot be written in one call.
 - **A process's output stops after an hour**, the request timeout of the service. Its exit code is still found.
 - **One bridge per port.** Run one harness session at a time per sandbox view, and give each session a view of its own with `fork()`.
+- **No writable stdin.** `spawn({ stdin: true })` is refused before the command starts: the service carries no input to a process. Write the input to a file first, or pipe it in the command.
 
 ## Development
 
