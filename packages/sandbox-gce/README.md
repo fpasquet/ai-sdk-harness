@@ -461,6 +461,8 @@ The real credentials of a harness, an API key or a subscription token, never ent
 3. The API's client in the sandbox is pointed at the proxy, in plain HTTP inside the VPC, through its base URL variable: `ANTHROPIC_BASE_URL=https://api.anthropic.com` becomes `http://10.8.16.2:3128/https/api.anthropic.com`.
 4. The proxy swaps the placeholder for the real value and sends the request on over HTTPS. The answer comes back without it, even when the API echoes it in a header.
 
+Git over HTTPS goes the same way: the agent hands every command a `url.<proxy>/https/.insteadOf https://` setting, after the command's own `GIT_CONFIG_*` entries, so that a credential brokered for a Git server, such as a repository of [`ai-sdk-harness-workspace`](https://ai-sdk-harness.pages.dev/docs/packages/harness-workspace), is swapped in too. Through the `HTTPS_PROXY` tunnel, which the proxy cannot read, the server would get the placeholder.
+
 The service routes `ANTHROPIC_BASE_URL` (Claude Code) and `OPENAI_BASE_URL` (Codex) by default; add others with `baseUrls`. With a subscription, the refresh token never leaves your application: only the short-lived access token reaches the proxy.
 
 | Protection                                 | What it prevents                                                                                                                       |
