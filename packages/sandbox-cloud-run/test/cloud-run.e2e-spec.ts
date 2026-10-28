@@ -13,6 +13,7 @@ import {
   createCloudRunNetworkSandboxSession,
   resumeCloudRunNetworkSandboxSession,
 } from '../src/index.js';
+import { PROTOCOL_VERSION } from '../src/protocol/version.js';
 
 /**
  * Against a sandbox service deployed on Cloud Run: set CLOUD_RUN_SANDBOX_URL to its URL, and have
@@ -183,7 +184,7 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     const forwarded = JSON.parse(received) as Record<string, string>;
     expect(forwarded['upgrade']).toBe('websocket');
     expect(forwarded['authorization']).toBeUndefined();
-    expect(forwarded['x-ai-sdk-sandbox-protocol']).toBe('1');
+    expect(forwarded['x-ai-sdk-sandbox-protocol']).toBe(String(PROTOCOL_VERSION));
   });
 
   it('is suspended to its snapshot and resumed with its files', async () => {
