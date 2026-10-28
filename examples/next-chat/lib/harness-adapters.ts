@@ -67,8 +67,9 @@ export function harnessAvailability(): HarnessAvailability {
  */
 const FACTORIES: Record<HarnessId, () => HarnessAgentAdapter> = {
   // From `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription) or `ANTHROPIC_API_KEY`, else the
-  // login of the `claude` CLI.
-  'claude-code': () => createClaudeCode(),
+  // login of the `claude` CLI. Claude Code gives its task tools (`TaskCreate`, `TaskUpdate`) to
+  // older models alone unless asked: the page shows the list the agent keeps with them.
+  'claude-code': () => createClaudeCode({ env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }),
   // From `OPENAI_API_KEY`, else the login of the `codex` CLI (a ChatGPT subscription).
   codex: () => createCodex(),
   // A model `openrouter/<id>` makes OpenCode declare its OpenRouter provider with the key and the

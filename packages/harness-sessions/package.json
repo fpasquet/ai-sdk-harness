@@ -11,6 +11,8 @@
     "lifecycle",
     "suspend",
     "resume",
+    "tasks",
+    "todo",
     "sandbox",
     "claude-code",
     "codex",
@@ -27,6 +29,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks.d.ts",
+      "import": "./dist/tasks.js",
+      "default": "./dist/tasks.js"
     }
   },
   "files": [

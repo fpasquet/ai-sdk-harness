@@ -12,6 +12,7 @@ import {
 } from 'ai';
 import { QUESTIONS_TOOL_NAME } from 'ai-sdk-harness-approval';
 import { expand } from 'ai-sdk-harness-plugins/selection';
+import { tasksOf } from 'ai-sdk-harness-sessions/tasks';
 import { BoxIcon, ShieldQuestionIcon, SquarePenIcon } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +39,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion';
 import { BlockedHostsPanel } from '@/components/blocked-hosts-panel';
 import { ChangesPanel } from '@/components/changes-panel';
+import { AgentTasks } from '@/components/harness/agent-tasks';
 import { everything, SelectionCount } from '@/components/marketplace-picker';
 import { MessagePart } from '@/components/message-part';
 import { type Agent, NewConversation, type SetupStep } from '@/components/new-conversation';
@@ -368,6 +370,7 @@ function Chat({
         </ConversationContent>
         <ConversationScrollButton />
       </ConversationView>
+      <TaskPanel messages={messages} />
       {/* Once the coding agent is picked: the prompt comes with the marketplace. */}
       {(locked || step === 'marketplace') && (
         <Composer
@@ -663,6 +666,17 @@ function slashCommandsOf(marketplace: CatalogDescription, selection: string[]): 
     kind: kind as PromptCommand['kind'],
     name: invocation?.slice(1) ?? name,
   }));
+}
+
+/** The task list the agent keeps, over every turn: above the prompt, not among its calls. */
+function TaskPanel({ messages }: { messages: UIMessage[] }) {
+  const tasks = useMemo(() => tasksOf(messages), [messages]);
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+      <AgentTasks className="rounded-md border px-3 py-2" tasks={tasks} />
+    </div>
+  );
 }
 
 function ChatMessage({
