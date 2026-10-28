@@ -144,7 +144,7 @@ systemctl restart systemd-networkd systemd-resolved
 if ! command -v ai-sdk-sandbox-gce >/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
-  npm install --global ai-sdk-sandbox-gce@0.1.0
+  npm install --global ai-sdk-sandbox-gce@0.2.0
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
 if [ ! -d /opt/google-cloud-ops-agent ]; then
@@ -214,7 +214,7 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 # Node.js, the agent, and pnpm: the Claude Code and Codex bridges install their dependencies with it.
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 apt-get install -y nodejs
-npm install --global ai-sdk-sandbox-gce@0.1.0 pnpm@10
+npm install --global ai-sdk-sandbox-gce@0.2.0 pnpm@10
 
 # The sandbox's user: sudo without a password, and Docker.
 useradd --create-home --shell /bin/bash agent
@@ -245,7 +245,7 @@ The service's image is the package and Node.js:
 
 ```dockerfile title="Dockerfile"
 FROM node:24-bookworm-slim
-RUN npm install --global --silent ai-sdk-sandbox-gce@0.1.0 && npm cache clean --force
+RUN npm install --global --silent ai-sdk-sandbox-gce@0.2.0 && npm cache clean --force
 CMD ["ai-sdk-sandbox-gce", "serve"]
 ```
 
