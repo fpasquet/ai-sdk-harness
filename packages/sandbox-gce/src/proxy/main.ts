@@ -1,7 +1,7 @@
 import { createLogger } from '../common/logger.js';
 import { DEFAULT_PROXY_ADMIN_PORT, DEFAULT_PROXY_PORT } from '../protocol/proxy.js';
 import { createAdminServer } from './admin-server.js';
-import { EgressProxy } from './egress-proxy.js';
+import { DEFAULT_MAX_CONNECTIONS, EgressProxy } from './egress-proxy.js';
 import { SandboxRegistry } from './registry.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -11,6 +11,7 @@ export function proxyConfig(env: Environment): {
   adminPort: number;
   allowPrivateNetwork: boolean;
   host: string;
+  maxConnections: number;
   port: number;
   token: string;
 } {
@@ -28,8 +29,19 @@ export function proxyConfig(env: Environment): {
     ),
     host: env['HOST'] ?? '0.0.0.0',
     allowPrivateNetwork: env['SANDBOX_ALLOW_PRIVATE_NETWORK'] === 'true',
+    maxConnections: maxConnections(env['SANDBOX_PROXY_MAX_CONNECTIONS']),
     token,
   };
+}
+
+/** `SANDBOX_PROXY_MAX_CONNECTIONS`, a positive integer: {@link DEFAULT_MAX_CONNECTIONS} when unset. */
+function maxConnections(value: string | undefined): number {
+  if (value === undefined || value === '') return DEFAULT_MAX_CONNECTIONS;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`SANDBOX_PROXY_MAX_CONNECTIONS: \`${value}\` is not a positive integer.`);
+  }
+  return parsed;
 }
 
 /** `ai-sdk-sandbox-gce proxy`: serves the sandboxes and the administration API until stopped. */
@@ -42,7 +54,9 @@ export function main(env: Environment): void {
     );
   }
   const registry = new SandboxRegistry(config.allowPrivateNetwork);
-  const proxy = new EgressProxy((address) => registry.policyFor(address), logger);
+  const proxy = new EgressProxy((address) => registry.policyFor(address), logger, {
+    maxConnections: config.maxConnections,
+  });
   const admin = createAdminServer({ registry, token: config.token, logger });
   proxy.server.listen(config.port, config.host, () =>
     logger.info(`Egress proxy listening on ${config.host}:${config.port}`),

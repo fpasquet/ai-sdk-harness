@@ -1,7 +1,7 @@
 import type { AddressInfo, Socket } from 'node:net';
 
 import { request } from 'node:http';
-import { createServer } from 'node:net';
+import { connect, createServer } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -103,7 +103,7 @@ describe('the egress proxy', () => {
 
     it('passes on a TLS connection that names the host of its tunnel', async () => {
       await listenUpstream();
-      proxy = new EgressProxy(() => tunnelPolicy, silentLogger, upstreamPort);
+      proxy = new EgressProxy(() => tunnelPolicy, silentLogger, { tunnelPort: upstreamPort });
 
       const received = await tlsThrough(proxy, {
         target: 'localhost:443',
@@ -116,7 +116,11 @@ describe('the egress proxy', () => {
     it('cuts a tunnel whose TLS names another server, as a CDN would serve it', async () => {
       await listenUpstream();
       const info = vi.fn();
-      proxy = new EgressProxy(() => tunnelPolicy, { ...silentLogger, info }, upstreamPort);
+      proxy = new EgressProxy(
+        () => tunnelPolicy,
+        { ...silentLogger, info },
+        { tunnelPort: upstreamPort },
+      );
 
       const received = await tlsThrough(proxy, {
         target: 'localhost:443',
@@ -132,7 +136,11 @@ describe('the egress proxy', () => {
     it('cuts a tunnel to a name whose TLS names no server', async () => {
       await listenUpstream();
       const info = vi.fn();
-      proxy = new EgressProxy(() => tunnelPolicy, { ...silentLogger, info }, upstreamPort);
+      proxy = new EgressProxy(
+        () => tunnelPolicy,
+        { ...silentLogger, info },
+        { tunnelPort: upstreamPort },
+      );
 
       const received = await tlsThrough(proxy, { target: 'localhost:443', servername: '' });
 
@@ -144,7 +152,7 @@ describe('the egress proxy', () => {
 
     it('lets a tunnel to an address name no server, and no other', async () => {
       await listenUpstream();
-      proxy = new EgressProxy(() => tunnelPolicy, silentLogger, upstreamPort);
+      proxy = new EgressProxy(() => tunnelPolicy, silentLogger, { tunnelPort: upstreamPort });
 
       const received = await tlsThrough(proxy, { target: '127.0.0.1:443', servername: '' });
 
@@ -162,6 +170,42 @@ describe('the egress proxy', () => {
     expect(info).toHaveBeenCalledWith(
       'Refused denied.example.com:443 to box: denied.example.com is not reachable from the sandbox.',
     );
+  });
+
+  it('cuts the connections of a sandbox beyond its limit, and logs it once', async () => {
+    const info = vi.fn();
+    proxy = new EgressProxy(() => policy, { ...silentLogger, info }, { maxConnections: 2 });
+    await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve));
+    const { port } = proxy.server.address() as AddressInfo;
+    /** A connection to the proxy: whether it is still open once the proxy saw it. */
+    const open = async (): Promise<{ cut: boolean; end: () => void }> => {
+      const socket = connect({ host: '127.0.0.1', port });
+      await new Promise((resolve) => socket.once('connect', resolve));
+      const cut = await new Promise<boolean>((resolve) => {
+        socket.once('close', () => resolve(true));
+        setTimeout(() => resolve(false), 100);
+      });
+      return { cut, end: () => socket.destroy() };
+    };
+
+    const [first, second, third, fourth] = [await open(), await open(), await open(), await open()];
+    first?.end();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const after = await open();
+
+    expect([first?.cut, second?.cut, third?.cut, fourth?.cut, after.cut]).toEqual([
+      false,
+      false,
+      true,
+      true,
+      false,
+    ]);
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      'Refused ? to box: 2 connections are open already, the most a sandbox holds at once.',
+    );
+    second?.end();
+    after.end();
   });
 
   it('logs a machine it serves no sandbox for, and the host alone of a plain request', async () => {

@@ -53,6 +53,9 @@ function reachability(
 
 const UNKNOWN = 'This machine is no sandbox the proxy serves.';
 
+/** The most connections a sandbox's machine holds open through the proxy at once, by default. */
+export const DEFAULT_MAX_CONNECTIONS = 128;
+
 /** The most bytes a ClientHello is read from: well over any real one. */
 const MAX_HELLO_BYTES = 64 * 1024;
 
@@ -186,16 +189,31 @@ function targetOf(url: string): undefined | URL {
 export class EgressProxy {
   readonly server: Server;
 
+  /** The connections each machine holds open, by its address. */
+  private readonly open = new Map<string, number>();
+  /** The machines cut at their limit since they last went under it: logged once. */
+  private readonly capped = new Set<string>();
+  private readonly maxConnections: number;
+  private readonly tunnelPort: number;
+
   /**
-   * @param tunnelPort The port a tunnel reaches on its host, whatever port its `CONNECT` names
-   *   (443, the only one allowed). Tests only.
+   * @param options.maxConnections The most connections a sandbox's machine holds open at once:
+   *   one more is cut at once, so that no sandbox takes the sockets of the others.
+   * @param options.tunnelPort The port a tunnel reaches on its host, whatever port its `CONNECT`
+   *   names (443, the only one allowed). Tests only.
    */
   constructor(
     private readonly policyFor: (address: string | undefined) => EgressPolicy | undefined,
     private readonly logger: Logger = silentLogger,
-    private readonly tunnelPort = 443,
+    {
+      maxConnections = DEFAULT_MAX_CONNECTIONS,
+      tunnelPort = 443,
+    }: { maxConnections?: number; tunnelPort?: number } = {},
   ) {
+    this.maxConnections = maxConnections;
+    this.tunnelPort = tunnelPort;
     this.server = createServer((req, res) => this.forward(req, res));
+    this.server.on('connection', (socket: Socket) => this.count(socket));
     this.server.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) =>
       this.tunnel(req, socket, head),
     );
@@ -204,6 +222,31 @@ export class EgressProxy {
   close(): void {
     this.server.closeAllConnections();
     this.server.close();
+  }
+
+  /**
+   * Counts the connections of a machine, and cuts the one beyond {@link maxConnections}: logged the
+   * first time only, until the machine goes under its limit again.
+   */
+  private count(socket: Socket): void {
+    const address = socket.remoteAddress ?? '';
+    const open = this.open.get(address) ?? 0;
+    if (open >= this.maxConnections) {
+      if (!this.capped.has(address)) {
+        this.capped.add(address);
+        const why = `${open} connections are open already, the most a sandbox holds at once.`;
+        this.refused({ address, policy: this.policyFor(address), why });
+      }
+      socket.destroy();
+      return;
+    }
+    this.open.set(address, open + 1);
+    socket.once('close', () => {
+      const left = (this.open.get(address) ?? 1) - 1;
+      if (left === 0) this.open.delete(address);
+      else this.open.set(address, left);
+      this.capped.delete(address);
+    });
   }
 
   private tunnel(req: IncomingMessage, socket: Socket, head: Buffer): void {
