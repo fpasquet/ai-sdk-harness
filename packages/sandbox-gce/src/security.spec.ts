@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { createServer } from 'node:http';
-import { connect } from 'node:net';
+import { connect, createServer as createTcpServer } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { FakeService } from '../test/fake-service.js';
@@ -30,6 +30,13 @@ const connectTo = (target: string): string =>
   node(
     `require("http").request({ host: "127.0.0.1", port: new URL(process.env.HTTPS_PROXY).port, method: "CONNECT", path: "${target}" })` +
       '.on("connect", (r) => { console.log(r.statusCode); process.exit(0); }).on("error", () => console.log("dropped")).end()',
+  );
+
+/** A TLS connection naming `servername`, in a tunnel to `target` through the sandbox's proxy. */
+const tlsTo = (target: string, servername: string): string =>
+  node(
+    `require("http").request({ host: "127.0.0.1", port: new URL(process.env.HTTPS_PROXY).port, method: "CONNECT", path: "${target}" })` +
+      `.on("connect", (r, socket) => require("tls").connect({ socket, servername: "${servername}" }).on("error", () => undefined).on("close", () => process.exit(0))).end()`,
   );
 
 /** A plain request to the proxy under `path`, printing the status and the body. */
@@ -199,6 +206,35 @@ describe('the egress proxy', () => {
       '403',
       'dropped',
     ]);
+  });
+
+  it('cuts a tunnel whose TLS names another server than its host, as a CDN serves many', async () => {
+    const received: string[] = [];
+    const tls = createTcpServer((socket) =>
+      socket.once('data', (bytes) => {
+        received.push(bytes[0] === 22 ? 'tls' : 'other');
+        socket.destroy();
+      }),
+    );
+    await new Promise<void>((resolve) => tls.listen(0, '127.0.0.1', resolve));
+    upstream = createServer();
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    fake = await startFakeService({
+      network: { allowedHosts: [], baseUrls: {} },
+      tunnelPort: (tls.address() as AddressInfo).port,
+    });
+    const session = await createGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+      allowedHosts: ['localhost'],
+    });
+
+    await session.run({ command: tlsTo('localhost:443', 'attacker.workers.dev') });
+    await session.run({ command: tlsTo('localhost:443', 'localhost') });
+    await new Promise((resolve) => tls.close(resolve));
+
+    expect(received).toEqual(['tls']);
   });
 
   it('refuses a machine that holds no sandbox, such as one stopped', async () => {

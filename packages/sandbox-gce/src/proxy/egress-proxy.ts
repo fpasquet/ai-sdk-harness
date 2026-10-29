@@ -18,6 +18,7 @@ import {
   withoutCredentials,
 } from './egress-policy.js';
 import { isPrivateAddress, publicOnlyLookup } from './network-guard.js';
+import { type ClientHello, readClientHello } from './tls-hello.js';
 
 /** Headers of one hop only: never forwarded. */
 const HOP_BY_HOP = new Set([
@@ -51,6 +52,68 @@ function reachability(
 }
 
 const UNKNOWN = 'This machine is no sandbox the proxy serves.';
+
+/** The most bytes a ClientHello is read from: well over any real one. */
+const MAX_HELLO_BYTES = 64 * 1024;
+
+/** How long a client has to send its ClientHello once its tunnel is open. */
+const HELLO_TIMEOUT_MS = 10_000;
+
+/** A name as TLS and DNS compare it: whatever its case, without its trailing dot. */
+const canonical = (name: string): string => name.toLowerCase().replace(/\.$/, '');
+
+/**
+ * Reads the ClientHello a client opens its tunnel with, `head` the bytes that came with the
+ * `CONNECT`: the bytes read, and the hello, unless they are no TLS or the client went quiet.
+ */
+function clientHello(
+  socket: Socket,
+  head: Buffer,
+): Promise<{ bytes: Buffer; hello?: ClientHello }> {
+  return new Promise((resolve) => {
+    let bytes = head;
+    const done = (hello?: ClientHello): void => {
+      clearTimeout(timer);
+      socket.off('data', received);
+      socket.off('close', closed);
+      socket.pause();
+      resolve({ bytes, hello });
+    };
+    const check = (): void => {
+      const hello = readClientHello(bytes);
+      if (hello.kind === 'hello') done(hello);
+      else if (hello.kind === 'invalid' || bytes.length > MAX_HELLO_BYTES) done();
+    };
+    const received = (chunk: Buffer): void => {
+      bytes = Buffer.concat([bytes, chunk]);
+      check();
+    };
+    const closed = (): void => done();
+    const timer = setTimeout(done, HELLO_TIMEOUT_MS);
+    socket.on('data', received);
+    socket.once('close', closed);
+    if (bytes.length > 0) check();
+  });
+}
+
+/**
+ * Why a tunnel to `host` may not carry the TLS connection `hello` opens: `undefined` when it may.
+ * The server a ClientHello names is the one a shared front end, a CDN, serves: a tunnel opened to
+ * an allowed host must not reach another site of the same CDN.
+ */
+function helloRefusal(host: string, hello: ClientHello | undefined): string | undefined {
+  if (hello?.kind !== 'hello') return `Only TLS goes through a tunnel to ${host}.`;
+  const named = hello.serverName === undefined ? undefined : canonical(hello.serverName);
+  if (isIP(host) !== 0) {
+    return named === undefined
+      ? undefined
+      : `A tunnel to ${host} may not name ${named} in its TLS.`;
+  }
+  if (named === canonical(host)) return undefined;
+  return named === undefined
+    ? `A tunnel to ${host} must name it in its TLS (SNI).`
+    : `A tunnel to ${host} may not name ${named} in its TLS.`;
+}
 
 /** A connection or a request the proxy refused: from what machine and sandbox, to what, why. */
 interface Refusal {
@@ -106,7 +169,9 @@ function targetOf(url: string): undefined | URL {
  * it comes from, and is one of two things:
  *
  * - a `CONNECT host:443`, through the sandbox's `HTTPS_PROXY`: tunnelled when `host` is allowed,
- *   refused otherwise. The tunnel is TLS end to end: nothing in it is read or changed;
+ *   refused otherwise. The tunnel is TLS end to end: its ClientHello is read, and the tunnel cut
+ *   unless it names `host` (SNI), so that no other site behind the same CDN is reached; nothing
+ *   else in it is read or changed;
  * - a plain request to a base URL route (`/https/<host>/…`, see `proxy-routes.ts`): sent on to
  *   its host, the sandbox's request transformations applied to it on the way. The real credential
  *   never enters the sandbox;
@@ -121,9 +186,14 @@ function targetOf(url: string): undefined | URL {
 export class EgressProxy {
   readonly server: Server;
 
+  /**
+   * @param tunnelPort The port a tunnel reaches on its host, whatever port its `CONNECT` names
+   *   (443, the only one allowed). Tests only.
+   */
   constructor(
     private readonly policyFor: (address: string | undefined) => EgressPolicy | undefined,
     private readonly logger: Logger = silentLogger,
+    private readonly tunnelPort = 443,
   ) {
     this.server = createServer((req, res) => this.forward(req, res));
     this.server.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) =>
@@ -139,9 +209,10 @@ export class EgressProxy {
   private tunnel(req: IncomingMessage, socket: Socket, head: Buffer): void {
     socket.on('error', () => socket.destroy());
     const { hostname, port } = new URL(`http://${req.url ?? ''}`);
-    const policy = this.policyFor(socket.remoteAddress);
+    const address = socket.remoteAddress;
+    const policy = this.policyFor(address);
     if (policy === undefined) {
-      this.refused({ address: socket.remoteAddress, target: req.url, why: UNKNOWN });
+      this.refused({ address, target: req.url, why: UNKNOWN });
       socket.end(`HTTP/1.1 403 Forbidden\r\n\r\n${UNKNOWN}\n`);
       return;
     }
@@ -149,16 +220,29 @@ export class EgressProxy {
     const listed = port === '443' && isListedHost(policy.allowedHosts, hostname);
     const refusal = listed ? reach.error : `${hostname} is not reachable from the sandbox.`;
     if (refusal !== undefined) {
-      this.refused({ address: socket.remoteAddress, policy, target: req.url, why: refusal });
+      this.refused({ address, policy, target: req.url, why: refusal });
       socket.end(`HTTP/1.1 403 Forbidden\r\n\r\n${refusal}\n`);
       return;
     }
-    const upstream = connect({ host: hostname, port: 443, lookup: reach.lookup }, () => {
-      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      upstream.write(head);
-      upstream.pipe(socket);
-      socket.pipe(upstream);
-    });
+    const upstream = connect(
+      { host: hostname, port: this.tunnelPort, lookup: reach.lookup },
+      () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        void clientHello(socket, head).then(({ bytes, hello }) => {
+          if (socket.destroyed) return;
+          const why = helloRefusal(hostname, hello);
+          if (why !== undefined) {
+            this.refused({ address, policy, target: req.url, why });
+            socket.destroy();
+            upstream.destroy();
+            return;
+          }
+          upstream.write(bytes);
+          upstream.pipe(socket);
+          socket.pipe(upstream);
+        });
+      },
+    );
     upstream.on('error', () => socket.destroy());
     socket.once('close', () => upstream.destroy());
   }

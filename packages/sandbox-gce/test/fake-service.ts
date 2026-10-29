@@ -35,6 +35,15 @@ export interface FakeService {
   dispose(): Promise<void>;
 }
 
+/** What a test changes of the service and its proxy. */
+interface FakeServiceOverrides {
+  allowPrivateNetwork?: boolean;
+  network?: Required<SandboxNetwork>;
+  serviceToken?: string;
+  /** The port the proxy's tunnels reach, 443 without it. */
+  tunnelPort?: number;
+}
+
 async function listen(server: Server): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return (server.address() as AddressInfo).port;
@@ -46,17 +55,15 @@ async function listen(server: Server): Promise<number> {
  * 127.0.0.1, so the proxy tells the sandboxes apart by the last one registered: one sandbox per
  * test of the network.
  */
-export async function startFakeService(
-  overrides: {
-    allowPrivateNetwork?: boolean;
-    network?: Required<SandboxNetwork>;
-    serviceToken?: string;
-  } = {},
-): Promise<FakeService> {
+export async function startFakeService(overrides: FakeServiceOverrides = {}): Promise<FakeService> {
   const root = mkdtempSync(join(tmpdir(), 'gce-sandbox-'));
   const compute = await startFakeCompute(root);
   const registry = new SandboxRegistry(overrides.allowPrivateNetwork ?? true);
-  const proxy = new EgressProxy((address) => registry.policyFor(address));
+  const proxy = new EgressProxy(
+    (address) => registry.policyFor(address),
+    silentLogger,
+    overrides.tunnelPort,
+  );
   const proxyPort = await listen(proxy.server);
   const admin = createAdminServer({ registry, token: PROXY_TOKEN, logger: silentLogger });
   const adminPort = await listen(admin);
