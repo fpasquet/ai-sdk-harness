@@ -31,6 +31,16 @@ describe('SandboxServiceClient', () => {
   });
   afterEach(() => new Promise((resolve) => server.close(resolve)));
 
+  it('refuses a service in plain HTTP, but on the loopback', () => {
+    expect(() => new SandboxServiceClient('http://sandboxes.internal:8080')).toThrow(
+      "The sandbox service's URL must be HTTPS, but on the loopback: http://sandboxes.internal:8080 would carry the identity token and the service token in clear.",
+    );
+    for (const local of ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://[::1]:8080']) {
+      expect(() => new SandboxServiceClient(local), local).not.toThrow();
+    }
+    expect(() => new SandboxServiceClient('https://sandboxes-abc.a.run.app')).not.toThrow();
+  });
+
   it('sends the identity token with every call', async () => {
     answer = { status: 204, body: '' };
     const client = new SandboxServiceClient(`${url}/`, {
