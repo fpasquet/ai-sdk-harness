@@ -59,11 +59,9 @@ export async function startFakeService(overrides: FakeServiceOverrides = {}): Pr
   const root = mkdtempSync(join(tmpdir(), 'gce-sandbox-'));
   const compute = await startFakeCompute(root);
   const registry = new SandboxRegistry(overrides.allowPrivateNetwork ?? true);
-  const proxy = new EgressProxy(
-    (address) => registry.policyFor(address),
-    silentLogger,
-    overrides.tunnelPort,
-  );
+  const proxy = new EgressProxy((address) => registry.policyFor(address), silentLogger, {
+    tunnelPort: overrides.tunnelPort,
+  });
   const proxyPort = await listen(proxy.server);
   const admin = createAdminServer({ registry, token: PROXY_TOKEN, logger: silentLogger });
   const adminPort = await listen(admin);

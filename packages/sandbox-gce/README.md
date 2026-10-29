@@ -178,6 +178,8 @@ Wants=network-online.target
 ExecStart=/bin/sh -c 'SANDBOX_PROXY_TOKEN=$(/usr/local/bin/ai-sdk-sandbox-proxy-token) exec ai-sdk-sandbox-gce proxy'
 Restart=always
 DynamicUser=yes
+# Every sandbox holds up to SANDBOX_PROXY_MAX_CONNECTIONS (128) connections at once.
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -563,13 +565,14 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 
 ### The proxy (`proxy`)
 
-| Variable                        | Default   | Description                                                                         |
-| ------------------------------- | --------- | ----------------------------------------------------------------------------------- |
-| `SANDBOX_PROXY_TOKEN`           | required  | The token the service proves itself with, 16 characters at least                    |
-| `SANDBOX_PROXY_PORT`            | `3128`    | The port the sandboxes reach                                                        |
-| `SANDBOX_PROXY_ADMIN_PORT`      | `3129`    | The port of the administration API                                                  |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`   | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs |
-| `HOST`, `LOG_FORMAT`            | `0.0.0.0` | Where it listens; `text` for plain logs                                             |
+| Variable                        | Default   | Description                                                                                                        |
+| ------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| `SANDBOX_PROXY_TOKEN`           | required  | The token the service proves itself with, 16 characters at least                                                   |
+| `SANDBOX_PROXY_PORT`            | `3128`    | The port the sandboxes reach                                                                                       |
+| `SANDBOX_PROXY_ADMIN_PORT`      | `3129`    | The port of the administration API                                                                                 |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`   | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                                |
+| `SANDBOX_PROXY_MAX_CONNECTIONS` | `128`     | The most connections a sandbox holds open through the proxy at once: one more is cut, and the first one cut logged |
+| `HOST`, `LOG_FORMAT`            | `0.0.0.0` | Where it listens; `text` for plain logs                                                                            |
 
 ### The agent (`agent`)
 
