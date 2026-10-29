@@ -1,6 +1,6 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Logger } from '../../common/logger.js';
@@ -94,6 +94,9 @@ const NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 /** Statuses of a machine that runs, or is about to: what {@link SandboxesOptions.maxRunning} counts. */
 const RUNNING = new Set(['PROVISIONING', 'REPAIRING', 'RUNNING', 'STAGING']);
 
+/** Statuses of a machine whose guest is off, or on its way: its agent will read its token anew. */
+const STOPPED = new Set(['STOPPING', 'TERMINATED']);
+
 /** Statuses a machine moves on from by itself. */
 const TRANSIENT = new Set(['PROVISIONING', 'REPAIRING', 'STAGING', 'STOPPING', 'SUSPENDING']);
 
@@ -108,6 +111,13 @@ const IMAGE_KEPT_MS = 5 * 60_000;
 
 /** The image a sandbox gets when its caller names none. */
 export const DEFAULT_IMAGE = 'default';
+
+/** The instance metadata key of the run the agent's token was drawn for, see {@link agentToken}. */
+const AGENT_RUN_METADATA_KEY = 'ai-sdk-sandbox-agent-run';
+
+/** The run the machine's agent token was drawn for: none on a machine made before runs were. */
+const runOf = (instance: Instance): string | undefined =>
+  instance.metadata?.items?.find(({ key }) => key === AGENT_RUN_METADATA_KEY)?.value;
 
 /** Compute Engine's names are 63 characters at most. */
 const MAX_NAME = 63;
@@ -230,21 +240,23 @@ export class Sandboxes {
   }
 
   /**
-   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first. Nothing
-   * runs, nothing is billed but the disk, until a resume. Returns once the machine left `RUNNING`,
-   * the guest off within seconds, not when Compute Engine is done some 50 s later: a resume
-   * meanwhile waits for it. Idempotent.
+   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first, and the
+   * agent gets a new token for its next run. Nothing runs, nothing is billed but the disk, until a
+   * resume. Returns once the machine left `RUNNING`, the guest off within seconds, not when Compute
+   * Engine is done some 50 s later: a resume meanwhile waits for it. Idempotent.
    */
   async suspend(name: string): Promise<void> {
     this.assertSandboxName(name);
     const instance = await this.instanceOf(name);
     if (instance === undefined) return;
     await this.forget(name);
+    let stopped: Instance | undefined = instance;
     if (instance.status !== 'TERMINATED') {
       await this.options.compute.stopInstance(instance.name, { wait: false });
-      await this.leftRunning(instance.name);
+      stopped = await this.leftRunning(instance.name);
       this.options.logger.info(`${name} stopping`);
     }
+    await this.drawRun(stopped);
     await this.proxyDownWhenIdle();
   }
 
@@ -394,14 +406,47 @@ export class Sandboxes {
   }
 
   /**
-   * Waits until the machine `instance`, told to stop or go, is no longer `RUNNING`: Compute Engine
-   * may still say so for a moment, and a resume would then take it for a machine that runs.
+   * Draws a new run for the machine `instance`, on its way down or off, and the agent token that
+   * goes with it: the agent reads it as the machine boots again, and a token read before no longer
+   * opens it. A running agent, or a suspended one, keeps the token it read: theirs is left as it
+   * is. A stop racing this one that changed the metadata first has drawn one already. Failing, the
+   * machine keeps its token, as it did before runs were drawn: the stop goes on.
    */
-  private async leftRunning(instance: string): Promise<void> {
+  private async drawRun(instance: Instance | undefined): Promise<void> {
+    if (instance === undefined || !STOPPED.has(instance.status)) return;
+    const items = (instance.metadata?.items ?? []).filter(
+      ({ key }) => key !== AGENT_TOKEN_METADATA_KEY && key !== AGENT_RUN_METADATA_KEY,
+    );
+    try {
+      await this.options.compute.setMetadata(instance.name, {
+        fingerprint: instance.metadata?.fingerprint,
+        items: [...items, ...this.agentItems(instance.name)],
+      });
+    } catch (error) {
+      if (error instanceof ComputeError && error.status === 412) return;
+      this.options.logger.warn(`${instance.name} keeps its agent token: ${String(error)}`);
+    }
+  }
+
+  /** The metadata the agent of the machine `instance` reads its token from, for a new run. */
+  private agentItems(instance: string): { key: string; value: string }[] {
+    const run = randomBytes(8).toString('hex');
+    return [
+      { key: AGENT_TOKEN_METADATA_KEY, value: agentToken(this.options.agentSecret, instance, run) },
+      { key: AGENT_RUN_METADATA_KEY, value: run },
+    ];
+  }
+
+  /**
+   * Waits until the machine `instance`, told to stop or go, is no longer `RUNNING`: Compute Engine
+   * may still say so for a moment, and a resume would then take it for a machine that runs. The
+   * machine as it is then, `undefined` once gone.
+   */
+  private async leftRunning(instance: string): Promise<Instance | undefined> {
     const deadline = Date.now() + this.options.startTimeoutMs;
     for (;;) {
       const current = await this.options.compute.getInstance(instance);
-      if (current?.status !== 'RUNNING') return;
+      if (current?.status !== 'RUNNING') return current;
       if (Date.now() > deadline) {
         throw new HttpError(504, `The machine ${instance} did not stop.`);
       }
@@ -542,7 +587,8 @@ export class Sandboxes {
       host: instance.networkInterfaces?.[0]?.networkIP ?? '',
       port: this.options.agentPort,
     };
-    const endpoint = { host, port, token: agentToken(this.options.agentSecret, instance.name) };
+    const token = agentToken(this.options.agentSecret, instance.name, runOf(instance));
+    const endpoint = { host, port, token };
     this.endpoints.set(name, { endpoint, until: Date.now() + ADDRESS_KEPT_MS });
     return endpoint;
   }
@@ -637,7 +683,7 @@ export class Sandboxes {
       ],
       metadata: {
         items: [
-          { key: AGENT_TOKEN_METADATA_KEY, value: agentToken(this.options.agentSecret, name) },
+          ...this.agentItems(name),
           { key: 'block-project-ssh-keys', value: 'true' },
           { key: 'serial-port-enable', value: 'false' },
         ],

@@ -18,7 +18,8 @@ interface FakeInstance {
   labels: Record<string, string>;
   /** The disk's directory: the machine's home, working directory and agent state. */
   disk: string;
-  token: string;
+  /** Its metadata, the agent's token in it: read by the agent as the machine boots. */
+  metadata: Metadata;
   /** The port its agent listens on, while it runs. */
   port?: number;
   agent?: ChildProcess;
@@ -27,6 +28,7 @@ interface FakeInstance {
 }
 
 type Json = Record<string, unknown>;
+type Metadata = { fingerprint: string; items: { key: string; value: string }[] };
 type Answer = [number, unknown];
 
 const NOT_FOUND: Answer = [404, { error: { message: 'not found' } }];
@@ -46,11 +48,9 @@ async function readBody(request: IncomingMessage): Promise<Json> {
   return text === '' ? {} : (JSON.parse(text) as Json);
 }
 
-/** The agent token the service put in the instance's metadata. */
-function tokenOf(body: Json): string {
-  const { items = [] } = (body['metadata'] ?? {}) as { items?: { key: string; value: string }[] };
-  return items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value ?? '';
-}
+/** The agent token the service put in an instance's metadata. */
+const tokenOf = ({ items }: Metadata): string =>
+  items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value ?? '';
 
 /** The image an instance boots from, by the last segment of its `sourceImage`. */
 function sourceImageOf(body: Json): string {
@@ -87,6 +87,11 @@ export class FakeCompute {
     ['POST', /\/zones\/[^/]+\/instances$/, (_, body) => this.insert(body)],
     ['POST', /\/zones\/[^/]+\/instances\/([^/]+)\/stop$/, (name) => this.stop(name)],
     ['POST', /\/zones\/[^/]+\/instances\/([^/]+)\/start$/, (name) => this.start(name)],
+    [
+      'POST',
+      /\/zones\/[^/]+\/instances\/([^/]+)\/setMetadata$/,
+      (name, body) => Promise.resolve(this.setMetadata(name, body)),
+    ],
     ['DELETE', /\/zones\/[^/]+\/instances\/([^/]+)$/, (name) => this.remove(name)],
     [
       'GET',
@@ -155,6 +160,7 @@ export class FakeCompute {
         status: instance.status,
         labels: instance.labels,
         networkInterfaces: [{ networkIP: '127.0.0.1' }],
+        metadata: instance.metadata,
       },
     ];
   }
@@ -175,7 +181,7 @@ export class FakeCompute {
       status: 'STAGING',
       labels: (body['labels'] ?? {}) as Record<string, string>,
       disk,
-      token: tokenOf(body),
+      metadata: { fingerprint: 'f0', items: [], ...(body['metadata'] as Partial<Metadata>) },
       body,
     };
     this.instances.set(name, instance);
@@ -194,6 +200,18 @@ export class FakeCompute {
     const instance = this.instances.get(name);
     if (instance === undefined) return NOT_FOUND;
     if (instance.status !== 'RUNNING') await this.boot(instance);
+    return this.operation();
+  }
+
+  /** Replaces the metadata of `name`, unless it changed since its `fingerprint` was read. */
+  private setMetadata(name: string, body: Json): Answer {
+    const instance = this.instances.get(name);
+    if (instance === undefined) return NOT_FOUND;
+    if (body['fingerprint'] !== instance.metadata.fingerprint) {
+      return [412, { error: { message: 'Supplied fingerprint does not match current metadata' } }];
+    }
+    const items = (body['items'] ?? []) as Metadata['items'];
+    instance.metadata = { fingerprint: `f${++this.operations}`, items };
     return this.operation();
   }
 
@@ -249,7 +267,7 @@ export class FakeCompute {
         HOST: '127.0.0.1',
         LOG_FORMAT: 'text',
         SANDBOX_AGENT_PORT: String(port),
-        SANDBOX_AGENT_TOKEN: instance.token,
+        SANDBOX_AGENT_TOKEN: tokenOf(instance.metadata),
         SANDBOX_USER: userInfo().username,
         SANDBOX_HOME: join(disk, 'home'),
         SANDBOX_WORKDIR: join(disk, 'workspace'),

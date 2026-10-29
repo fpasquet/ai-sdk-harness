@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FakeService } from '../test/fake-service.js';
 
 import { startFakeService } from '../test/fake-service.js';
-import { createGceNetworkSandboxSession } from './index.js';
+import { createGceNetworkSandboxSession, resumeGceNetworkSandboxSession } from './index.js';
 import { agentToken } from './server/sandboxes/agent-client.js';
 
 /** A credential as a harness hands it over: the placeholder the sandbox sees, the real value. */
@@ -77,9 +77,11 @@ describe('a sandbox machine', () => {
       'ai-sdk-sandbox-image': 'default',
     });
     const metadata = JSON.stringify(body['metadata']);
+    const { items } = body['metadata'] as { items: { key: string; value: string }[] };
+    const run = items.find(({ key }) => key === 'ai-sdk-sandbox-agent-run')?.value;
     expect(metadata).not.toContain(SECRET);
     expect(metadata).not.toContain('a-secret-of-thirty-two-characters!');
-    expect(metadata).toContain(agentToken('a-secret-of-thirty-two-characters!', 'sbx-box'));
+    expect(metadata).toContain(agentToken('a-secret-of-thirty-two-characters!', 'sbx-box', run));
   });
 
   it('has an agent that only answers the token derived for its machine', async () => {
@@ -108,6 +110,30 @@ describe('a sandbox machine', () => {
         'GET /v1/ports/4000 HTTP/1.1\r\nHost: x\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\n',
       ),
     ).toMatch(/^HTTP\/1.1 401/);
+  });
+
+  it('gives its agent a new token at each stop: one read before no longer opens it', async () => {
+    fake = await startFakeService();
+    const options = { url: fake.url, auth: 'none', sandboxId: 'box' } as const;
+    const session = await createGceNetworkSandboxSession(options);
+    // What anyone who may read the machines of the project finds in its metadata.
+    const metadataToken = (): string | undefined =>
+      fake.compute
+        .instance('sbx-box')
+        ?.metadata.items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value;
+    const read = metadataToken();
+
+    await session.stop();
+    const resumed = await resumeGceNetworkSandboxSession(options);
+    const exec = await fetch(`http://127.0.0.1:${fake.compute.agentPort('sbx-box')}/v1/exec`, {
+      method: 'POST',
+      headers: { 'x-ai-sdk-sandbox-agent-token': read ?? '' },
+      body: '{"command":"echo pwned"}\n',
+    });
+
+    expect(metadataToken()).not.toBe(read);
+    expect(exec.status).toBe(401);
+    expect((await resumed.run({ command: 'echo ok' })).stdout).toBe('ok\n');
   });
 });
 

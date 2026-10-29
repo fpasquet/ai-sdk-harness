@@ -12,10 +12,13 @@ import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
 /**
  * The token of the agent of the machine `instance`: derived from the service's secret, so that
  * any instance of the service finds it again without keeping it, and a machine only ever learns
- * its own.
+ * its own. `run`, drawn anew when the machine is made and each time it is stopped, makes it
+ * another at each run: a token read once serves until the next stop. Without it, the token of a
+ * machine made before runs were drawn.
  */
-export function agentToken(secret: string, instance: string): string {
-  return createHmac('sha256', secret).update(`ai-sdk-sandbox-agent:${instance}`).digest('hex');
+export function agentToken(secret: string, instance: string, run?: string): string {
+  const subject = run === undefined ? instance : `${instance}:${run}`;
+  return createHmac('sha256', secret).update(`ai-sdk-sandbox-agent:${subject}`).digest('hex');
 }
 
 /** Where the agent of a running machine is reached, and what it is proven to with. */

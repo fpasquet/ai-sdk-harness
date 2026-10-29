@@ -9,6 +9,13 @@ export interface Instance {
   status: string;
   labels?: Record<string, string>;
   networkInterfaces?: { networkIP?: string }[];
+  metadata?: InstanceMetadata;
+}
+
+/** The metadata of an instance: its `fingerprint` must be given back to change it. */
+export interface InstanceMetadata {
+  fingerprint?: string;
+  items?: { key: string; value?: string }[];
 }
 
 /** The fields of an image the service reads. */
@@ -96,6 +103,14 @@ export class ComputeApi {
   /** Changes how the stopped instance `name` is provisioned: from Spot to standard, say. */
   async setScheduling(name: string, scheduling: Record<string, unknown>): Promise<void> {
     await this.change('POST', this.zonal(`instances/${name}/setScheduling`), { body: scheduling });
+  }
+
+  /**
+   * Replaces the metadata of the instance `name`. Refused with a 412 when it changed since it was
+   * read with `fingerprint`.
+   */
+  async setMetadata(name: string, metadata: InstanceMetadata): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/setMetadata`), { body: metadata });
   }
 
   /** Deletes the instance `name` and its disks set to go with it. Nothing when there is none. */

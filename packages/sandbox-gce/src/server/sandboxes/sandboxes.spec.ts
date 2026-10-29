@@ -9,7 +9,7 @@ import type { MachineSettings, SandboxesOptions } from './sandboxes.js';
 import { silentLogger } from '../../common/logger.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
-import { AgentClient } from './agent-client.js';
+import { AgentClient, agentToken } from './agent-client.js';
 import { Sandboxes } from './sandboxes.js';
 
 // The waits between two polls of a machine or an agent pass at once.
@@ -47,6 +47,7 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
       return Promise.resolve();
     }),
     setScheduling: vi.fn(() => Promise.resolve()),
+    setMetadata: vi.fn(() => Promise.resolve()),
     deleteInstance: vi.fn(() => {
       statuses.splice(0, statuses.length, undefined);
       return Promise.resolve();
@@ -135,6 +136,18 @@ describe('the sandboxes of the service', () => {
 
     expect(agent.endpoint).toMatchObject({ host: '10.0.0.3', port: 8100 });
     expect(compute.getInstance).toHaveBeenCalledTimes(1);
+  });
+
+  it("proves itself to an agent with the token of the machine's run", async () => {
+    const run = { key: 'ai-sdk-sandbox-agent-run', value: 'r1' };
+    const drawn = { ...sandbox('RUNNING'), metadata: { items: [run] } };
+
+    const agent = await sandboxesOf({ compute: computeOf([drawn]) }).agent('box');
+    const older = await sandboxesOf({ compute: computeOf([sandbox('RUNNING')]) }).agent('box');
+
+    expect(agent.endpoint.token).toBe(agentToken('a-secret', 'sbx-box', 'r1'));
+    // A machine made before runs were drawn keeps the token it has.
+    expect(older.endpoint.token).toBe(agentToken('a-secret', 'sbx-box'));
   });
 
   /**
@@ -534,6 +547,58 @@ describe('the sandboxes of the service', () => {
     expect(compute.stopInstance).toHaveBeenCalledTimes(1);
     expect(compute.stopInstance).toHaveBeenCalledWith('sbx-box', { wait: false });
     expect(warn).toHaveBeenCalledWith('The proxy could not forget box: Error: unreachable');
+  });
+
+  it("draws a new agent token at each stop, the machine's other metadata kept", async () => {
+    const running = {
+      ...sandbox('RUNNING'),
+      metadata: {
+        fingerprint: 'f1',
+        items: [
+          { key: 'ai-sdk-sandbox-agent-token', value: 'old' },
+          { key: 'ai-sdk-sandbox-agent-run', value: 'r0' },
+          { key: 'block-project-ssh-keys', value: 'true' },
+        ],
+      },
+    };
+    const compute = computeOf([running, { ...running, status: 'STOPPING' }]);
+    compute.stopInstance.mockResolvedValue();
+
+    await sandboxesOf({ compute }).suspend('box');
+
+    const [[instance, metadata]] = compute.setMetadata.mock.calls as unknown as [
+      [string, { fingerprint: string; items: { key: string; value: string }[] }],
+    ];
+    const value = (key: string): string | undefined =>
+      metadata.items.find((item) => item.key === key)?.value;
+    const run = value('ai-sdk-sandbox-agent-run') ?? '';
+    expect(instance).toBe('sbx-box');
+    expect(metadata.fingerprint).toBe('f1');
+    expect(run).toMatch(/^[0-9a-f]{16}$/);
+    expect(value('ai-sdk-sandbox-agent-token')).toBe(agentToken('a-secret', 'sbx-box', run));
+    expect(value('block-project-ssh-keys')).toBe('true');
+    expect(metadata.items).toHaveLength(3);
+  });
+
+  it('leaves the token of an agent that runs on, and stops even when no token is drawn', async () => {
+    const suspended = computeOf([sandbox('SUSPENDED')]);
+    suspended.stopInstance.mockResolvedValue();
+    await sandboxesOf({ compute: suspended }).suspend('box');
+    expect(suspended.setMetadata).not.toHaveBeenCalled();
+
+    const raced = computeOf([sandbox('TERMINATED')]);
+    raced.setMetadata.mockRejectedValue(new ComputeError(412, 'fingerprint does not match'));
+    const refused = computeOf([sandbox('TERMINATED')]);
+    refused.setMetadata.mockRejectedValue(new ComputeError(403, 'Required permission'));
+    const warn = vi.fn();
+
+    await sandboxesOf({ compute: raced, logger: { ...silentLogger, warn } }).suspend('box');
+    await sandboxesOf({ compute: refused, logger: { ...silentLogger, warn } }).suspend('box');
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'sbx-box keeps its agent token: ComputeError: Compute Engine: Required permission',
+    );
   });
 
   it('waits for a machine told to stop to leave RUNNING, and gives up on one that stays', async () => {
