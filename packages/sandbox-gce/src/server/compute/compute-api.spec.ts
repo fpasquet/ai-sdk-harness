@@ -131,6 +131,19 @@ describe('the Compute Engine API', () => {
     ]);
   });
 
+  it('changes metadata read with its fingerprint, and refuses metadata changed since', async () => {
+    answers.push(
+      { name: 'op', status: 'DONE', selfLink: `${endpoint}/op` },
+      { status: 412, error: { message: 'Supplied fingerprint does not match current metadata' } },
+    );
+    const metadata = { fingerprint: 'abc=', items: [{ key: 'k', value: 'v' }] };
+
+    await api().setMetadata('box', metadata);
+    await expect(api().setMetadata('box', metadata)).rejects.toMatchObject({ status: 412 });
+
+    expect(calls[0]).toBe('POST /projects/p/zones/z/instances/box/setMetadata');
+  });
+
   it('reports a failed operation that says little, and an error that is not JSON', async () => {
     answers.push(
       { name: 'op', status: 'DONE', selfLink: `${endpoint}/op`, error: { errors: [{}] } },
