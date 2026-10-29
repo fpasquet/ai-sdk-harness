@@ -62,6 +62,23 @@ describe('the administration API of the egress proxy', () => {
     expect(registry.policyFor('10.0.0.3')).toBeUndefined();
   });
 
+  it('lists its sandboxes, and forgets one only by the registration it listed', async () => {
+    await call('PUT', '/v1/sandboxes/box', { address: '10.0.0.3' });
+    const listed = await call('GET', '/v1/sandboxes');
+    await call('PUT', '/v1/sandboxes/box', { address: '10.0.0.3' });
+
+    const stale = await call('DELETE', '/v1/sandboxes/box?serial=1');
+    const invalid = await call('DELETE', '/v1/sandboxes/box?serial=one');
+
+    expect(await listed.json()).toEqual({
+      sandboxes: [{ name: 'box', address: '10.0.0.3', serial: 1 }],
+    });
+    expect([stale.status, invalid.status]).toEqual([204, 400]);
+    expect(registry.policyFor('10.0.0.3')).toBeDefined();
+    await call('DELETE', '/v1/sandboxes/box?serial=2');
+    expect(registry.policyFor('10.0.0.3')).toBeUndefined();
+  });
+
   it('answers its health to anyone, and nothing else without its token', async () => {
     const health = await fetch(`${url}/health`);
     const missing = await fetch(`${url}/v1/sandboxes/box`, { method: 'DELETE' });

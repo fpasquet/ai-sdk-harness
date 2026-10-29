@@ -9,7 +9,9 @@
  * - `POST` and `PUT /v1/sandboxes/:name/transformations`: `{ transformations }`, added or replaced;
  * - `POST /v1/sandboxes/:name/screen`: `{ texts }`, answered `{ refused }`, whether one of them holds
  *   a credential the proxy keeps for the sandbox;
- * - `DELETE /v1/sandboxes/:name`: forgets the sandbox and its credentials.
+ * - `GET /v1/sandboxes`: `{ sandboxes }`, a {@link ProxySandbox} each, what the proxy holds;
+ * - `DELETE /v1/sandboxes/:name`: forgets the sandbox and its credentials; with `?serial=`, only
+ *   when that registration is still the sandbox's, not one made since.
  */
 
 /** A sandbox, as the proxy knows it. */
@@ -20,6 +22,15 @@ export interface ProxyRegistration {
   allowedHosts: readonly string[];
   /** Base URL variables and where they lead: their hosts are always reachable through a route. */
   baseUrls: Readonly<Record<string, string>>;
+}
+
+/** A sandbox the proxy holds, as it lists them. */
+export interface ProxySandbox {
+  name: string;
+  /** The address of its machine, normalized. */
+  address: string;
+  /** What tells its registration from the next one: another at each registration. */
+  serial: number;
 }
 
 /** The port the proxy serves the sandboxes on. */

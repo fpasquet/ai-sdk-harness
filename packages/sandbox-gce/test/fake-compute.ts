@@ -84,6 +84,8 @@ export class FakeCompute {
 
   private readonly routes: [string, RegExp, (name: string, body: Json) => Promise<Answer>][] = [
     ['GET', /\/zones\/[^/]+\/instances\/([^/]+)$/, (name) => Promise.resolve(this.get(name))],
+    // Every instance: they all carry the service's label.
+    ['GET', /\/zones\/[^/]+\/instances$/, () => Promise.resolve(this.list())],
     ['POST', /\/zones\/[^/]+\/instances$/, (_, body) => this.insert(body)],
     ['POST', /\/zones\/[^/]+\/instances\/([^/]+)\/stop$/, (name) => this.stop(name)],
     ['POST', /\/zones\/[^/]+\/instances\/([^/]+)\/start$/, (name) => this.start(name)],
@@ -148,6 +150,10 @@ export class FakeCompute {
   private operation(): Answer {
     const name = `operation-${++this.operations}`;
     return [200, { name, status: 'DONE', selfLink: `${this.endpoint}/operations/${name}` }];
+  }
+
+  private list(): Answer {
+    return [200, { items: [...this.instances.keys()].map((name) => this.get(name)[1]) }];
   }
 
   private get(name: string): Answer {

@@ -2,6 +2,7 @@ import type { Mock } from 'vitest';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProxySandbox } from '../../protocol/proxy.js';
 import type { ComputeApi, Image, Instance } from '../compute/compute-api.js';
 import type { ProxyAdmin } from './proxy-admin.js';
 import type { MachineSettings, SandboxesOptions } from './sandboxes.js';
@@ -67,6 +68,7 @@ function proxyOf(): Stub<ProxyAdmin> {
     setTransformations: vi.fn(() => Promise.resolve()),
     holdsSecret: vi.fn(() => Promise.resolve(false)),
     remove: vi.fn(() => Promise.resolve()),
+    list: vi.fn((): Promise<ProxySandbox[] | undefined> => Promise.resolve([])),
     healthy: vi.fn(() => Promise.resolve(true)),
   };
 }
@@ -613,6 +615,87 @@ describe('the sandboxes of the service', () => {
     await expect(
       sandboxesOf({ compute: stuck, startTimeoutMs: -1 }).delete('box'),
     ).rejects.toMatchObject({ status: 504 });
+  });
+
+  it('makes the proxy forget the sandboxes whose machine no longer runs, and no other', async () => {
+    const machine = (name: string, status: string, networkIP: string): Instance => ({
+      ...sandbox(status),
+      name,
+      networkInterfaces: [{ networkIP }],
+    });
+    const compute = computeOf();
+    compute.listInstances.mockResolvedValue([
+      machine('sbx-running', 'RUNNING', '10.0.0.1'),
+      machine('sbx-stopped', 'TERMINATED', '10.0.0.2'),
+      machine('sbx-new', 'RUNNING', '10.0.0.4'),
+      machine('other-box', 'RUNNING', '10.0.0.5'),
+    ]);
+    const proxy = proxyOf();
+    proxy.list.mockResolvedValue([
+      { name: 'running', address: '10.0.0.1', serial: 1 },
+      { name: 'stopped', address: '10.0.0.2', serial: 2 },
+      { name: 'deleted', address: '10.0.0.3', serial: 3 },
+      // Its address went to another sandbox of the service.
+      { name: 'gone', address: '10.0.0.4', serial: 4 },
+      // A sandbox of another service sharing the proxy, its prefix another.
+      { name: 'box', address: '10.0.0.5', serial: 5 },
+    ]);
+    const info = vi.fn();
+
+    const forgotten = await sandboxesOf({
+      compute,
+      proxy,
+      logger: { ...silentLogger, info },
+    }).reconcile();
+
+    expect(forgotten).toEqual(['stopped', 'deleted', 'gone']);
+    expect(proxy.remove.mock.calls).toEqual([
+      ['stopped', 2],
+      ['deleted', 3],
+      ['gone', 4],
+    ]);
+    expect(info).toHaveBeenCalledWith(
+      'The proxy forgot stopped, deleted, gone: their machines no longer run',
+    );
+    compute.listInstances.mockResolvedValue([]);
+    proxy.list.mockResolvedValue([{ name: 'last', address: '10.0.0.6', serial: 6 }]);
+    await sandboxesOf({ compute, proxy, logger: { ...silentLogger, info } }).reconcile();
+    expect(info).toHaveBeenLastCalledWith('The proxy forgot last: its machine no longer runs');
+  });
+
+  it('reconciles in the background of a creation, once per period, and never by default', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const create = async (reconcileEveryMs?: number): Promise<Stub<ProxyAdmin>> => {
+      const proxy = proxyOf();
+      const sandboxes = sandboxesOf({
+        compute: computeOf([undefined, sandbox('RUNNING')]),
+        proxy,
+        reconcileEveryMs,
+      });
+      await sandboxes.create('box', {});
+      await sandboxes.resume('box', {});
+      return proxy;
+    };
+
+    expect((await create(60_000)).list).toHaveBeenCalledTimes(1);
+    expect((await create(0)).list).toHaveBeenCalledTimes(2);
+    expect((await create()).list).not.toHaveBeenCalled();
+
+    const failing = proxyOf();
+    failing.list.mockRejectedValue(new Error('unreachable'));
+    const warn = vi.fn();
+    const sandboxes = sandboxesOf({
+      compute: computeOf([undefined, sandbox('RUNNING')]),
+      proxy: failing,
+      reconcileEveryMs: 0,
+      logger: { ...silentLogger, warn },
+    });
+    await sandboxes.create('box', {});
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        'The proxy could not be reconciled with the machines: Error: unreachable',
+      ),
+    );
   });
 
   it('deletes a machine without waiting for Compute Engine to be done', async () => {

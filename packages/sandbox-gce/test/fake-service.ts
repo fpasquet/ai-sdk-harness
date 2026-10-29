@@ -40,6 +40,8 @@ interface FakeServiceOverrides {
   allowPrivateNetwork?: boolean;
   network?: Required<SandboxNetwork>;
   serviceToken?: string;
+  /** How often the service reconciles the proxy with the machines: never without it. */
+  reconcileEveryMs?: number;
   /** The port the proxy's tunnels reach, 443 without it. */
   tunnelPort?: number;
 }
@@ -92,6 +94,7 @@ export async function startFakeService(overrides: FakeServiceOverrides = {}): Pr
     network: overrides.network ?? { allowedHosts: [], baseUrls: {} },
     startTimeoutMs: 15_000,
     serviceToken: overrides.serviceToken,
+    reconcileEveryMs: overrides.reconcileEveryMs,
   });
   const port = await listen(service.server);
   return {

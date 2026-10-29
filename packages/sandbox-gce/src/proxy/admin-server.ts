@@ -21,9 +21,25 @@ const SANDBOX = /^\/v1\/sandboxes\/([a-z0-9-]+)(\/[a-z]+)?$/;
 
 type Json = Record<string, unknown>;
 
-/** What each route does to the registry, given the sandbox's name and the request's body. */
-const ROUTES: Record<string, (registry: SandboxRegistry, name: string, body: Json) => Reply> = {
-  'PUT ': (registry, name, body) => {
+/** A request to one sandbox's route: its name, its body, and its query string. */
+interface SandboxCall {
+  name: string;
+  body: Json;
+  query: URLSearchParams;
+}
+
+/** `?serial=`, the registration a removal is meant for. */
+function serialOf(query: URLSearchParams): number | undefined {
+  const raw = query.get('serial');
+  if (raw === null) return undefined;
+  const serial = Number(raw);
+  if (!Number.isSafeInteger(serial)) throw new HttpError(400, '`serial` must be an integer.');
+  return serial;
+}
+
+/** What each route does to the registry. */
+const ROUTES: Record<string, (registry: SandboxRegistry, call: SandboxCall) => Reply> = {
+  'PUT ': (registry, { name, body }) => {
     registry.register(name, {
       address: requiredString(body, 'address'),
       allowedHosts: stringList(body, 'allowedHosts') ?? [],
@@ -31,23 +47,23 @@ const ROUTES: Record<string, (registry: SandboxRegistry, name: string, body: Jso
     });
     return NO_CONTENT;
   },
-  'DELETE ': (registry, name) => {
-    registry.remove(name);
+  'DELETE ': (registry, { name, query }) => {
+    registry.remove(name, serialOf(query));
     return NO_CONTENT;
   },
-  'PUT /network': (registry, name, body) => {
+  'PUT /network': (registry, { name, body }) => {
     registry.setAllowedHosts(name, stringList(body, 'allowedHosts') ?? []);
     return NO_CONTENT;
   },
-  'POST /transformations': (registry, name, body) => {
+  'POST /transformations': (registry, { name, body }) => {
     registry.addTransformations(name, transformationList(body));
     return NO_CONTENT;
   },
-  'PUT /transformations': (registry, name, body) => {
+  'PUT /transformations': (registry, { name, body }) => {
     registry.setTransformations(name, transformationList(body));
     return NO_CONTENT;
   },
-  'POST /screen': (registry, name, body) => ({
+  'POST /screen': (registry, { name, body }) => ({
     status: 200,
     body: { refused: registry.holdsSecret(name, stringList(body, 'texts') ?? []) },
   }),
@@ -56,14 +72,18 @@ const ROUTES: Record<string, (registry: SandboxRegistry, name: string, body: Jso
 async function handle(
   registry: SandboxRegistry,
   request: IncomingMessage,
-  path: string,
+  url: URL,
 ): Promise<Reply> {
+  const path = url.pathname;
+  if (request.method === 'GET' && path === '/v1/sandboxes') {
+    return { status: 200, body: { sandboxes: registry.list() } };
+  }
   const [, name, action = ''] = SANDBOX.exec(path) ?? [];
   const route = ROUTES[`${request.method} ${action}`];
   if (name === undefined || route === undefined) {
     throw new HttpError(404, `No route for ${request.method} ${path}.`);
   }
-  return route(registry, name, await readJson(request));
+  return route(registry, { name, body: await readJson(request), query: url.searchParams });
 }
 
 /**
@@ -83,7 +103,8 @@ export function createAdminServer({
   return createServer((request, response) => {
     response.setHeader(PROTOCOL_HEADER, String(PROTOCOL_VERSION));
     const method = request.method ?? 'GET';
-    const path = new URL(request.url ?? '/', 'http://proxy').pathname;
+    const url = new URL(request.url ?? '/', 'http://proxy');
+    const path = url.pathname;
     if (path === '/health') {
       send(response, {
         status: 200,
@@ -96,7 +117,7 @@ export function createAdminServer({
       send(response, { status: 401, body: { error: 'The proxy token is missing or wrong.' } });
       return;
     }
-    handle(registry, request, path).then(
+    handle(registry, request, url).then(
       (reply) => send(response, reply),
       (error: unknown) =>
         fail(response, error, (message) => logger.error(`${method} ${path} failed: ${message}`)),

@@ -1,6 +1,6 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import type { ProxyRegistration } from '../protocol/proxy.js';
+import type { ProxyRegistration, ProxySandbox } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { HttpError } from '../common/http-error.js';
@@ -14,6 +14,7 @@ import { normalizeAddress, RegisteredSandbox } from './registered-sandbox.js';
 export class SandboxRegistry {
   private readonly byName = new Map<string, RegisteredSandbox>();
   private readonly byAddress = new Map<string, string>();
+  private registrations = 0;
 
   /**
    * @param allowPrivateNetwork Let the sandboxes reach private addresses and plain HTTP base URLs:
@@ -27,6 +28,7 @@ export class SandboxRegistry {
    */
   register(name: string, registration: ProxyRegistration): void {
     const next = new RegisteredSandbox(name, registration, this.allowPrivateNetwork);
+    next.serial = ++this.registrations;
     const previous = this.byName.get(name);
     if (previous !== undefined) {
       next.transformations = previous.transformations;
@@ -55,10 +57,22 @@ export class SandboxRegistry {
     return secrets.some((secret) => texts.some((text) => text.includes(secret)));
   }
 
-  /** Forgets the sandbox `name` and its credentials. Idempotent. */
-  remove(name: string): void {
+  /** The sandboxes the proxy holds. */
+  list(): ProxySandbox[] {
+    return [...this.byName.values()].map(({ name, address, serial }) => ({
+      name,
+      address,
+      serial,
+    }));
+  }
+
+  /**
+   * Forgets the sandbox `name` and its credentials. With `serial`, only the registration that
+   * {@link list} gave it: one made since, its machine started again meanwhile, is kept. Idempotent.
+   */
+  remove(name: string, serial?: number): void {
     const sandbox = this.byName.get(name);
-    if (sandbox === undefined) return;
+    if (sandbox === undefined || (serial !== undefined && sandbox.serial !== serial)) return;
     this.byName.delete(name);
     this.forgetAddress(name, sandbox.address);
   }
