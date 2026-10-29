@@ -200,9 +200,9 @@ if ! cmp -s /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox
   systemctl daemon-reload
   restart=true
 fi
-systemctl enable ai-sdk-sandbox-proxy
-# Started by systemd at boot, before this script: restarted only when its package or its unit
-# changed, since a restart forgets the sandboxes registered meanwhile.
+# Started here, once its package is the pinned one, and not by systemd at boot: the previous
+# version would take the sandboxes the service registers meanwhile, and forget them as it restarts.
+systemctl disable --quiet ai-sdk-sandbox-proxy
 if [ "$restart" = true ]; then
   systemctl restart ai-sdk-sandbox-proxy
 else
