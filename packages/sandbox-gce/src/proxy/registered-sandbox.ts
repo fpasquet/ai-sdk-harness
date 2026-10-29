@@ -22,6 +22,9 @@ export class RegisteredSandbox implements EgressPolicy {
   upstreamHosts: readonly string[];
   transformations: HarnessV1RequestTransformation[] = [];
 
+  /** What tells this registration from the next one of the same sandbox: the registry's to set. */
+  serial = 0;
+
   constructor(
     readonly name: string,
     registration: ProxyRegistration,

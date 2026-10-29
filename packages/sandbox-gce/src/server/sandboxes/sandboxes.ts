@@ -80,6 +80,12 @@ export interface SandboxesOptions {
    * No limit without it.
    */
   maxRunning?: number;
+  /**
+   * How often, at most, the service makes the proxy forget the sandboxes whose machine no longer
+   * runs, see {@link Sandboxes.reconcile}: in the background of a creation or a resume, the first
+   * one at once. Never without it.
+   */
+  reconcileEveryMs?: number;
 }
 
 /** The label of the service's machines and images, and what each is. */
@@ -140,6 +146,7 @@ function assertName(name: string, what: string, room: number): void {
 export class Sandboxes {
   private readonly endpoints = new Map<string, { endpoint: AgentEndpoint; until: number }>();
   private readonly bases = new Map<string, { namespace: string; until: number }>();
+  private nextReconcile = 0;
 
   constructor(private readonly options: SandboxesOptions) {
     if (options.machine.images[DEFAULT_IMAGE] === undefined) {
@@ -275,6 +282,39 @@ export class Sandboxes {
     await this.proxyDownWhenIdle();
   }
 
+  /**
+   * Makes the proxy forget the sandboxes whose machine no longer runs, and their credentials: a
+   * machine stopped or deleted outside the service (a Spot machine taken back, one stopped at its
+   * run limit or from the console) leaves them in the proxy until then. A sandbox is kept while a
+   * running machine of the zone holds its address, unless it is another sandbox of this service:
+   * the sandboxes of another service sharing the proxy in the zone are left alone. A sandbox
+   * registered again meanwhile is kept too. Answers the names forgotten.
+   */
+  async reconcile(): Promise<string[]> {
+    const { proxy, compute, logger } = this.options;
+    const registered = await proxy.list();
+    if (registered === undefined) return [];
+    const machines = await compute.listInstances(LABEL, 'sandbox');
+    const holders = new Map(
+      machines
+        .filter(({ status }) => RUNNING.has(status))
+        .map(({ name, networkInterfaces }) => [networkInterfaces?.[0]?.networkIP, name]),
+    );
+    const stale = registered.filter(({ name, address }) => {
+      const holder = holders.get(address);
+      if (holder === undefined) return true;
+      return holder !== this.instanceName(name) && holder.startsWith(this.options.instancePrefix);
+    });
+    await Promise.all(stale.map(({ name, serial }) => proxy.remove(name, serial)));
+    const names = stale.map(({ name }) => name);
+    if (names.length > 0) {
+      const runs =
+        names.length === 1 ? 'its machine no longer runs' : 'their machines no longer run';
+      logger.info(`The proxy forgot ${names.join(', ')}: ${runs}`);
+    }
+    return names;
+  }
+
   /** Replaces the hosts the running sandbox `name` may reach, the service's own aside. */
   async setAllowedHosts(name: string, allowedHosts: readonly string[]): Promise<void> {
     this.assertSandboxName(name);
@@ -377,6 +417,16 @@ export class Sandboxes {
         await sleep(1000);
       }
     }
+  }
+
+  /** Starts a {@link reconcile} without waiting for it, once per period at most. */
+  private reconcileInBackground(): void {
+    const { reconcileEveryMs, logger } = this.options;
+    if (reconcileEveryMs === undefined || Date.now() < this.nextReconcile) return;
+    this.nextReconcile = Date.now() + reconcileEveryMs;
+    this.reconcile().catch((error: unknown) => {
+      logger.warn(`The proxy could not be reconciled with the machines: ${String(error)}`);
+    });
   }
 
   /** Stops the proxy's machine, when the service drives it, once no sandbox runs. */
@@ -551,6 +601,8 @@ export class Sandboxes {
       proxy: this.options.proxyUrl,
       baseUrls,
     });
+    // The proxy answers by now: a good time to make it forget the machines gone meanwhile.
+    this.reconcileInBackground();
     return { name, home, workingDirectory };
   }
 

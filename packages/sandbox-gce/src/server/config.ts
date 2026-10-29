@@ -142,6 +142,16 @@ function maxRunning(value: string | undefined): number | undefined {
   return parsed;
 }
 
+/** `SANDBOX_RECONCILE_MINUTES`: 10 when unset, `0` for never. */
+function reconcileEveryMs(value: string | undefined): number | undefined {
+  const text = nonEmpty(value) ?? '10';
+  const minutes = Number(text);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    throw new Error(`SANDBOX_RECONCILE_MINUTES: \`${text}\` is not a number of minutes.`);
+  }
+  return minutes === 0 ? undefined : minutes * 60_000;
+}
+
 /** The secret the agents' tokens are derived from. */
 function agentSecret(env: Environment): string {
   const secret = required(
@@ -216,6 +226,7 @@ export async function sandboxesConfig(env: Environment, logger: Logger): Promise
     },
     startTimeoutMs: Number.parseInt(env['SANDBOX_START_TIMEOUT'] ?? '300', 10) * 1000,
     maxRunning: maxRunning(env['SANDBOX_MAX_RUNNING']),
+    reconcileEveryMs: reconcileEveryMs(env['SANDBOX_RECONCILE_MINUTES']),
     proxyInstance: nonEmpty(env['SANDBOX_PROXY_INSTANCE']),
     serviceToken: serviceToken(env, logger),
   };

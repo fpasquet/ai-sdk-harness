@@ -29,6 +29,20 @@ describe('the registry of the egress proxy', () => {
     expect(registry.holdsSecret('box', ['echo a-real-credential-value'])).toBe(true);
   });
 
+  it('lists its sandboxes, and forgets one only by the registration it listed', () => {
+    const registry = new SandboxRegistry();
+    registry.register('box', registration('::ffff:10.0.0.3'));
+    const [listed] = registry.list();
+
+    registry.register('box', registration('10.0.0.3'));
+    registry.remove('box', listed?.serial);
+
+    expect(listed).toEqual({ name: 'box', address: '10.0.0.3', serial: 1 });
+    expect(registry.list()).toEqual([{ name: 'box', address: '10.0.0.3', serial: 2 }]);
+    registry.remove('box', 2);
+    expect(registry.list()).toEqual([]);
+  });
+
   it('leaves an address to the sandbox that took it over', () => {
     const registry = new SandboxRegistry();
     registry.register('one', registration('10.0.0.3'));

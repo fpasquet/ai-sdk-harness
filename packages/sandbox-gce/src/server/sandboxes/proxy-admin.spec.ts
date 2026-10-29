@@ -69,6 +69,24 @@ describe('the client of the egress proxy administration API', () => {
     expect(calls[4]?.headers['content-type']).toBeUndefined();
   });
 
+  it('lists the sandboxes of the proxy, and none of a proxy too old to', async () => {
+    const admin = new ProxyAdmin(url, 'proxy-token');
+    const sandbox = { name: 'box', address: '10.0.0.3', serial: 4 };
+
+    answer = [200, JSON.stringify({ sandboxes: [sandbox] })];
+    await expect(admin.list()).resolves.toEqual([sandbox]);
+    await admin.remove('box', 4);
+    answer = [404, '{"error":"No route for GET /v1/sandboxes."}'];
+    await expect(admin.list()).resolves.toBeUndefined();
+    answer = [500, 'broken'];
+    await expect(admin.list()).rejects.toMatchObject({ status: 502 });
+
+    expect(calls.map(({ method, url: path }) => `${method} ${path}`).slice(0, 2)).toEqual([
+      'GET /v1/sandboxes',
+      'DELETE /v1/sandboxes/box?serial=4',
+    ]);
+  });
+
   it('asks whether texts hold a credential of the sandbox', async () => {
     const admin = new ProxyAdmin(url, 'proxy-token');
 

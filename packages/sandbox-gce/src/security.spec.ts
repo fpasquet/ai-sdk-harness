@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { createServer } from 'node:http';
 import { connect, createServer as createTcpServer } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FakeService } from '../test/fake-service.js';
 
@@ -182,6 +182,27 @@ describe('credentials', () => {
     await session.stop();
     expect(fake.registry.holdsSecret('box', [SECRET])).toBe(false);
     expect(fake.registry.policyFor('127.0.0.1')).toBeUndefined();
+  });
+
+  it('are dropped from the proxy once the service sees the machine stopped without it', async () => {
+    fake = await startFakeService({ reconcileEveryMs: 0 });
+    const session = await createGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+    });
+    await session.addRequestTransformations([credential]);
+    // Compute Engine takes a Spot machine back, or stops it at its run limit: no one tells the service.
+    const { endpoint, project, zone } = fake.compute;
+    await fetch(`${endpoint}/projects/${project}/zones/${zone}/instances/sbx-box/stop`, {
+      method: 'POST',
+    });
+    expect(fake.registry.holdsSecret('box', [SECRET])).toBe(true);
+
+    await createGceNetworkSandboxSession({ url: fake.url, auth: 'none', sandboxId: 'next' });
+
+    await vi.waitFor(() => expect(fake.registry.holdsSecret('box', [SECRET])).toBe(false));
+    expect(fake.registry.list().map(({ name }) => name)).toEqual(['next']);
   });
 });
 
