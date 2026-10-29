@@ -154,6 +154,34 @@ function agentSecret(env: Environment): string {
 }
 
 /**
+ * `SANDBOX_SERVICE_TOKEN`. Required on Cloud Run, where a service deployed open by mistake would
+ * let anyone run commands in the sandboxes, unless `SANDBOX_INSECURE_NO_TOKEN=true` says to go
+ * without.
+ */
+function serviceToken(env: Environment, logger: Logger): string | undefined {
+  const token = nonEmpty(env['SANDBOX_SERVICE_TOKEN']);
+  if (token !== undefined || !onCloudRun(env)) return token;
+  if (env['SANDBOX_INSECURE_NO_TOKEN'] !== 'true') {
+    throw new Error(
+      'SANDBOX_SERVICE_TOKEN is required on Cloud Run: a second lock beside its IAM, should the service ever be deployed open. Set SANDBOX_INSECURE_NO_TOKEN=true to go without.',
+    );
+  }
+  logger.warn('SANDBOX_INSECURE_NO_TOKEN=true: Cloud Run’s IAM is the only lock of the service.');
+  return undefined;
+}
+
+/** `SANDBOX_ALLOWED_HOSTS`, with a warning when it lets every sandbox reach any host. */
+function allowedHosts(env: Environment, logger: Logger): string[] {
+  const hosts = list(env['SANDBOX_ALLOWED_HOSTS']);
+  if (hosts.includes('*')) {
+    logger.warn(
+      'SANDBOX_ALLOWED_HOSTS holds `*`: every sandbox may reach any host over HTTPS, and send its files there.',
+    );
+  }
+  return hosts;
+}
+
+/**
  * The service's settings, from the environment. The sandboxes' image, zone, agent secret and egress
  * proxy are required; everything else has a default.
  */
@@ -183,12 +211,12 @@ export async function sandboxesConfig(env: Environment, logger: Logger): Promise
     agentPort: Number.parseInt(env['SANDBOX_AGENT_PORT'] ?? String(DEFAULT_AGENT_PORT), 10),
     proxyUrl: required(env, 'SANDBOX_PROXY_URL', 'the egress proxy, as the sandboxes reach it'),
     network: {
-      allowedHosts: list(env['SANDBOX_ALLOWED_HOSTS']),
+      allowedHosts: allowedHosts(env, logger),
       baseUrls: baseUrls(env['SANDBOX_BASE_URLS']),
     },
     startTimeoutMs: Number.parseInt(env['SANDBOX_START_TIMEOUT'] ?? '300', 10) * 1000,
     maxRunning: maxRunning(env['SANDBOX_MAX_RUNNING']),
     proxyInstance: nonEmpty(env['SANDBOX_PROXY_INSTANCE']),
-    serviceToken: nonEmpty(env['SANDBOX_SERVICE_TOKEN']),
+    serviceToken: serviceToken(env, logger),
   };
 }

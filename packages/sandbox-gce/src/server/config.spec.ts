@@ -112,7 +112,12 @@ describe('the service configuration', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('gcp-project\n'))
       .mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND'));
-    const env = { ...REQUIRED, SANDBOX_PROJECT: '', K_SERVICE: 'sandboxes' };
+    const env = {
+      ...REQUIRED,
+      SANDBOX_PROJECT: '',
+      K_SERVICE: 'sandboxes',
+      SANDBOX_SERVICE_TOKEN: 'service-token',
+    };
 
     const config = await sandboxesConfig(env, silentLogger);
 
@@ -126,6 +131,32 @@ describe('the service configuration', () => {
     await expect(sandboxesConfig(env, silentLogger)).rejects.toThrow(
       'SANDBOX_PROJECT is required off Google Cloud',
     );
+  });
+
+  it('demands a service token on Cloud Run, unless told to go without', async () => {
+    const warn = vi.fn();
+    const onCloudRun = { ...REQUIRED, K_SERVICE: 'sandboxes' };
+
+    await expect(sandboxesConfig(onCloudRun, silentLogger)).rejects.toThrow(
+      'SANDBOX_SERVICE_TOKEN is required on Cloud Run',
+    );
+    const open = await sandboxesConfig(
+      { ...onCloudRun, SANDBOX_INSECURE_NO_TOKEN: 'true' },
+      { ...silentLogger, warn },
+    );
+    const local = await sandboxesConfig(REQUIRED, silentLogger);
+
+    expect(open.serviceToken).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('SANDBOX_INSECURE_NO_TOKEN=true'));
+    expect(local.serviceToken).toBeUndefined();
+  });
+
+  it('warns when every sandbox may reach any host', async () => {
+    const warn = vi.fn();
+
+    await sandboxesConfig({ ...REQUIRED, SANDBOX_ALLOWED_HOSTS: '*' }, { ...silentLogger, warn });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('SANDBOX_ALLOWED_HOSTS holds `*`'));
   });
 
   it('says that spot machines may stop at any time', async () => {
