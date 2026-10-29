@@ -101,7 +101,8 @@ async function build(
     await runSetup(session, setup, abortSignal);
     await assertRequiredCommands(session, requiredCommands, abortSignal);
     await template.prepare({ session: session.restricted(), abortSignal });
-    await client.saveTemplate(builder, id, abortSignal);
+    // Removed below only once saved: its disk is what the template's image is made of.
+    await client.saveTemplate(builder, id, { image, abortSignal });
     return id;
   } finally {
     await client.remove(builder).catch(() => undefined);
