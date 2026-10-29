@@ -105,6 +105,8 @@ gcloud dns response-policies rules create every-name --response-policy=sandboxes
   --dns-name="*." --local-data=name="*.",type=A,ttl=300,rrdatas=0.0.0.0
 ```
 
+Keep the `service` subnetwork for the service alone: whatever else runs in it, a Cloud Run job or a machine, reaches the agents and the proxy's administration API like the service does.
+
 Every name then resolves to `0.0.0.0` in the sandboxes, which lose nothing by it: their commands reach hosts through the proxy, which resolves the names, and the metadata server is in their `/etc/hosts`. The proxy, on the same network, resolves names with public resolvers instead, which its startup script below sets up.
 
 ### 2. The egress proxy
@@ -141,8 +143,13 @@ for network in /run/systemd/network/*.network; do
   printf '[DHCPv4]\nUseDNS=false\n' > "/etc/systemd/network/$(basename "$network").d/no-dhcp-dns.conf"
 done
 systemctl restart systemd-networkd systemd-resolved
+# Node.js and the Ops Agent from their signed apt repositories: no script piped into a shell.
+install -m 0755 -d /etc/apt/keyrings
 if ! command -v npm >/dev/null; then
-  curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o /etc/apt/keyrings/nodesource.asc
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_24.x nodistro main" \
+    > /etc/apt/sources.list.d/nodesource.list
+  apt-get update
   apt-get install -y nodejs
 fi
 # Installed again whenever the pinned version changes: the proxy then restarts on it, below.
@@ -153,7 +160,11 @@ if ! npm ls --global ai-sdk-sandbox-gce@0.2.0 >/dev/null 2>&1; then
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
 if [ ! -d /opt/google-cloud-ops-agent ]; then
-  curl -fsSL https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh | bash -s -- --also-install
+  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg -o /etc/apt/keyrings/google-cloud.asc
+  echo "deb [signed-by=/etc/apt/keyrings/google-cloud.asc] https://packages.cloud.google.com/apt google-cloud-ops-agent-bookworm-all main" \
+    > /etc/apt/sources.list.d/google-cloud-ops-agent.list
+  apt-get update
+  apt-get install -y google-cloud-ops-agent
 fi
 # Its token, read from Secret Manager as the machine's service account.
 cat > /usr/local/bin/ai-sdk-sandbox-proxy-token <<'SCRIPT'
@@ -199,7 +210,7 @@ else
 fi
 ```
 
-Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol. To upgrade the proxy, change the version in the script, hand it to the machine again, and reboot it, or let the service start it with the next sandbox if it is stopped:
+Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol. Every version published by the release workflow carries a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements): `npm audit signatures` checks it, in a project that depends on the package. To upgrade the proxy, change the version in the script, hand it to the machine again, and reboot it, or let the service start it with the next sandbox if it is stopped:
 
 ```bash
 gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
@@ -228,7 +239,10 @@ apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Node.js, the agent, and pnpm: the Claude Code and Codex bridges install their dependencies with it.
-curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o /etc/apt/keyrings/nodesource.asc
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_24.x nodistro main" \
+  > /etc/apt/sources.list.d/nodesource.list
+apt-get update
 apt-get install -y nodejs
 npm install --global ai-sdk-sandbox-gce@0.2.0 pnpm@10
 
@@ -333,7 +347,9 @@ gcloud run services add-iam-policy-binding sandboxes --region=$REGION \
   --member=serviceAccount:my-app@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
 ```
 
-Anyone with that role and the service token can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs, and hand the token to the client as `serviceToken` (`gcloud secrets versions access latest --secret=sandbox-service-token`). Read the service's URL with `gcloud run services describe sandboxes --region=$REGION --format='value(status.url)'`; the examples below read it from `GCE_SANDBOX_URL`.
+Anyone with that role and the service token can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs, and hand the token to the client as `serviceToken` (`gcloud secrets versions access latest --secret=sandbox-service-token`). Each agent's token sits in its machine's metadata, which anyone allowed `compute.instances.get` on the project reads (`roles/viewer`, `roles/compute.viewer`): with a foothold in the `service` subnetwork as well, they run commands in that sandbox as root. Grant those roles sparingly, and keep the subnetwork to the service alone.
+
+Read the service's URL with `gcloud run services describe sandboxes --region=$REGION --format='value(status.url)'`; the examples below read it from `GCE_SANDBOX_URL`.
 
 ## Installation
 
@@ -402,6 +418,8 @@ A harness bootstraps itself in the sandbox before its first turn: Claude Code in
 
 The image is named after the template's id and a digest of this package's version and the base image, a family resolved to its latest image: `ai-sdk-harness-template-<digest>-<base>`. After a new sandbox image, or a new version of the package, the first sandbox makes the template again. Delete the old images (label `ai-sdk-sandbox=template`) now and then: each costs its storage.
 
+A template is made from a sandbox no agent ever ran in: the client's throwaway one, where only `setup` and the harness's own installation run. Never save a sandbox an agent worked in as a template, through the API or otherwise: whatever the agent left on its disk, the `agent` service of the machine included, would start in every later sandbox.
+
 Making a template takes a few minutes: the machine boots, the harness installs, Compute Engine saves the disk, and the first sandbox on a new image waits a minute more while Compute Engine spreads it. Make it when you deploy, rather than in the first user's session, with a script that creates a sandbox from the agent's template and deletes it:
 
 ```ts title="make-template.ts"
@@ -467,15 +485,15 @@ Git over HTTPS goes the same way: the agent hands every command a `url.<proxy>/h
 
 The service routes `ANTHROPIC_BASE_URL` (Claude Code) and `OPENAI_BASE_URL` (Codex) by default; add others with `baseUrls`. With a subscription, the refresh token never leaves your application: only the short-lived access token reaches the proxy.
 
-| Protection                                 | What it prevents                                                                                                                       |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Brokering is always on**                 | A harness falling back to forwarding the real credential into the sandbox                                                              |
-| **Commands carrying a credential refused** | A real credential entering the sandbox anyway: the service asks the proxy, which holds them, before running a command                  |
-| **One host per credential**                | The credential reaching another host: it is only put in requests to the host it is for                                                 |
-| **HTTPS only**                             | The credential travelling in clear outside the VPC: a base URL in plain HTTP is refused                                                |
-| **No private address**                     | The sandbox reaching the proxy's metadata server, the service or the rest of the VPC through the proxy: see [Network](#network)        |
-| **No service account**                     | A Google credential in the machine: its metadata server has no token to give                                                           |
-| **Forgotten when done**                    | The credential outliving its use: `release()`, `stop()` and `destroy()` drop it from the proxy's memory, and a proxy restart drops all |
+| Protection                                 | What it prevents                                                                                                                                                                                                                                                   |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Brokering is always on**                 | A harness falling back to forwarding the real credential into the sandbox                                                                                                                                                                                          |
+| **Commands carrying a credential refused** | A real credential entering the sandbox anyway, on a command line or in a variable: the service asks the proxy, which holds them, before running a command. The standard input, and so the files written, are not checked: a guard against a mistake, not a control |
+| **One host per credential**                | The credential reaching another host: it is only put in requests to the host it is for                                                                                                                                                                             |
+| **HTTPS only**                             | The credential travelling in clear outside the VPC: a base URL in plain HTTP is refused                                                                                                                                                                            |
+| **No private address**                     | The sandbox reaching the proxy's metadata server, the service or the rest of the VPC through the proxy: see [Network](#network)                                                                                                                                    |
+| **No service account**                     | A Google credential in the machine: its metadata server has no token to give                                                                                                                                                                                       |
+| **Forgotten when done**                    | The credential outliving its use: `release()`, `stop()` and `destroy()` drop it from the proxy's memory, and a proxy restart drops all                                                                                                                             |
 
 ## Network
 
@@ -609,10 +627,14 @@ To keep the bill down: stop idle sandboxes early, delete finished ones, delete o
 - **A virtual machine per sandbox**: its kernel is its own; the firewall rules apply outside it, and no rule written inside the guest weakens them.
 - **Nothing leaves the machine but through the proxy**, which only opens allowed hosts and the base URLs' APIs, and never a private address, once DNS is closed as [the network](#1-the-network) shows.
 - **No service account, no external address**: the machine holds no Google credential, and nothing on the internet reaches it.
-- **The agents answer the service alone**: the firewall lets only the service's subnetwork reach their port, and every call carries a token derived from `SANDBOX_AGENT_SECRET` for that machine. A machine only ever learns its own token, from its metadata.
-- **The sandbox's user has `sudo`, and Docker**: inside the machine, the agent's code can do anything. The machine is the boundary, not the user.
+- **The agents answer the service alone**: the firewall lets only the service's subnetwork reach their port, and every call carries a token derived from `SANDBOX_AGENT_SECRET` for that machine. A machine only ever learns its own token, from its metadata, which whoever may read the project's machines reads too: see [Who may call it](#5-who-may-call-it).
+- **Inside the VPC, traffic is plain HTTP**: the service's calls to the agents and to the proxy's administration API, real credentials included, and the sandboxes' requests to the base URL routes. Google Cloud encrypts traffic between its hosts and lets no machine listen to another's; nothing of the package adds TLS on top.
+- **The sandbox's user has `sudo`, and Docker**: inside the machine, the agent's code can do anything. The machine is the boundary, not the user. What the agent changes on the disk, the machine's own `agent` service included, survives a stop: never hand a sandbox to another user, and never save one an agent worked in as a template.
+- **An allowed host is a way out for data**: the allow list says where the sandbox's requests may go, not what they carry. An agent led astray by a prompt injection may push the sandbox's files to `github.com`, or publish them to a registry, with credentials of its own. Allow only the hosts a task needs; keep `*` and wildcards on shared domains (`*.googleapis.com`, `*.amazonaws.com`, `*.githubusercontent.com`, `*.cloudfront.net`) out of production, since anyone can own a bucket or a site under them. The service logs a warning when `SANDBOX_ALLOWED_HOSTS` holds `*`.
+- **A credential goes to every request its transformation matches**: the harnesses' own transformations match the placeholder the sandbox sends, so only a request carrying it gets the real value. A transformation of yours that names a host alone puts the credential in any request to that host. Cap the credential at the provider as well: a budget, the narrowest scope a token takes.
 - **The proxy holds the credentials of every running sandbox**, in memory. Keep it a machine of its own, with nothing else on it, a service account that may only read its token and write logs, and its administration port open to the service alone.
-- **The service trusts its callers**: anyone granted `roles/run.invoker` can run commands in any sandbox. Never deploy it with `--allow-unauthenticated`; `SANDBOX_SERVICE_TOKEN` is the second lock, required on Cloud Run.
+- **The service trusts its callers**: anyone granted `roles/run.invoker` can run commands in any sandbox. It has no notion of a user: your application decides which sandbox a user reaches. Name sandboxes after a random id, kept beside the user's session on the server, never after anything a user can guess or send. Never deploy it with `--allow-unauthenticated`; `SANDBOX_SERVICE_TOKEN` is the second lock, required on Cloud Run.
+- **A machine stopped outside the service keeps its credentials in the proxy**: a Spot machine taken back, one stopped at `SANDBOX_MAX_RUN_HOURS` or from the console. The proxy forgets them when the application stops or deletes the sandbox, or when it restarts itself; with `SANDBOX_PROXY_INSTANCE`, it keeps running meanwhile. Stop idle sandboxes from the application even when their machine already stopped.
 - **Disks and template images hold the sandbox's files**: the agent's work and its transcript. They stay in your project; delete them with the sandbox.
 - **Metadata**: a machine reads its own metadata, project metadata included. Keep secrets out of the project's metadata, and SSH keys too (the service blocks project SSH keys on the machines).
 
@@ -620,22 +642,22 @@ To keep the bill down: stop idle sandboxes early, delete finished ones, delete o
 
 What the sandbox does, or does not, against the essential risks of running an agent's code: ✅ covered, ⚠️ partly or with care, ❌ not covered. The same table describes every sandbox package of this repository.
 
-| Control                        | Status | How                                                                                                                                |
-| ------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Isolation boundary             | ✅     | A Compute Engine virtual machine per sandbox                                                                                       |
-| Nothing of the host by default | ✅     | The machine sees its image and its disk, nothing of the service or the proxy                                                       |
-| Writes to the host             | ✅     | No host: files go through the agent                                                                                                |
-| Privileges                     | ⚠️     | The sandbox's user has `sudo` and Docker: root in the machine, and only in it                                                      |
-| Docker and Compose             | ✅     | Docker Engine and Compose in the image, pulled through the proxy                                                                   |
-| Outbound allow list            | ✅     | `allowedHosts` and `setNetworkPolicy()`, applied by the proxy; the VPC firewall closes all else                                    |
-| Private networks and metadata  | ⚠️     | Refused by the proxy after DNS resolution; the machine's own metadata server stays readable, with no token in it                   |
-| Inbound ports                  | ✅     | Through the service only, behind Cloud Run's IAM, `SANDBOX_SERVICE_TOKEN` and the agent token                                      |
-| Credentials out of the sandbox | ✅     | The real value only lives in the proxy's memory                                                                                    |
-| Credential scope               | ⚠️     | Only to its API's host, in the headers its transformation names; echoed back in a body, not taken out                              |
-| Environment                    | ✅     | The commands never see the agent's environment                                                                                     |
-| Resource limits                | ✅     | The machine type: vCPUs, memory and disk of its own                                                                                |
-| Lifetime limits                | ✅     | `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever the service or the application do; `stop()` sooner |
-| Teardown                       | ✅     | `destroy()` deletes the machine and its disk; the proxy forgets its credentials                                                    |
+| Control                        | Status | How                                                                                                                                    |
+| ------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Isolation boundary             | ✅     | A Compute Engine virtual machine per sandbox                                                                                           |
+| Nothing of the host by default | ✅     | The machine sees its image and its disk, nothing of the service or the proxy                                                           |
+| Writes to the host             | ✅     | No host: files go through the agent                                                                                                    |
+| Privileges                     | ⚠️     | The sandbox's user has `sudo` and Docker: root in the machine, and only in it                                                          |
+| Docker and Compose             | ✅     | Docker Engine and Compose in the image, pulled through the proxy                                                                       |
+| Outbound allow list            | ⚠️     | `allowedHosts` and `setNetworkPolicy()`, applied by the proxy; the VPC firewall closes all else. An allowed host is a way out for data |
+| Private networks and metadata  | ⚠️     | Refused by the proxy after DNS resolution; the machine's own metadata server stays readable, with no token in it                       |
+| Inbound ports                  | ✅     | Through the service only, behind Cloud Run's IAM, `SANDBOX_SERVICE_TOKEN` and the agent token                                          |
+| Credentials out of the sandbox | ✅     | The real value only lives in the proxy's memory                                                                                        |
+| Credential scope               | ⚠️     | Only to its API's host, in the headers its transformation names; echoed back in a body, not taken out                                  |
+| Environment                    | ✅     | The commands never see the agent's environment                                                                                         |
+| Resource limits                | ✅     | The machine type: vCPUs, memory and disk of its own                                                                                    |
+| Lifetime limits                | ✅     | `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever the service or the application do; `stop()` sooner     |
+| Teardown                       | ✅     | `destroy()` deletes the machine and its disk; the proxy forgets its credentials                                                        |
 
 ## Before production
 
@@ -652,7 +674,9 @@ The steps above set up the network, the proxy and the service as they ran on Goo
 
 - [ ] **Set a budget alert** on the project, and keep the region's vCPU quota low: unlike an alert, a quota stops the spending.
 - [ ] **Restrict the service's ingress** when your application runs on Google Cloud: `gcloud run services update sandboxes --region=$REGION --ingress=internal`, the application then reaching it through the VPC (Direct VPC egress with `--vpc-egress=all-traffic`). Called from outside Google Cloud, the service stays public, guarded by IAM and its token.
-- [ ] **Authenticate your users** before anything reaches the service: whoever can call your application runs commands in its sandboxes. With Google accounts, a sign-in limited to your domain (Google OAuth, the `hd` claim checked on the server); on Google Cloud, [Identity-Aware Proxy](https://cloud.google.com/iap/docs/enabling-cloud-run) in front of the application. Either way, `roles/run.invoker` on the service goes to the application's service account alone.
+- [ ] **Review the allowed hosts**: no `*`, no wildcard on a shared domain, a package registry only where the agent installs packages. Each is a way out for the sandbox's files.
+- [ ] **Grant `roles/viewer` and `roles/compute.viewer` sparingly**: they read the agents' tokens in the machines' metadata.
+- [ ] **Authenticate your users** before anything reaches the service: whoever can call your application runs commands in its sandboxes. With Google accounts, a sign-in limited to your domain (Google OAuth, the `hd` claim checked on the server); on Google Cloud, [Identity-Aware Proxy](https://cloud.google.com/iap/docs/enabling-cloud-run) in front of the application. Either way, `roles/run.invoker` on the service goes to the application's service account alone, and the application checks on the server, at every call, that the sandbox belongs to the user.
 
 ## Limitations
 
