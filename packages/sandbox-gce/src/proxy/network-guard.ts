@@ -4,9 +4,9 @@ import { lookup } from 'node:dns';
 import { BlockList, isIP } from 'node:net';
 
 /**
- * Addresses a sandbox must never reach through the proxy: the proxy's own loopback, the metadata
- * server (169.254.169.254, the proxy's service account token), the VPC and every other range
- * that is not the public internet.
+ * IPv4 addresses a sandbox must never reach through the proxy: the proxy's own loopback, the
+ * metadata server (169.254.169.254, the proxy's service account token), the VPC and every other
+ * range that is not the public internet.
  */
 const PRIVATE = new BlockList();
 for (const [network, prefix] of [
@@ -23,14 +23,26 @@ for (const [network, prefix] of [
 ] as const) {
   PRIVATE.addSubnet(network, prefix, 'ipv4');
 }
+/**
+ * The IPv6 addresses of the public internet: global unicast (`2000::/3`), and nothing else, so
+ * that no range left out of a list of private ones (site-local, IPv4-compatible `::a.b.c.d`,
+ * local-use NAT64) slips through.
+ */
+const GLOBAL_IPV6 = new BlockList();
+GLOBAL_IPV6.addSubnet('2000::', 3, 'ipv6');
+
+/**
+ * The ranges of `2000::/3` that are no public host all the same: Teredo (`2001::/32`), whose
+ * addresses carry an IPv4 one the network may route them to, benchmarking and documentation.
+ */
+const NOT_GLOBAL_IPV6 = new BlockList();
 for (const [network, prefix] of [
-  ['::', 128],
-  ['::1', 128],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
+  ['2001::', 32],
+  ['2001:2::', 48],
+  ['2001:db8::', 32],
+  ['3fff::', 20],
 ] as const) {
-  PRIVATE.addSubnet(network, prefix, 'ipv6');
+  NOT_GLOBAL_IPV6.addSubnet(network, prefix, 'ipv6');
 }
 
 /** The two 16-bit groups of the IPv4 address of `bytes`. */
@@ -62,11 +74,14 @@ const ipv4Of = (high = 0, low = 0): string =>
   [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
 
 /**
- * The IPv4 address an IPv6 one carries, which the network may route it to: NAT64
- * (`64:ff9b::/96`) and 6to4 (`2002::/16`).
+ * The IPv4 address an IPv6 one carries, which the network may route it to: IPv4-mapped
+ * (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`).
  */
 function embeddedIpv4(address: string): string | undefined {
   const groups = groupsOf(address);
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    return ipv4Of(groups[6], groups[7]);
+  }
   if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((g) => g === 0)) {
     return ipv4Of(groups[6], groups[7]);
   }
@@ -82,8 +97,8 @@ export function isPrivateAddress(address: string): boolean {
   if (family === 0) return false;
   if (family === 4) return PRIVATE.check(address, 'ipv4');
   const embedded = embeddedIpv4(address);
-  if (embedded !== undefined && PRIVATE.check(embedded, 'ipv4')) return true;
-  return PRIVATE.check(address, 'ipv6');
+  if (embedded !== undefined) return PRIVATE.check(embedded, 'ipv4');
+  return !GLOBAL_IPV6.check(address, 'ipv6') || NOT_GLOBAL_IPV6.check(address, 'ipv6');
 }
 
 type LookupCallback = (

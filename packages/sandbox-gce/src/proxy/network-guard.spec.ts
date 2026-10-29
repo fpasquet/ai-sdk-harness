@@ -34,6 +34,17 @@ describe('the network guard', () => {
       '64:ff9b::7f00:1',
       '2002:a9fe:a9fe::1',
       '2002:c0a8:101::',
+      // IPv4-mapped in hex, IPv4-compatible, local-use NAT64, Teredo, site-local, documentation.
+      '::ffff:a9fe:a9fe',
+      '::a9fe:a9fe',
+      '::169.254.169.254',
+      '64:ff9b:1::a9fe:a9fe',
+      '64:ff9b:1::808:808',
+      '2001:0:4136:e378:8000:63bf:3fff:fdd2',
+      'fec0::1',
+      '2001:db8::1',
+      '3fff::1',
+      '100::1',
     ]) {
       expect(isPrivateAddress(address), address).toBe(true);
     }
@@ -43,6 +54,9 @@ describe('the network guard', () => {
       '2001:4860:4860::8888',
       '64:ff9b::808:808',
       '2002:808:808::1',
+      '::ffff:808:808',
+      '2606:4700:4700::1111',
+      '2a00:1450:4007:80e::200e',
       'not an address',
     ]) {
       expect(isPrivateAddress(address), address).toBe(false);
