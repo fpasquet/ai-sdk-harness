@@ -479,7 +479,7 @@ The service routes `ANTHROPIC_BASE_URL` (Claude Code) and `OPENAI_BASE_URL` (Cod
 
 The machine has no external address, and the VPC firewall, applied outside the guest, only lets it reach the proxy. Everything goes through it:
 
-- `HTTPS_PROXY` points at the proxy: it tunnels a `CONNECT` to port 443 of an allowed host, end to end encrypted, and refuses anything else.
+- `HTTPS_PROXY` points at the proxy: it tunnels a `CONNECT` to port 443 of an allowed host, end to end encrypted, and refuses anything else. The tunnel only carries TLS that names that host (SNI): a client cannot open it to an allowed host behind a CDN, then name another site of the same CDN. The proxy reads nothing past the ClientHello, an HTTP `Host` header inside the TLS included.
 - The base URLs go to the proxy too, as above.
 - `HTTP_PROXY` points at the proxy as well: plain HTTP to an allowed host, as Debian's package mirrors serve, is passed on as it is, no credential put in. Anything else in plain HTTP is refused.
 - `NO_PROXY` covers the machine itself, the proxy and the private ranges Docker puts its containers in. A container reached by its Compose service name is not covered: add the names to `NO_PROXY` in the Compose file.
