@@ -19,6 +19,10 @@ interface CallOptions {
 
 const encoder = new TextEncoder();
 
+/** A service reached in plain HTTP on this machine: a local run, nothing in clear on a network. */
+const isLocal = ({ protocol, hostname }: URL): boolean =>
+  protocol === 'http:' && ['127.0.0.1', '[::1]', 'localhost'].includes(hostname);
+
 /** Statuses of a call worth sending again: Cloud Run's front end, or an instance starting. */
 const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
 
@@ -46,6 +50,11 @@ export class SandboxServiceClient {
     { token, serviceToken }: { serviceToken?: string; token?: IdentityToken } = {},
   ) {
     this.base = new URL(url.endsWith('/') ? url : `${url}/`);
+    if (this.base.protocol !== 'https:' && !isLocal(this.base)) {
+      throw new Error(
+        `The sandbox service's URL must be HTTPS, but on the loopback: ${this.base.origin} would carry the identity token and the service token in clear.`,
+      );
+    }
     this.token = token;
     this.serviceToken = serviceToken;
   }
