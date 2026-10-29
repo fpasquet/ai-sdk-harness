@@ -483,7 +483,7 @@ The machine has no external address, and the VPC firewall, applied outside the g
 - The base URLs go to the proxy too, as above.
 - `HTTP_PROXY` points at the proxy as well: plain HTTP to an allowed host, as Debian's package mirrors serve, is passed on as it is, no credential put in. Anything else in plain HTTP is refused.
 - `NO_PROXY` covers the machine itself, the proxy and the private ranges Docker puts its containers in. A container reached by its Compose service name is not covered: add the names to `NO_PROXY` in the Compose file.
-- The proxy never connects to a private address, however it is named or allowed: loopback, link-local (its own metadata server), the private ranges of the VPC. It checks the address a name resolves to, at the moment it connects, an IPv6 address carrying a private IPv4 one included.
+- The proxy never connects to a private address, however it is named or allowed: loopback, link-local (its own metadata server), the private ranges of the VPC. It checks the address a name resolves to, at the moment it connects. In IPv6, it only reaches global unicast addresses (`2000::/3`), never one carrying a private IPv4 address (NAT64, 6to4, IPv4-mapped) nor a Teredo one.
 
 `allowedHosts` adds hosts for one sandbox, on top of the service's `SANDBOX_ALLOWED_HOSTS`. `*.example.com` covers the subdomains of `example.com`. `setNetworkPolicy` replaces the sandbox's own hosts: `allow-all` lets it reach any host over HTTPS, `deny-all` none but the service's and the base URLs'. CIDR rules are not supported.
 
