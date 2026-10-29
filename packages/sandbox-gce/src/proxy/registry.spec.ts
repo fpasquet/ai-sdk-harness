@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { silentLogger } from '../common/logger.js';
 import { SandboxRegistry } from './registry.js';
 
 const registration = (address: string) => ({ address, allowedHosts: ['github.com'], baseUrls: {} });
@@ -37,10 +38,25 @@ describe('the registry of the egress proxy', () => {
     registry.register('box', registration('10.0.0.3'));
     registry.remove('box', listed?.serial);
 
-    expect(listed).toEqual({ name: 'box', address: '10.0.0.3', serial: 1 });
-    expect(registry.list()).toEqual([{ name: 'box', address: '10.0.0.3', serial: 2 }]);
+    expect(listed).toMatchObject({ name: 'box', address: '10.0.0.3', serial: 1 });
+    expect(registry.list()).toEqual([
+      { name: 'box', address: '10.0.0.3', serial: 2, sent: 0, received: 0 },
+    ]);
     registry.remove('box', 2);
     expect(registry.list()).toEqual([]);
+  });
+
+  it('tells the bytes a sandbox moved once it forgets it', () => {
+    const info = vi.fn();
+    const registry = new SandboxRegistry(false, { ...silentLogger, info });
+    registry.register('box', registration('10.0.0.3'));
+
+    registry.remove('box');
+    registry.remove('box');
+
+    expect(info).toHaveBeenCalledExactlyOnceWith(
+      'box forgotten, having sent 0 B out and received 0 B',
+    );
   });
 
   it('leaves an address to the sandbox that took it over', () => {

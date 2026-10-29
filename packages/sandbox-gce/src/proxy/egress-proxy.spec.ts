@@ -9,6 +9,7 @@ import type { EgressPolicy } from './egress-policy.js';
 
 import { silentLogger } from '../common/logger.js';
 import { EgressProxy } from './egress-proxy.js';
+import { Traffic } from './traffic.js';
 
 const policy: EgressPolicy = {
   name: 'box',
@@ -224,5 +225,17 @@ describe('the egress proxy', () => {
       expect.stringMatching(/^Refused denied\.example\.com to box: /),
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('placeholder');
+  });
+
+  it('counts the bytes each connection of a sandbox moves, a refused one included', async () => {
+    const traffic = new Traffic();
+    const proxy = new EgressProxy(() => ({ ...policy, traffic }));
+
+    const status = await connectThrough(proxy, 'denied.example.com:443');
+    proxy.close();
+
+    expect(status).toBe(403);
+    await vi.waitFor(() => expect(traffic.totals.sent).toBeGreaterThan(30));
+    expect(traffic.totals.received).toBeGreaterThan(30);
   });
 });

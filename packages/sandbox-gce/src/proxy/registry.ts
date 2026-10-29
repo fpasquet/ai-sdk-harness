@@ -1,10 +1,13 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
+import type { Logger } from '../common/logger.js';
 import type { ProxyRegistration, ProxySandbox } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { HttpError } from '../common/http-error.js';
+import { silentLogger } from '../common/logger.js';
 import { normalizeAddress, RegisteredSandbox } from './registered-sandbox.js';
+import { formatBytes } from './traffic.js';
 
 /**
  * The sandboxes the proxy serves, by name and by the address of their machine. Kept in memory
@@ -19,8 +22,12 @@ export class SandboxRegistry {
   /**
    * @param allowPrivateNetwork Let the sandboxes reach private addresses and plain HTTP base URLs:
    *   tests and local runs only.
+   * @param logger Where the bytes a sandbox moved are told, once it is forgotten.
    */
-  constructor(private readonly allowPrivateNetwork = false) {}
+  constructor(
+    private readonly allowPrivateNetwork = false,
+    private readonly logger: Logger = silentLogger,
+  ) {}
 
   /**
    * Registers the sandbox `name`, or registers it again after its machine started anew, perhaps
@@ -32,6 +39,7 @@ export class SandboxRegistry {
     const previous = this.byName.get(name);
     if (previous !== undefined) {
       next.transformations = previous.transformations;
+      next.traffic = previous.traffic;
       this.forgetAddress(name, previous.address);
     }
     this.byName.set(name, next);
@@ -59,10 +67,11 @@ export class SandboxRegistry {
 
   /** The sandboxes the proxy holds. */
   list(): ProxySandbox[] {
-    return [...this.byName.values()].map(({ name, address, serial }) => ({
+    return [...this.byName.values()].map(({ name, address, serial, traffic }) => ({
       name,
       address,
       serial,
+      ...traffic.totals,
     }));
   }
 
@@ -75,6 +84,10 @@ export class SandboxRegistry {
     if (sandbox === undefined || (serial !== undefined && sandbox.serial !== serial)) return;
     this.byName.delete(name);
     this.forgetAddress(name, sandbox.address);
+    const { sent, received } = sandbox.traffic.totals;
+    this.logger.info(
+      `${name} forgotten, having sent ${formatBytes(sent)} out and received ${formatBytes(received)}`,
+    );
   }
 
   /** The policy of the sandbox whose machine has `address`, if one has. */
