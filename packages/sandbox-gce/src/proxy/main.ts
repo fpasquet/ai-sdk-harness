@@ -53,7 +53,7 @@ export function main(env: Environment): void {
       'SANDBOX_ALLOW_PRIVATE_NETWORK=true: the sandboxes may reach the VPC and the metadata server. For tests only.',
     );
   }
-  const registry = new SandboxRegistry(config.allowPrivateNetwork);
+  const registry = new SandboxRegistry(config.allowPrivateNetwork, logger);
   const proxy = new EgressProxy((address) => registry.policyFor(address), logger, {
     maxConnections: config.maxConnections,
   });

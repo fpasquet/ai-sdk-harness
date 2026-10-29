@@ -632,13 +632,13 @@ describe('the sandboxes of the service', () => {
     ]);
     const proxy = proxyOf();
     proxy.list.mockResolvedValue([
-      { name: 'running', address: '10.0.0.1', serial: 1 },
-      { name: 'stopped', address: '10.0.0.2', serial: 2 },
-      { name: 'deleted', address: '10.0.0.3', serial: 3 },
+      { name: 'running', address: '10.0.0.1', serial: 1, sent: 0, received: 0 },
+      { name: 'stopped', address: '10.0.0.2', serial: 2, sent: 0, received: 0 },
+      { name: 'deleted', address: '10.0.0.3', serial: 3, sent: 0, received: 0 },
       // Its address went to another sandbox of the service.
-      { name: 'gone', address: '10.0.0.4', serial: 4 },
+      { name: 'gone', address: '10.0.0.4', serial: 4, sent: 0, received: 0 },
       // A sandbox of another service sharing the proxy, its prefix another.
-      { name: 'box', address: '10.0.0.5', serial: 5 },
+      { name: 'box', address: '10.0.0.5', serial: 5, sent: 0, received: 0 },
     ]);
     const info = vi.fn();
 
@@ -658,7 +658,9 @@ describe('the sandboxes of the service', () => {
       'The proxy forgot stopped, deleted, gone: their machines no longer run',
     );
     compute.listInstances.mockResolvedValue([]);
-    proxy.list.mockResolvedValue([{ name: 'last', address: '10.0.0.6', serial: 6 }]);
+    proxy.list.mockResolvedValue([
+      { name: 'last', address: '10.0.0.6', serial: 6, sent: 0, received: 0 },
+    ]);
     await sandboxesOf({ compute, proxy, logger: { ...silentLogger, info } }).reconcile();
     expect(info).toHaveBeenLastCalledWith('The proxy forgot last: its machine no longer runs');
   });

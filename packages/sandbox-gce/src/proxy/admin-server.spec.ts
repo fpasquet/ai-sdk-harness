@@ -71,7 +71,7 @@ describe('the administration API of the egress proxy', () => {
     const invalid = await call('DELETE', '/v1/sandboxes/box?serial=one');
 
     expect(await listed.json()).toEqual({
-      sandboxes: [{ name: 'box', address: '10.0.0.3', serial: 1 }],
+      sandboxes: [{ name: 'box', address: '10.0.0.3', serial: 1, sent: 0, received: 0 }],
     });
     expect([stale.status, invalid.status]).toEqual([204, 400]);
     expect(registry.policyFor('10.0.0.3')).toBeDefined();

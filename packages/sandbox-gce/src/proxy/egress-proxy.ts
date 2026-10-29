@@ -241,6 +241,7 @@ export class EgressProxy {
       return;
     }
     this.open.set(address, open + 1);
+    this.policyFor(address)?.traffic?.track(socket);
     socket.once('close', () => {
       const left = (this.open.get(address) ?? 1) - 1;
       if (left === 0) this.open.delete(address);

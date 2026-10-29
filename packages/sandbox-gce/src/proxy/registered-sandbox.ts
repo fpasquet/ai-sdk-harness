@@ -4,6 +4,7 @@ import type { ProxyRegistration } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { hostsOf } from '../protocol/proxy-routes.js';
+import { Traffic } from './traffic.js';
 
 /** The scheme a credential header value may start with, before the secret itself. */
 const SCHEME = /^(Bearer|Basic|Token)\s+/i;
@@ -24,6 +25,8 @@ export class RegisteredSandbox implements EgressPolicy {
 
   /** What tells this registration from the next one of the same sandbox: the registry's to set. */
   serial = 0;
+  /** The bytes it moved, kept when it is registered again. */
+  traffic = new Traffic();
 
   constructor(
     readonly name: string,
