@@ -154,8 +154,8 @@ if ! command -v npm >/dev/null; then
 fi
 # Installed again whenever the pinned version changes: the proxy then restarts on it, below.
 restart=false
-if ! npm ls --global ai-sdk-sandbox-gce@0.2.0 >/dev/null 2>&1; then
-  npm install --global ai-sdk-sandbox-gce@0.2.0
+if ! npm ls --global ai-sdk-sandbox-gce@0.3.0 >/dev/null 2>&1; then
+  npm install --global ai-sdk-sandbox-gce@0.3.0
   restart=true
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
@@ -244,7 +244,7 @@ echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.co
   > /etc/apt/sources.list.d/nodesource.list
 apt-get update
 apt-get install -y nodejs
-npm install --global ai-sdk-sandbox-gce@0.2.0 pnpm@10
+npm install --global ai-sdk-sandbox-gce@0.3.0 pnpm@10
 
 # The sandbox's user: sudo without a password, and Docker.
 useradd --create-home --shell /bin/bash agent
@@ -275,7 +275,7 @@ The service's image is the package and Node.js:
 
 ```dockerfile title="Dockerfile"
 FROM node:24-bookworm-slim
-RUN npm install --global --silent ai-sdk-sandbox-gce@0.2.0 && npm cache clean --force
+RUN npm install --global --silent ai-sdk-sandbox-gce@0.3.0 && npm cache clean --force
 CMD ["ai-sdk-sandbox-gce", "serve"]
 ```
 
