@@ -1291,6 +1291,96 @@ describe('the warm pool', () => {
       expect(preparedIn(prepared.machines)).toHaveLength(1);
     });
 
+    /** The proxy's machine, as the zone holds it. */
+    const proxyMachine = (status: string): Instance =>
+      poolMachine('sandbox-proxy', 'none', { status, labels: {} });
+
+    /** A prepared machine of `template`, waiting for a sandbox. */
+    const preparedMachine = (name: string, template: string, overrides: Partial<Instance> = {}) =>
+      poolMachine(name, template, {
+        labels: { ...poolMachine(name, template).labels, 'ai-sdk-sandbox-prepared': 'true' },
+        ...overrides,
+      });
+
+    it('starts the proxy once it stopped, when the last sandbox was just stopping it', async () => {
+      const { compute, machines } = zoneOf([proxyMachine('STOPPING')]);
+      let reads = 0;
+      const get = compute.getInstance.getMockImplementation();
+      compute.getInstance.mockImplementation((name: string) => {
+        // Compute Engine is done stopping it at the third read.
+        if (name === 'sandbox-proxy' && ++reads === 3)
+          machines.set(name, proxyMachine('TERMINATED'));
+        return get?.(name) ?? Promise.resolve(undefined);
+      });
+      const proxy = proxyOf();
+
+      await sandboxesOf({ compute, proxy, proxyInstance: 'sandbox-proxy' }).prepare();
+
+      expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+      expect(proxy.healthy).not.toHaveBeenCalled();
+    });
+
+    it('gives up a proxy that never stops, and never waits for one to boot', async () => {
+      const stuck = zoneOf([proxyMachine('STOPPING')]);
+      await sandboxesOf({
+        compute: stuck.compute,
+        proxyInstance: 'sandbox-proxy',
+        startTimeoutMs: -1,
+      }).prepare();
+      expect(stuck.compute.startInstance).not.toHaveBeenCalled();
+
+      const booting = zoneOf([proxyMachine('STAGING')]);
+      await sandboxesOf({ compute: booting.compute, proxyInstance: 'sandbox-proxy' }).prepare();
+      expect(booting.compute.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('keeps the proxy up while a prepared machine waits for its sandbox', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf([
+        proxyMachine('RUNNING'),
+        preparedMachine('sbx-pool-a', deps, { status: 'STAGING' }),
+      ]);
+      const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+
+      await sandboxes.create('other', {});
+      await sandboxes.delete('other');
+      expect(compute.stopInstance).not.toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+
+      // Booted, taken, then gone with its sandbox: nothing waits any more.
+      machines.set('sbx-pool-a', preparedMachine('sbx-pool-a', deps));
+      await sandboxes.create('box', { template: 'deps' });
+      expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
+      await sandboxes.delete('box');
+      expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+    });
+
+    it('stops the proxy when what waits is no prepared machine, or one no longer usable', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const waiting = [
+        // A machine of the warm pool: the fast profile keeps the proxy on by itself.
+        poolMachine('sbx-pool-kept', deps),
+        preparedMachine('sbx-pool-old', deps, { creationTimestamp: hoursAgo(0.3) }),
+        preparedMachine('sbx-pool-off', deps, { status: 'TERMINATED' }),
+        preparedMachine('sbx-pool-retired', deps, {
+          labels: {
+            ...preparedMachine('sbx-pool-retired', deps).labels,
+            'ai-sdk-sandbox-retired': 'true',
+          },
+        }),
+      ];
+      for (const machine of waiting) {
+        const { compute } = zoneOf([proxyMachine('RUNNING'), machine]);
+        const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+        await sandboxes.create('other', {});
+        await sandboxes.delete('other');
+        expect(compute.stopInstance, machine.name).toHaveBeenCalledWith('sandbox-proxy', {
+          wait: false,
+        });
+      }
+    });
+
     it('gives way to a machine another preparation made meanwhile', async () => {
       const deps = await depsLabel();
       const { compute, machines } = zoneOf();

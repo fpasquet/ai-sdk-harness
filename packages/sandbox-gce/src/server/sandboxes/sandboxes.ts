@@ -470,11 +470,20 @@ export class Sandboxes {
     ]);
   }
 
-  /** Starts the proxy's machine when the service drives it and it is stopped, not waiting for it. */
+  /**
+   * Starts the proxy's machine when the service drives it and it is stopped, not waiting for it to
+   * boot. One on its way down, the last sandbox just gone, is let stop first, within
+   * `startTimeoutMs`: Compute Engine starts no machine that is stopping.
+   */
   private async prepareProxy(): Promise<void> {
-    const { proxyInstance, compute, logger } = this.options;
+    const { proxyInstance, compute, logger, startTimeoutMs } = this.options;
     if (proxyInstance === undefined) return;
-    const current = await compute.getInstance(proxyInstance);
+    const deadline = Date.now() + startTimeoutMs;
+    let current = await compute.getInstance(proxyInstance);
+    while (current?.status === 'STOPPING' && Date.now() < deadline) {
+      await sleep(1000);
+      current = await compute.getInstance(proxyInstance);
+    }
     if (current?.status !== 'TERMINATED') return;
     logger.info(`Preparing: starting the egress proxy ${proxyInstance}`);
     await compute.startInstance(proxyInstance, { wait: false });
@@ -727,13 +736,21 @@ export class Sandboxes {
 
   /**
    * Stops the proxy's machine, when the service drives it and does not keep it running, once no
-   * sandbox runs: the machines of the warm pool are none, and need no proxy until taken.
+   * sandbox runs, nor a prepared machine waits for one: a sandbox is about to take it, which would
+   * then wait for the proxy to boot again. The other machines of the warm pool need no proxy until
+   * taken; once the prepared one is taken or gone, the next stop applies the rule, and the proxy's
+   * own idle exit bounds it meanwhile.
    */
   private async proxyDownWhenIdle(): Promise<void> {
     const { proxyInstance, proxyAlwaysOn, compute } = this.options;
     if (proxyInstance === undefined || proxyAlwaysOn === true) return;
     const machines = await compute.listInstances(LABEL, 'sandbox');
     if (machines.some(({ status }) => RUNNING.has(status))) return;
+    const pool = await this.poolMachines();
+    if (
+      pool.some((machine) => machine.labels?.[PREPARED_LABEL] !== undefined && this.usable(machine))
+    )
+      return;
     const current = await compute.getInstance(proxyInstance);
     if (current?.status !== 'RUNNING') return;
     this.options.logger.info(`No sandbox runs: stopping the egress proxy ${proxyInstance}`);
