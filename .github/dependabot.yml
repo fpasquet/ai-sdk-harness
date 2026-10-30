@@ -21,6 +21,30 @@ updates:
           - 'minor'
           - 'patch'
 
+  # The Node.js base image of the service images, pinned by digest.
+  - package-ecosystem: 'docker'
+    directories:
+      - '/packages/sandbox-gce'
+      - '/packages/sandbox-cloud-run'
+    schedule:
+      interval: 'weekly'
+      time: '08:00'
+      timezone: 'Europe/Paris'
+    commit-message:
+      prefix: 'chore'
+      include: 'scope'
+    labels:
+      - 'dependencies'
+    ignore:
+      # Node.js follows the packages' engines, on purpose.
+      - dependency-name: 'node'
+        update-types:
+          - 'version-update:semver-major'
+    groups:
+      node-image:
+        patterns:
+          - 'node'
+
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:

@@ -101,6 +101,45 @@ jobs:
               --token "$CODECOV_TOKEN"
           done
 
+  images:
+    name: Service images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Built from the packages of this commit, packed as npm would publish them: the release
+      # workflow builds the same Dockerfiles from npm.
+      - name: Pack the services
+        run: |
+          pnpm --filter ai-sdk-sandbox-gce --filter ai-sdk-sandbox-cloud-run build
+          mkdir -p "$RUNNER_TEMP/context"
+          for package in sandbox-gce sandbox-cloud-run; do
+            (cd "packages/$package" && pnpm pack --pack-destination "$RUNNER_TEMP/context")
+          done
+
+      - name: Build the images and run them
+        run: |
+          for package in sandbox-gce sandbox-cloud-run; do
+            tarball=$(basename "$RUNNER_TEMP"/context/ai-sdk-"$package"-*.tgz)
+            docker build --file "packages/$package/Dockerfile" \
+              --build-arg "PACKAGE=/context/$tarball" --tag "ai-sdk-$package" "$RUNNER_TEMP/context"
+            docker run --rm "ai-sdk-$package" --help
+          done
+
   commitlint:
     name: Validate commit messages
     runs-on: ubuntu-latest
@@ -135,13 +174,13 @@ jobs:
     # Stable required status check, whatever the Node matrix of `test` reports.
     name: CI
     runs-on: ubuntu-latest
-    needs: [check, test]
+    needs: [check, test, images]
     if: always()
     steps:
       - name: Check required jobs succeeded
         run: |
-          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ]; then
-            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }})."
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ]; then
+            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }}, images=${{ needs.images.result }})."
             exit 1
           fi
           echo "All CI jobs passed."
