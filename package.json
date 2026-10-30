@@ -37,12 +37,14 @@
     "pack:dry-run": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec npm pack --dry-run",
     "publint": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec publint",
     "attw": "pnpm -r --filter './packages/**' --filter '!@repo/*' exec attw --pack --profile esm-only",
+    "readme-versions": "tsx scripts/sync-readme-versions.ts && prettier --write \"packages/*/README.md\"",
+    "readme-versions:check": "tsx scripts/sync-readme-versions.ts --check",
     "release": "changeset publish",
     "test": "turbo run test",
     "test:cov": "turbo run test:cov",
     "test:e2e": "turbo run test:e2e",
     "typecheck": "turbo run typecheck",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && pnpm readme-versions",
     "prepare": "husky"
   },
   "devDependencies": {

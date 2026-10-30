@@ -50,6 +50,8 @@ Releases run in **CI** from `main` via `changesets/action` (`release.yml`).
 
 Packages are versioned independently: only the packages that changed are released.
 
+The READMEs name the version to install or deploy (`ai-sdk-sandbox-gce@0.3.1`, an image tag, the proxy's `VERSION=`): `pnpm version-packages` pins them to the version each package is about to be published at, so the release pull request carries them, and the CI fails when one names another version. Never edit them by hand; `pnpm readme-versions` fixes them.
+
 ### Service images
 
 A release of `ai-sdk-sandbox-gce` or `ai-sdk-sandbox-cloud-run` also publishes its service's image to Docker Hub, `<namespace>/<package>:<version>` and `latest`, built from the version on npm by `images.yml` with a provenance attestation. The `Dockerfile` of each package is built on every pull request too, from the package packed as npm would publish it, and run once.

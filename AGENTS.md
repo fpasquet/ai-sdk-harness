@@ -160,6 +160,7 @@ The agent should introspect the workspace before editing; only the non-obvious r
 - Any user-visible change to a publishable package requires a changeset (`pnpm changeset`). Write it for the people who install the package: it lands verbatim in its `CHANGELOG.md` and its GitHub release. The example, the docs site and the `@repo/*` presets never need one.
 - In the 0.x series, a breaking change is a `minor` with a `BREAKING:` note in the changeset body, anything else a `patch`. Never write a `major` changeset: it would release 1.0.0, a step the maintainers take on purpose.
 - Never change a package's `version` by hand, nor run `pnpm version-packages` or `pnpm release`: releases go through CI, as `MAINTAINERS.md` describes.
+- The versions a README names (`<package>@x.y.z`, `<package>:x.y.z`) follow its `package.json`, pinned by the release pull request (`scripts/sync-readme-versions.ts`) and checked by the CI: never bump them by hand.
 
 ## Commits
 

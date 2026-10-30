@@ -46,6 +46,10 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The release pull request pins them (`pnpm version-packages`): a hand edit would drift.
+      - name: Check the versions in the READMEs
+        run: pnpm readme-versions:check
+
       - name: Build
         run: pnpm build
 
