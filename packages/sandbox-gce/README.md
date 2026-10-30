@@ -135,7 +135,7 @@ gcloud compute instances create sandbox-proxy --zone=$ZONE --machine-type=e2-sma
 #!/bin/sh
 set -e
 # The version of the proxy: the one your application depends on.
-VERSION=0.3.1
+VERSION=0.3.2
 # Writes $2 to the file $1 when it differs, and says whether it did.
 changed() {
   mkdir -p "$(dirname "$1")"
@@ -276,7 +276,7 @@ echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.co
   > /etc/apt/sources.list.d/nodesource.list
 apt-get update
 apt-get install -y nodejs
-npm install --global ai-sdk-sandbox-gce@0.3.1 pnpm@10
+npm install --global ai-sdk-sandbox-gce@0.3.2 pnpm@10
 
 # The sandbox's user: sudo without a password, and Docker.
 useradd --create-home --shell /bin/bash agent
@@ -303,7 +303,7 @@ The agent runs as root and starts the commands as `agent`. It does not wait for 
 
 ### 4. The service
 
-The service's image is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-gce:<version>`: Node.js and the package, built by the release workflow from the version on npm. Deploy the version your application depends on. Each image carries a provenance attestation, which `gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.1 --owner fpasquet` checks; its [`Dockerfile`](https://github.com/fpasquet/ai-sdk-harness/blob/main/packages/sandbox-gce/Dockerfile) builds the same image from your own registry.
+The service's image is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-gce:<version>`: Node.js and the package, built by the release workflow from the version on npm. Deploy the version your application depends on. Each image carries a provenance attestation, which `gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.2 --owner fpasquet` checks; its [`Dockerfile`](https://github.com/fpasquet/ai-sdk-harness/blob/main/packages/sandbox-gce/Dockerfile) builds the same image from your own registry.
 
 Its service account gets a role of its own, with what the service calls and nothing else, limited by a condition to the names it uses: the sandboxes' machines and disks (`sbx-`), the proxy's machine, the sandbox images and templates (`ai-sdk-`).
 
@@ -341,7 +341,7 @@ for secret in sandbox-agent-secret sandbox-proxy-token sandbox-service-token; do
     --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 done
 
-gcloud run deploy sandboxes --region=$REGION --image=docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.1 \
+gcloud run deploy sandboxes --region=$REGION --image=docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.2 \
   --service-account=sandboxes@$PROJECT.iam.gserviceaccount.com \
   --network=sandboxes --subnet=service --vpc-egress=private-ranges-only \
   --no-allow-unauthenticated --min-instances=0 --timeout=3600 --concurrency=1000 \

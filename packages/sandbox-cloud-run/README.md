@@ -58,12 +58,12 @@ flowchart TB
 
 ### 1. The image
 
-The image runs the service, and is what the sandboxes see. It is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-cloud-run:<version>`: Node.js, git, `pnpm`, `curl`, `python3`, `ripgrep` and the package, built by the release workflow from the version on npm, with a provenance attestation (`gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.1 --owner fpasquet`). Deploy it as it is when your agents need nothing more.
+The image runs the service, and is what the sandboxes see. It is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-cloud-run:<version>`: Node.js, git, `pnpm`, `curl`, `python3`, `ripgrep` and the package, built by the release workflow from the version on npm, with a provenance attestation (`gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2 --owner fpasquet`). Deploy it as it is when your agents need nothing more.
 
 Otherwise start from it and add your project's toolchain, Python, Go or Rust:
 
 ```dockerfile title="Dockerfile"
-FROM docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.1
+FROM docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends golang \
   && rm -rf /var/lib/apt/lists/*
@@ -107,13 +107,13 @@ gcloud projects add-iam-policy-binding $PROJECT \
 
 ```bash
 gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION \
-  --image=docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.1 \
+  --image=docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2 \
   --sandbox-launcher --execution-environment=gen2 \
   --service-account=$SERVICE@$PROJECT.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --min-instances=0 --max-instances=1 --cpu-throttling --cpu=2 --memory=4Gi \
   --timeout=3600 --concurrency=1000 \
-  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=0.3.1 \
+  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=0.3.2 \
   --set-secrets=SANDBOX_SERVICE_TOKEN=$SERVICE-token:latest
 ```
 
