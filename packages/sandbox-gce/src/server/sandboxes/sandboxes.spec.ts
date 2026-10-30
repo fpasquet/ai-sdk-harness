@@ -1165,4 +1165,235 @@ describe('the warm pool', () => {
 
     await expect(sandboxesOf({ compute, proxy }).reconcile()).resolves.toEqual(['pool-a']);
   });
+
+  describe('prepared ahead of a sandbox', () => {
+    /** The machines of the pool prepared for a sandbox. */
+    const preparedIn = (machines: Map<string, Instance>): Instance[] =>
+      poolIn(machines).filter(({ labels }) => labels?.['ai-sdk-sandbox-prepared'] === 'true');
+
+    it('boots one machine from the template when its pool holds none, with no pool kept', async () => {
+      const deps = await depsLabel();
+      const { compute, machines } = zoneOf([poolMachine('sbx-pool-other', 'other-template')]);
+      const sandboxes = sandboxesOf({ compute });
+
+      await sandboxes.prepare({ template: 'deps' });
+      await sandboxes.prepare({ template: 'deps' });
+
+      const [prepared, ...more] = preparedIn(machines);
+      expect(more).toEqual([]);
+      expect(prepared?.labels).toEqual({
+        'ai-sdk-sandbox': 'pool',
+        'ai-sdk-sandbox-image': 'default',
+        'ai-sdk-sandbox-template': deps,
+        'ai-sdk-sandbox-prepared': 'true',
+      });
+      expect(compute.insertInstance).toHaveBeenCalledTimes(1);
+      expect(compute.insertInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ name: prepared?.name }),
+        { wait: false },
+      );
+      // Its agent powers it off 16 minutes after its boot, unless a sandbox took it.
+      expect(prepared?.metadata?.items).toContainEqual({
+        key: 'ai-sdk-sandbox-idle-poweroff-minutes',
+        value: '16',
+      });
+    });
+
+    it('gives the power-off to prepared machines only, and drops it once a sandbox stops', async () => {
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf();
+      const sandboxes = sandboxesOf({ compute, warmPool: 1 });
+      await sandboxes.create('box', { template: 'deps' });
+      const keys = (machine: Instance | undefined): string[] =>
+        (machine?.metadata?.items ?? []).map(({ key }) => key);
+      expect(poolIn(machines).flatMap(keys)).not.toContain('ai-sdk-sandbox-idle-poweroff-minutes');
+
+      const taken = poolMachine('sbx-pool-a', 'deps-x', {
+        labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'taken' },
+        metadata: {
+          fingerprint: 'f1',
+          items: [{ key: 'ai-sdk-sandbox-idle-poweroff-minutes', value: '16' }],
+        },
+      });
+      machines.set(taken.name, taken);
+      await sandboxes.suspend('taken');
+      const [[, metadata]] = compute.setMetadata.mock.calls as unknown as [
+        [string, { items: { key: string }[] }],
+      ];
+      expect(metadata.items.map(({ key }) => key)).not.toContain(
+        'ai-sdk-sandbox-idle-poweroff-minutes',
+      );
+    });
+
+    it('boots none when a machine of the template is running or booting already', async () => {
+      const deps = await depsLabel();
+      for (const status of ['RUNNING', 'STAGING']) {
+        const { compute } = zoneOf([poolMachine('sbx-pool-a', deps, { status })]);
+        await sandboxesOf({ compute }).prepare({ template: 'deps' });
+        expect(compute.insertInstance).not.toHaveBeenCalled();
+      }
+    });
+
+    it('boots none without a template, or for one not made yet: the proxy only', async () => {
+      const { compute } = zoneOf([
+        poolMachine('sandbox-proxy', 'none', { status: 'TERMINATED', labels: {} }),
+      ]);
+      compute.getImage.mockImplementation((path: string) =>
+        Promise.resolve(path.includes('/deps-') ? undefined : image),
+      );
+      const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+
+      await sandboxes.prepare();
+      await sandboxes.prepare({ template: 'deps' });
+
+      expect(compute.insertInstance).not.toHaveBeenCalled();
+      expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+    });
+
+    it('gives the machine to the creation from the template, refilling nothing', async () => {
+      await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf();
+      const sandboxes = sandboxesOf({ compute });
+
+      await sandboxes.prepare({ template: 'deps' });
+      const [prepared] = preparedIn(machines);
+      await sandboxes.create('box', { template: 'deps' });
+
+      expect(machines.has('sbx-box')).toBe(false);
+      expect(machines.get(prepared?.name ?? '')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
+      expect(poolIn(machines)).toEqual([]);
+      expect(compute.insertInstance).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes a machine left unused for 15 minutes, as a creation or a preparation meets it', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const stale = (name: string) =>
+        poolMachine(name, deps, {
+          creationTimestamp: hoursAgo(0.3),
+          labels: { ...poolMachine(name, deps).labels, 'ai-sdk-sandbox-prepared': 'true' },
+        });
+      const created = zoneOf([stale('sbx-pool-a')]);
+      await sandboxesOf({ compute: created.compute }).create('box', { template: 'deps' });
+      expect(created.machines.has('sbx-pool-a')).toBe(false);
+      expect(created.machines.has('sbx-box')).toBe(true);
+
+      // Powered off by its agent, and stopped by Compute Engine.
+      const off = poolMachine('sbx-pool-c', deps, {
+        status: 'TERMINATED',
+        labels: { ...poolMachine('sbx-pool-c', deps).labels, 'ai-sdk-sandbox-prepared': 'true' },
+      });
+      const prepared = zoneOf([stale('sbx-pool-b'), off]);
+      await sandboxesOf({ compute: prepared.compute }).prepare({ template: 'deps' });
+      expect(prepared.machines.has('sbx-pool-b')).toBe(false);
+      expect(prepared.machines.has('sbx-pool-c')).toBe(false);
+      expect(preparedIn(prepared.machines)).toHaveLength(1);
+    });
+
+    /** The proxy's machine, as the zone holds it. */
+    const proxyMachine = (status: string): Instance =>
+      poolMachine('sandbox-proxy', 'none', { status, labels: {} });
+
+    /** A prepared machine of `template`, waiting for a sandbox. */
+    const preparedMachine = (name: string, template: string, overrides: Partial<Instance> = {}) =>
+      poolMachine(name, template, {
+        labels: { ...poolMachine(name, template).labels, 'ai-sdk-sandbox-prepared': 'true' },
+        ...overrides,
+      });
+
+    it('starts the proxy once it stopped, when the last sandbox was just stopping it', async () => {
+      const { compute, machines } = zoneOf([proxyMachine('STOPPING')]);
+      let reads = 0;
+      const get = compute.getInstance.getMockImplementation();
+      compute.getInstance.mockImplementation((name: string) => {
+        // Compute Engine is done stopping it at the third read.
+        if (name === 'sandbox-proxy' && ++reads === 3)
+          machines.set(name, proxyMachine('TERMINATED'));
+        return get?.(name) ?? Promise.resolve(undefined);
+      });
+      const proxy = proxyOf();
+
+      await sandboxesOf({ compute, proxy, proxyInstance: 'sandbox-proxy' }).prepare();
+
+      expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+      expect(proxy.healthy).not.toHaveBeenCalled();
+    });
+
+    it('gives up a proxy that never stops, and never waits for one to boot', async () => {
+      const stuck = zoneOf([proxyMachine('STOPPING')]);
+      await sandboxesOf({
+        compute: stuck.compute,
+        proxyInstance: 'sandbox-proxy',
+        startTimeoutMs: -1,
+      }).prepare();
+      expect(stuck.compute.startInstance).not.toHaveBeenCalled();
+
+      const booting = zoneOf([proxyMachine('STAGING')]);
+      await sandboxesOf({ compute: booting.compute, proxyInstance: 'sandbox-proxy' }).prepare();
+      expect(booting.compute.startInstance).not.toHaveBeenCalled();
+    });
+
+    it('keeps the proxy up while a prepared machine waits for its sandbox', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf([
+        proxyMachine('RUNNING'),
+        preparedMachine('sbx-pool-a', deps, { status: 'STAGING' }),
+      ]);
+      const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+
+      await sandboxes.create('other', {});
+      await sandboxes.delete('other');
+      expect(compute.stopInstance).not.toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+
+      // Booted, taken, then gone with its sandbox: nothing waits any more.
+      machines.set('sbx-pool-a', preparedMachine('sbx-pool-a', deps));
+      await sandboxes.create('box', { template: 'deps' });
+      expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
+      await sandboxes.delete('box');
+      expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+    });
+
+    it('stops the proxy when what waits is no prepared machine, or one no longer usable', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const waiting = [
+        // A machine of the warm pool: the fast profile keeps the proxy on by itself.
+        poolMachine('sbx-pool-kept', deps),
+        preparedMachine('sbx-pool-old', deps, { creationTimestamp: hoursAgo(0.3) }),
+        preparedMachine('sbx-pool-off', deps, { status: 'TERMINATED' }),
+        preparedMachine('sbx-pool-retired', deps, {
+          labels: {
+            ...preparedMachine('sbx-pool-retired', deps).labels,
+            'ai-sdk-sandbox-retired': 'true',
+          },
+        }),
+      ];
+      for (const machine of waiting) {
+        const { compute } = zoneOf([proxyMachine('RUNNING'), machine]);
+        const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+        await sandboxes.create('other', {});
+        await sandboxes.delete('other');
+        expect(compute.stopInstance, machine.name).toHaveBeenCalledWith('sandbox-proxy', {
+          wait: false,
+        });
+      }
+    });
+
+    it('gives way to a machine another preparation made meanwhile', async () => {
+      const deps = await depsLabel();
+      const { compute, machines } = zoneOf();
+      const insert = compute.insertInstance.getMockImplementation();
+      compute.insertInstance.mockImplementation(async (body: Record<string, unknown>) => {
+        await insert?.(body);
+        // Another preparation's, made while this one inserted its own.
+        machines.set('sbx-pool-other', poolMachine('sbx-pool-other', deps));
+      });
+
+      await sandboxesOf({ compute }).prepare({ template: 'deps' });
+
+      expect(poolIn(machines).map(({ name }) => name)).toEqual(['sbx-pool-other']);
+    });
+  });
 });

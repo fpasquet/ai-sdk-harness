@@ -242,9 +242,20 @@ export class SandboxServiceClient {
     return response.status !== 404;
   }
 
-  /** Boots what a sandbox needs ahead of it. A service without the route answers 404: it is fine. */
-  async prepare(abortSignal?: AbortSignal): Promise<void> {
-    await this.call('POST', 'v1/prepare', { abortSignal, accept: [404] });
+  /**
+   * Boots what a sandbox needs ahead of it: a machine from the template `template` of `image` too,
+   * when given. A service without the route answers 404: it is fine.
+   */
+  async prepare({
+    template,
+    image,
+    abortSignal,
+  }: { template?: string; image?: string; abortSignal?: AbortSignal } = {}): Promise<void> {
+    await this.call('POST', 'v1/prepare', {
+      body: { template, image },
+      abortSignal,
+      accept: [404],
+    });
   }
 
   async deleteTemplate(id: string, image?: string): Promise<void> {

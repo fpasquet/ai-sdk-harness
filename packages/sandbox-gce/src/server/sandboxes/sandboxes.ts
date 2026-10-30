@@ -11,7 +11,7 @@ import type { ProxyAdmin } from './proxy-admin.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
-import { AGENT_TOKEN_METADATA_KEY } from '../../protocol/agent.js';
+import { AGENT_TOKEN_METADATA_KEY, IDLE_POWER_OFF_METADATA_KEY } from '../../protocol/agent.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
@@ -117,6 +117,12 @@ const POOL_TEMPLATE_LABEL = 'ai-sdk-sandbox-template';
 /** The label of a machine of the warm pool on its way out: no creation takes it any more. */
 const RETIRED_LABEL = 'ai-sdk-sandbox-retired';
 
+/**
+ * The label of a machine of the warm pool booted by {@link Sandboxes.prepare} for a sandbox likely
+ * to come, rather than kept by `SANDBOX_WARM_POOL`.
+ */
+const PREPARED_LABEL = 'ai-sdk-sandbox-prepared';
+
 /** A name of a sandbox or a template: what an instance or image name and a URL path all take. */
 const NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
@@ -160,11 +166,29 @@ function createdAt(instance: Instance): number {
   return Number.isNaN(created) ? Date.now() : created;
 }
 
+/** The name of an image from its path: what a label of the pool's machines holds. */
+const labelOfImage = (path: string): string => path.split('/').at(-1) ?? '';
+
 /**
  * How long a machine of the warm pool waits for a creation before the next creation that meets it
  * deletes it, whatever its template: what a template no longer used costs, at most.
  */
 const POOL_WAIT_MS = 24 * 3_600_000;
+
+/**
+ * How long a machine booted by {@link Sandboxes.prepare} waits for its sandbox before the next
+ * creation or preparation that meets it deletes it: the sandbox comes within a minute or two, or
+ * not at all.
+ */
+const PREPARED_WAIT_MS = 15 * 60_000;
+
+/**
+ * The minutes after its boot the agent of a prepared machine powers it off, unless a sandbox took
+ * it: a minute past {@link PREPARED_WAIT_MS}, which the service counts from the machine's creation,
+ * earlier, so that a creation never takes a machine about to power off. Applied by the agent
+ * itself, whether a creation comes or not, from images of this version on.
+ */
+const PREPARED_POWER_OFF_MINUTES = PREPARED_WAIT_MS / 60_000 + 1;
 
 /** Why a creation is refused: the name is taken. */
 const alreadyExists = (name: string): HttpError =>
@@ -428,17 +452,113 @@ export class Sandboxes {
   }
 
   /**
-   * Starts the proxy's machine when the service drives it and it is stopped, without waiting for it
-   * to boot: a sandbox created soon after finds it up, rather than waiting for it. Nothing else:
-   * the proxy stops with the next sandbox that stops, or by itself when none comes.
+   * Boots what a sandbox likely to come soon will need, without waiting for it: the proxy's machine
+   * when the service drives it and it is stopped, and, given the `template` the sandbox will be made
+   * from, a machine of the warm pool booted from it when its pool holds none, whatever
+   * `SANDBOX_WARM_POOL`. The creation that follows takes it, rather than boot one. Nothing when the
+   * template does not exist yet: building it is the creation's. The proxy stops with the next
+   * sandbox that stops, or by itself when none comes; the machine is deleted by the next creation or
+   * preparation that meets it unused after {@link PREPARED_WAIT_MS}.
    */
-  async prepare(): Promise<void> {
-    const { proxyInstance, compute, logger } = this.options;
+  async prepare({
+    template,
+    image = DEFAULT_IMAGE,
+  }: { template?: string; image?: string } = {}): Promise<void> {
+    await Promise.all([
+      this.prepareProxy(),
+      template === undefined ? undefined : this.prepareMachine(template, image),
+    ]);
+  }
+
+  /**
+   * Starts the proxy's machine when the service drives it and it is stopped, not waiting for it to
+   * boot. One on its way down, the last sandbox just gone, is let stop first, within
+   * `startTimeoutMs`: Compute Engine starts no machine that is stopping.
+   */
+  private async prepareProxy(): Promise<void> {
+    const { proxyInstance, compute, logger, startTimeoutMs } = this.options;
     if (proxyInstance === undefined) return;
-    const current = await compute.getInstance(proxyInstance);
+    const deadline = Date.now() + startTimeoutMs;
+    let current = await compute.getInstance(proxyInstance);
+    while (current?.status === 'STOPPING' && Date.now() < deadline) {
+      await sleep(1000);
+      current = await compute.getInstance(proxyInstance);
+    }
     if (current?.status !== 'TERMINATED') return;
     logger.info(`Preparing: starting the egress proxy ${proxyInstance}`);
     await compute.startInstance(proxyInstance, { wait: false });
+  }
+
+  /**
+   * Boots a machine of the warm pool from the template `id` of `image` when it exists and its pool
+   * holds none usable, the machines no longer usable deleted meanwhile. One at a time: a
+   * preparation that finds another one made meanwhile deletes its own.
+   */
+  private async prepareMachine(id: string, image: string): Promise<void> {
+    if (!(await this.templateExists(id, image))) return;
+    const sourceImage = this.options.compute.imagePath(await this.templateImageName(id, image));
+    const templateLabel = labelOfImage(sourceImage);
+    const machines = await this.poolMachines();
+    const changes = machines
+      .filter((machine) => !this.usable(machine))
+      .map((machine) => this.retire(machine));
+    if (!machines.some((machine) => this.usable(machine, templateLabel))) {
+      changes.push(this.addPrepared({ image, sourceImage }, templateLabel));
+    }
+    await this.settled(changes);
+  }
+
+  /**
+   * Creates a machine of the warm pool labelled prepared, without waiting for it, then deletes it
+   * when another usable one of the template shows up meanwhile: of two preparations at once, the
+   * one that sees the other's machine gives way, so that one at most is left, none at worst.
+   */
+  private async addPrepared(
+    template: { image: string; sourceImage: string },
+    templateLabel: string,
+  ): Promise<void> {
+    const instance = await this.addToPool(template, templateLabel, { prepared: true });
+    const pool = await this.poolMachines();
+    const others = pool.filter(
+      (machine) => machine.name !== instance && this.usable(machine, templateLabel),
+    );
+    if (others.length === 0) return;
+    const own = pool.find((machine) => machine.name === instance);
+    if (own === undefined) await this.options.compute.deleteInstance(instance, { wait: false });
+    else await this.retire(own);
+  }
+
+  /** Waits for every change of the pool, logging those that failed rather than failing. */
+  private async settled(changes: readonly Promise<unknown>[]): Promise<void> {
+    for (const result of await Promise.allSettled(changes)) {
+      if (result.status === 'rejected') {
+        this.options.logger.warn(`The warm pool could not be kept: ${String(result.reason)}`);
+      }
+    }
+  }
+
+  /** The machines of the service's warm pool, taken or not. */
+  private async poolMachines(): Promise<Instance[]> {
+    const machines = await this.options.compute.listInstances(LABEL, 'pool');
+    return machines.filter(
+      ({ name, labels }) => labels?.[LABEL] === 'pool' && name.startsWith(this.poolPrefix),
+    );
+  }
+
+  /**
+   * Whether the machine `machine` of the warm pool may be taken, of the template `templateLabel`
+   * when given: not retired, running or booting, and not waiting for too long, a prepared one
+   * {@link PREPARED_WAIT_MS}, any other {@link POOL_WAIT_MS}.
+   */
+  private usable(machine: Instance, templateLabel?: string): boolean {
+    const waited = Date.now() - createdAt(machine);
+    const labels = machine.labels ?? {};
+    return (
+      labels[RETIRED_LABEL] === undefined &&
+      RUNNING.has(machine.status) &&
+      waited < (labels[PREPARED_LABEL] === undefined ? POOL_WAIT_MS : PREPARED_WAIT_MS) &&
+      (templateLabel === undefined || labels[POOL_TEMPLATE_LABEL] === templateLabel)
+    );
   }
 
   /**
@@ -453,22 +573,13 @@ export class Sandboxes {
     name: string,
     template: { image: string; sourceImage: string },
   ): Promise<{ taken?: Instance; upkeep: Promise<void> }> {
-    const { compute, logger, warmPool = 0 } = this.options;
-    const templateLabel = template.sourceImage.split('/').at(-1) ?? '';
-    const machines = (await compute.listInstances(LABEL, 'pool')).filter(
-      ({ name: instance, labels }) =>
-        labels?.[LABEL] === 'pool' && instance.startsWith(this.poolPrefix),
-    );
-    const usable = (machine: Instance): boolean =>
-      machine.labels?.[RETIRED_LABEL] === undefined &&
-      RUNNING.has(machine.status) &&
-      Date.now() - createdAt(machine) < POOL_WAIT_MS;
-    const dropped = machines.filter((machine) => !usable(machine));
+    const { logger, warmPool = 0 } = this.options;
+    const templateLabel = labelOfImage(template.sourceImage);
+    const machines = await this.poolMachines();
+    const dropped = machines.filter((machine) => !this.usable(machine));
     // A running machine first, then the one booting longest: the soonest ready.
     const kept = machines
-      .filter(
-        (machine) => usable(machine) && machine.labels?.[POOL_TEMPLATE_LABEL] === templateLabel,
-      )
+      .filter((machine) => this.usable(machine, templateLabel))
       .sort(
         (a, b) =>
           Number(b.status === 'RUNNING') - Number(a.status === 'RUNNING') ||
@@ -497,14 +608,7 @@ export class Sandboxes {
       ...dropped.map((machine) => this.retire(machine)),
       ...Array.from({ length: missing }, () => this.addToPool(template, templateLabel)),
     ];
-    const upkeep = Promise.allSettled(changes).then((results) => {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          logger.warn(`The warm pool could not be kept: ${String(result.reason)}`);
-        }
-      }
-    });
-    return { taken, upkeep };
+    return { taken, upkeep: this.settled(changes) };
   }
 
   /**
@@ -560,19 +664,29 @@ export class Sandboxes {
     await compute.deleteInstance(machine.name, { wait: false });
   }
 
-  /** Creates a machine of the warm pool booted from `template`, without waiting for it. */
+  /**
+   * Creates a machine of the warm pool booted from `template`, prepared for a sandbox likely to
+   * come when told so, without waiting for it. Answers its name.
+   */
   private async addToPool(
     template: { image: string; sourceImage: string },
     templateLabel: string,
-  ): Promise<void> {
+    { prepared = false }: { prepared?: boolean } = {},
+  ): Promise<string> {
     const instance = `${this.poolPrefix}${randomBytes(4).toString('hex')}`;
-    this.options.logger.info(`Creating ${instance} for the warm pool, from ${templateLabel}`);
+    const why = prepared ? 'prepared for a sandbox' : 'for the warm pool';
+    this.options.logger.info(`Creating ${instance} ${why}, from ${templateLabel}`);
     const labels = {
       [LABEL]: 'pool',
       [IMAGE_LABEL]: template.image,
       [POOL_TEMPLATE_LABEL]: templateLabel,
+      ...(prepared ? { [PREPARED_LABEL]: 'true' } : {}),
     };
-    await this.insert(instance, { ...template, labels }, { wait: false });
+    const metadata = prepared
+      ? [{ key: IDLE_POWER_OFF_METADATA_KEY, value: String(PREPARED_POWER_OFF_MINUTES) }]
+      : [];
+    await this.insert(instance, { ...template, labels, metadata }, { wait: false });
+    return instance;
   }
 
   /** What the machines of the warm pool are named after: the service's prefix, then `pool-`. */
@@ -622,13 +736,21 @@ export class Sandboxes {
 
   /**
    * Stops the proxy's machine, when the service drives it and does not keep it running, once no
-   * sandbox runs: the machines of the warm pool are none, and need no proxy until taken.
+   * sandbox runs, nor a prepared machine waits for one: a sandbox is about to take it, which would
+   * then wait for the proxy to boot again. The other machines of the warm pool need no proxy until
+   * taken; once the prepared one is taken or gone, the next stop applies the rule, and the proxy's
+   * own idle exit bounds it meanwhile.
    */
   private async proxyDownWhenIdle(): Promise<void> {
     const { proxyInstance, proxyAlwaysOn, compute } = this.options;
     if (proxyInstance === undefined || proxyAlwaysOn === true) return;
     const machines = await compute.listInstances(LABEL, 'sandbox');
     if (machines.some(({ status }) => RUNNING.has(status))) return;
+    const pool = await this.poolMachines();
+    if (
+      pool.some((machine) => machine.labels?.[PREPARED_LABEL] !== undefined && this.usable(machine))
+    )
+      return;
     const current = await compute.getInstance(proxyInstance);
     if (current?.status !== 'RUNNING') return;
     this.options.logger.info(`No sandbox runs: stopping the egress proxy ${proxyInstance}`);
@@ -658,8 +780,12 @@ export class Sandboxes {
    */
   private async drawRun(instance: Instance | undefined): Promise<void> {
     if (instance === undefined || !STOPPED.has(instance.status)) return;
+    // Its power-off goes too: stopped, the machine is a sandbox's, which no longer waits for one.
     const items = (instance.metadata?.items ?? []).filter(
-      ({ key }) => key !== AGENT_TOKEN_METADATA_KEY && key !== AGENT_RUN_METADATA_KEY,
+      ({ key }) =>
+        key !== AGENT_TOKEN_METADATA_KEY &&
+        key !== AGENT_RUN_METADATA_KEY &&
+        key !== IDLE_POWER_OFF_METADATA_KEY,
     );
     try {
       await this.options.compute.setMetadata(instance.name, {
@@ -810,7 +936,12 @@ export class Sandboxes {
    */
   private async insert(
     instance: string,
-    source: { image: string; sourceImage: string; labels?: Record<string, string> },
+    source: {
+      image: string;
+      sourceImage: string;
+      labels?: Record<string, string>;
+      metadata?: readonly { key: string; value: string }[];
+    },
     { wait = true }: { wait?: boolean } = {},
   ): Promise<void> {
     const { compute, logger, zone } = this.options;
@@ -1051,8 +1182,15 @@ export class Sandboxes {
       sourceImage,
       image,
       labels = { [LABEL]: 'sandbox', [IMAGE_LABEL]: image },
+      metadata = [],
       standard = false,
-    }: { image: string; sourceImage: string; labels?: Record<string, string>; standard?: boolean },
+    }: {
+      image: string;
+      sourceImage: string;
+      labels?: Record<string, string>;
+      metadata?: readonly { key: string; value: string }[];
+      standard?: boolean;
+    },
   ): Record<string, unknown> {
     const { machine, zone } = this.options;
     return {
@@ -1085,6 +1223,7 @@ export class Sandboxes {
           ...this.agentItems(name),
           { key: 'block-project-ssh-keys', value: 'true' },
           { key: 'serial-port-enable', value: 'false' },
+          ...metadata,
         ],
       },
       // No service account: nothing in the machine holds a Google credential.
@@ -1094,16 +1233,20 @@ export class Sandboxes {
         enableVtpm: true,
         enableIntegrityMonitoring: true,
       },
-      scheduling:
-        machine.spot && !standard
-          ? {
-              provisioningModel: 'SPOT',
-              instanceTerminationAction: 'STOP',
-              automaticRestart: false,
-              onHostMaintenance: 'TERMINATE',
-              ...this.runLimit(),
-            }
-          : { ...STANDARD_SCHEDULING, ...this.runLimit() },
+      scheduling: this.scheduling(standard),
     };
+  }
+
+  /** How a machine runs: Spot when the service's are, unless `standard`, its run limit either way. */
+  private scheduling(standard: boolean): Record<string, unknown> {
+    return this.options.machine.spot && !standard
+      ? {
+          provisioningModel: 'SPOT',
+          instanceTerminationAction: 'STOP',
+          automaticRestart: false,
+          onHostMaintenance: 'TERMINATE',
+          ...this.runLimit(),
+        }
+      : { ...STANDARD_SCHEDULING, ...this.runLimit() };
   }
 }

@@ -7,6 +7,7 @@ export type {
   GceCreationSettings,
   GceNetworkSandboxSessionCreateOptions,
   GceNetworkSandboxSessionResumeOptions,
+  GcePrepareSettings,
 } from './client/gce-settings.js';
 export {
   createGceNetworkSandboxSession,

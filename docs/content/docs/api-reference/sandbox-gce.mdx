@@ -20,4 +20,6 @@ Reattaches to a running sandbox, or starts a stopped one again on its disk. Besi
 
 ## `prepareGceSandboxService(options)`
 
-Has the sandbox service boot its egress proxy, when it starts and stops it, without waiting for it: the sandbox created next finds the proxy up. It takes the connection settings above and `abortSignal`, and resolves without doing anything on a service that keeps its proxy always on, or of an earlier version.
+Has the sandbox service boot what the sandbox created next will need, without waiting for it: its egress proxy, when it starts and stops it, and a machine booted from the sandbox's template, which the creation takes. A hint: do not await it. It never builds the template, and a service of an earlier version boots the proxy only, or nothing.
+
+<AutoTypeTable path="packages/sandbox-gce/src/client/gce-settings.ts" name="GcePrepareSettings" />

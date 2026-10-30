@@ -254,7 +254,7 @@ gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
 gcloud compute instances reset sandbox-proxy --zone=$ZONE
 ```
 
-The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. A sandbox then waits some 40 s for the proxy to boot: call `prepareGceSandboxService()` (see [Usage](#usage)) as soon as one is likely to be asked for, and it finds the proxy up. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
+The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs and no prepared machine waits for one. A sandbox then waits some 40 s for the proxy to boot: call `prepareGceSandboxService()` (see [Usage](#usage)) as soon as one is likely to be asked for, and it finds the proxy up. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
 
 ### 3. The sandbox image
 
@@ -426,18 +426,21 @@ try {
 
 `auth` takes `'gcloud'` (the default: `gcloud auth print-identity-token`), `'metadata'` (the workload's service account on Google Cloud), `'none'`, or a function returning an identity token for the service's URL, such as one from `google-auth-library`.
 
-When the service starts and stops the egress proxy (`SANDBOX_PROXY_INSTANCE`), the first sandbox after a quiet spell waits for the proxy's machine to boot. Ask the service to boot it as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds it up:
+A sandbox made after a quiet spell waits for machines to boot: its own, some 25 s, and the egress proxy's when the service starts and stops it (`SANDBOX_PROXY_INSTANCE`). Ask the service to boot them as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds them up, created in a few seconds:
 
 ```ts
 import { prepareGceSandboxService } from 'ai-sdk-sandbox-gce';
 
-// Not awaited: it only starts the proxy's machine, and an error changes nothing for the sandboxes.
-void prepareGceSandboxService({ url: process.env.GCE_SANDBOX_URL!, auth: 'metadata' }).catch(
-  () => undefined,
-);
+// A hint, not awaited: an error changes nothing for the sandboxes.
+void prepareGceSandboxService({
+  url: process.env.GCE_SANDBOX_URL!,
+  auth: 'metadata',
+  // The sandbox's template, setup and image, as it will be created: a machine boots from it.
+  template: await agent.getSandboxTemplate(),
+}).catch(() => undefined);
 ```
 
-The proxy stops again with the next sandbox that stops, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit). A service that keeps its proxy always on, or of an earlier version, does nothing.
+It never builds the template: until the first sandbox made from it, only the proxy boots. A proxy still stopping, the last sandbox just gone, is started once stopped. The service does not stop it while the prepared machine waits for its sandbox: it stops again with the next sandbox that stops once that machine is taken or gone, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit); the machine, as [Speed or cost](#speed-or-cost) says. A service of an earlier version boots the proxy only, or nothing.
 
 ## Images and toolchains
 
@@ -497,6 +500,12 @@ await sandboxSession.destroy();
 - `SANDBOX_MAX_RUN_HOURS` applies to the pool's machines as to every other, the bill's guard: for a sandbox taken from the pool, Compute Engine counts it from the machine's boot in the pool, 24 h ago at most. How long a session lasts is the application's to decide, not the limit's. With `SANDBOX_SPOT=true`, Compute Engine may take a machine back. A machine stopped either way is deleted by the next creation that meets it, and the pool fills again.
 - With `SANDBOX_PROXY_INSTANCE`, the service starts the proxy with the first sandbox and leaves it running: leave the three lines of `SANDBOX_PROXY_IDLE_EXIT_MINUTES` out of its unit, or the proxy stops itself after 10 minutes with no sandbox. Without `SANDBOX_PROXY_INSTANCE`, the proxy is always on anyway.
 - Back to `cost`, the next creation from a template takes what is left in its pool, and makes nothing more.
+
+With `cost`, a person who reads before a sandbox is launched, a summary of what will run say, gets it in a few seconds too, for no fixed cost: call `prepareGceSandboxService()` with the sandbox's template as the summary opens (see [Usage](#usage)). The service boots one machine from the template, labelled `ai-sdk-sandbox-prepared=true`, and the creation that follows takes it like a machine of the pool. One at a time: a template whose pool holds a machine, running or booting, gets none more, however many people open a summary.
+
+A prepared machine no creation takes costs while it runs, and two bounds stop it. Its agent powers it off itself 16 minutes after its boot unless a sandbox took it (`systemctl poweroff`, read from its metadata key `ai-sdk-sandbox-idle-poweroff-minutes`, which only prepared machines have), whether any call comes or not: it then costs its disk alone, until the next creation or preparation that meets it deletes it. And the service deletes it, running or not, as the next creation or preparation meets it once it waited 15 minutes, a minute before its agent would: a creation never takes a machine about to power off.
+
+The agent's bound comes with the sandbox image: rebuild it with this version of the package (step 3) for it to apply. A machine of an older image keeps only the service's bound: should no call come, it runs until `SANDBOX_MAX_RUN_HOURS` stops it, or until the next call that meets it after 24 h without the limit; set `SANDBOX_MAX_RUN_HOURS` when you prepare. The proxy the preparation started stops by itself after `SANDBOX_PROXY_IDLE_EXIT_MINUTES`.
 
 ## Stopping and resuming
 
@@ -640,7 +649,7 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 | `SANDBOX_MAX_RUNNING`       | none                                                                                     | The most sandboxes running at once: a creation or a resume beyond it is answered with a 429. Counted at each call, so two at the same instant may both pass                                                                                                                                                                                |
 | `SANDBOX_MAX_RUN_HOURS`     | none                                                                                     | The longest a machine runs at a time: Compute Engine stops it then (`maxRunDuration`), disk kept, whatever the service or the application do. 30 s at least                                                                                                                                                                                |
 | `SANDBOX_RECONCILE_MINUTES` | `10`                                                                                     | How often, at most, the service makes the proxy forget the sandboxes whose machine no longer runs, in the background of a creation or a resume. A sandbox of another service sharing the proxy in the zone is left alone, under another `SANDBOX_INSTANCE_PREFIX`. `0` for never: a proxy shared with a service of another zone or project |
-| `SANDBOX_PROXY_INSTANCE`    | none                                                                                     | The egress proxy's machine, in the sandboxes' zone: started with the first sandbox that runs, stopped once none does. Always on without it                                                                                                                                                                                                 |
+| `SANDBOX_PROXY_INSTANCE`    | none                                                                                     | The egress proxy's machine, in the sandboxes' zone: started with the first sandbox that runs, stopped once none does and no prepared machine waits for one. Always on without it                                                                                                                                                           |
 | `SANDBOX_PROFILE`           | `cost`                                                                                   | `cost` or `fast`: the defaults of the two settings below, see [Speed or cost](#speed-or-cost)                                                                                                                                                                                                                                              |
 | `SANDBOX_WARM_POOL`         | `0`, `1` with `fast`                                                                     | How many machines are kept booted from each template used in the last 24 h, for the next creations from it to take at once. Each one is billed all the time                                                                                                                                                                                |
 | `SANDBOX_PROXY_ALWAYS_ON`   | `false`, `true` with `fast`                                                              | `true`: the service starts the proxy's machine of `SANDBOX_PROXY_INSTANCE` with the first sandbox, and never stops it. No sandbox waits for it to boot, and it is billed all the time                                                                                                                                                      |
@@ -665,16 +674,17 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 
 ### The agent (`agent`)
 
-| Variable                   | Default                                      | Description                                             |
-| -------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| `SANDBOX_USER`             | `agent`                                      | The user the commands run as, when the agent is root    |
-| `SANDBOX_HOME`             | `/home/<user>`                               | Their `HOME`                                            |
-| `SANDBOX_WORKDIR`          | `/workspace`                                 | Their working directory, made the user's                |
-| `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                            |
-| `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                 |
-| `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata |
-| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's        |
-| `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone          |
+| Variable                   | Default                                      | Description                                                                                                                         |
+| -------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_USER`             | `agent`                                      | The user the commands run as, when the agent is root                                                                                |
+| `SANDBOX_HOME`             | `/home/<user>`                               | Their `HOME`                                                                                                                        |
+| `SANDBOX_WORKDIR`          | `/workspace`                                 | Their working directory, made the user's                                                                                            |
+| `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                                                                                                        |
+| `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                                                                                             |
+| `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata                                                                             |
+| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's                                                                                    |
+| `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone                                                                                      |
+| `SANDBOX_RUN_DIR`          | `/run/ai-sdk-sandbox`                        | Where it marks it was configured since the machine booted, emptied at each boot: an agent restarted then never powers a machine off |
 
 A sandbox's commands run with nothing of the agent's environment: only their `PATH`, `HOME`, `USER`, the proxy and base URL variables, and the variables the command sets.
 

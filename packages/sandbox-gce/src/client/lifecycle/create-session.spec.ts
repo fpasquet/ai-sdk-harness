@@ -19,6 +19,7 @@ import {
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
+  prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from '../../index.js';
 import { FrameType, readFrames } from '../../protocol/frames.js';
@@ -625,6 +626,36 @@ describe('a sandbox from the warm pool', () => {
     await expect(
       resumeGceNetworkSandboxSession({ ...options, sandboxId: 'two' }),
     ).rejects.toBeInstanceOf(GceSandboxNotFoundError);
+  });
+  it('runs on a machine booted ahead of it by a preparation, with no warm pool kept', async () => {
+    fake = await startFakeService();
+    const options = { url: fake.url, auth: 'none' } as const;
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'prepared',
+      prepare: () => Promise.resolve(),
+    };
+
+    // Not built by a preparation: the first sandbox builds it.
+    await prepareGceSandboxService({ ...options, template });
+    expect(pool()).toEqual([]);
+    await createGceNetworkSandboxSession({ ...options, sandboxId: 'one', template });
+    expect(pool()).toEqual([]);
+
+    await Promise.all([
+      prepareGceSandboxService({ ...options, template }),
+      prepareGceSandboxService({ ...options, template }),
+    ]);
+    await prepareGceSandboxService({ ...options, template });
+    const [prepared = ''] = pool();
+    expect(pool()).toHaveLength(1);
+    expect(fake.compute.instance(prepared)?.labels['ai-sdk-sandbox-prepared']).toBe('true');
+
+    const two = await createGceNetworkSandboxSession({ ...options, sandboxId: 'two', template });
+    expect(fake.compute.instance('sbx-two')).toBeUndefined();
+    expect(fake.compute.instance(prepared)?.labels['ai-sdk-sandbox-name']).toBe('two');
+    expect((await two.run({ command: 'echo ok' })).stdout).toBe('ok\n');
+    // The cost profile keeps nothing booted.
+    expect(pool()).toEqual([]);
   });
 });
 

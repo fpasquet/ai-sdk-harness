@@ -5,6 +5,7 @@ import type {
   GceConnectionSettings,
   GceNetworkSandboxSessionCreateOptions,
   GceNetworkSandboxSessionResumeOptions,
+  GcePrepareSettings,
 } from '../gce-settings.js';
 
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -13,7 +14,7 @@ import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
 import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
-import { ensureTemplate, type ReadyTemplate, runSetup } from './sandbox-template.js';
+import { ensureTemplate, type ReadyTemplate, runSetup, templateId } from './sandbox-template.js';
 
 /**
  * What a Compute Engine instance name takes once the service's prefix is put before it, and a URL
@@ -118,16 +119,24 @@ export async function createGceNetworkSandboxSession(
 }
 
 /**
- * Has the sandbox service at `url` boot what a sandbox needs, its egress proxy when the service
- * starts and stops it, without waiting for it: call it as soon as a sandbox is likely to be asked
- * for, the person who launches it still reading what will run, and the creation that follows finds
- * the proxy up. The proxy stops again with the next sandbox that stops, or by itself when none is
- * made. A service that does not drive its proxy, or of an earlier version, does nothing.
+ * Has the sandbox service at `url` boot what a sandbox needs, without waiting for it: its egress
+ * proxy when the service starts and stops it, and, given the sandbox's `template` (with its `setup`
+ * and `image`), a machine booted from it. Call it as soon as a sandbox is likely to be asked for,
+ * the person who launches it still reading what will run, and the creation that follows finds them
+ * up. A hint: do not await it, and ignore its errors, which change nothing for the sandboxes.
+ *
+ * It never builds the template: before the first sandbox made from it, only the proxy is booted.
+ * Should no sandbox come, the proxy stops by itself, and the service deletes the machine as it
+ * meets it, once it waited 15 minutes. A service of an earlier version boots the proxy only, or
+ * nothing.
  */
-export async function prepareGceSandboxService(
-  options: GceConnectionSettings & { abortSignal?: AbortSignal },
-): Promise<void> {
-  await clientOf(options).prepare(options.abortSignal);
+export async function prepareGceSandboxService(options: GcePrepareSettings): Promise<void> {
+  const { template, setup = [], image, abortSignal } = options;
+  await clientOf(options).prepare({
+    template: template === undefined ? undefined : templateId({ template, setup }),
+    image,
+    abortSignal,
+  });
 }
 
 /**

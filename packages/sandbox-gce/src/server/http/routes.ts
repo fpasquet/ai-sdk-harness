@@ -68,8 +68,13 @@ export const ROUTES: Route[] = [
     }),
   ),
   // Beyond `ai-sdk-sandbox-cloud-run`'s API: boots what a sandbox will need, ahead of it.
-  route('POST', /^\/v1\/prepare$/, async ({ sandboxes }) => {
-    await sandboxes.prepare();
+  route('POST', /^\/v1\/prepare$/, async ({ sandboxes, request }) => {
+    // An earlier client sends no body: the proxy only.
+    const body = await readJson(request);
+    await sandboxes.prepare({
+      template: optionalString(body, 'template'),
+      image: optionalString(body, 'image'),
+    });
     return NO_CONTENT;
   }),
   route('POST', /^\/v1\/sandboxes$/, async ({ sandboxes, request }) => {

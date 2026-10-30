@@ -68,7 +68,7 @@ export function createAgentServer(settings: AgentSettings): AgentServer {
     server,
     processes: agent.processes,
     close: async () => {
-      await agent.processes.killAll();
+      await agent.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

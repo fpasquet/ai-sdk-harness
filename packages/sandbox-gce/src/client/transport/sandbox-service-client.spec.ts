@@ -15,16 +15,24 @@ describe('SandboxServiceClient', () => {
   /** Answers to give before `answer`, one per request. */
   let firstAnswers: { body: string; status: number }[];
   let requests: string[];
+  /** The bodies of the requests, as text. */
+  let bodies: string[];
   let authorization: string | undefined;
 
   beforeEach(async () => {
     firstAnswers = [];
     requests = [];
+    bodies = [];
     server = createServer((request, response) => {
       authorization = request.headers.authorization;
       requests.push(`${request.method} ${request.url}`);
-      const { status, body } = firstAnswers.shift() ?? answer;
-      response.writeHead(status).end(body);
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        bodies.push(Buffer.concat(chunks).toString());
+        const { status, body } = firstAnswers.shift() ?? answer;
+        response.writeHead(status).end(body);
+      });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -58,8 +66,14 @@ describe('SandboxServiceClient', () => {
     await client.prepare();
 
     answer = { status: 404, body: JSON.stringify({ error: 'Not found.' }) };
-    await expect(client.prepare()).resolves.toBeUndefined();
+    await expect(
+      client.prepare({ template: 'ai-sdk-harness-template-abc', image: 'python' }),
+    ).resolves.toBeUndefined();
     expect(requests).toEqual(['POST /v1/prepare', 'POST /v1/prepare']);
+    expect(bodies.map((body) => JSON.parse(body) as unknown)).toEqual([
+      {},
+      { template: 'ai-sdk-harness-template-abc', image: 'python' },
+    ]);
   });
 
   it('turns a refusal of IAM into an authentication error', async () => {
