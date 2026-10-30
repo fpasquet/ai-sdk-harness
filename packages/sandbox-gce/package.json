@@ -1,6 +1,6 @@
 {
   "name": "ai-sdk-sandbox-gce",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Compute Engine sandboxes for AI SDK harness agents: Claude Code, Codex and friends in a virtual machine of their own on Google Cloud, Docker included, stopped between turns.",
   "keywords": [
     "ai",
