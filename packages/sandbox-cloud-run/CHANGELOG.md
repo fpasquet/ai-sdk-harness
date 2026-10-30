@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-cloud-run
 
+## 0.2.1
+
+### Patch Changes
+
+- 6806a20: The client refuses a sandbox service URL in plain HTTP, but on the loopback (`localhost`, `127.0.0.1`, `[::1]`): every call carries the identity token and the service token, which a URL in `http://` would send in clear. A service on Cloud Run is always reached in HTTPS.
+
 ## 0.2.0
 
 ### Minor Changes
