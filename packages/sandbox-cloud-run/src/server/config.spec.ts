@@ -104,6 +104,27 @@ describe('the service configuration', () => {
     ).toThrow('refused on Cloud Run');
   });
 
+  it('requires the service token on Cloud Run, unless told to go without', () => {
+    const warnings: string[] = [];
+    const logger = { ...silentLogger, warn: (message: string) => warnings.push(message) };
+    const onCloudRun = { K_SERVICE: 'sandboxes', SNAPSHOT_BUCKET: 'b' };
+
+    expect(() => sandboxesConfig(onCloudRun, logger)).toThrow(
+      'SANDBOX_SERVICE_TOKEN is required on Cloud Run',
+    );
+    expect(() => sandboxesConfig({ ...onCloudRun, SANDBOX_SERVICE_TOKEN: '' }, logger)).toThrow(
+      'SANDBOX_SERVICE_TOKEN is required on Cloud Run',
+    );
+    expect(
+      sandboxesConfig({ ...onCloudRun, SANDBOX_SERVICE_TOKEN: 'secret' }, logger).serviceToken,
+    ).toBe('secret');
+    expect(warnings).toEqual([]);
+    expect(
+      sandboxesConfig({ ...onCloudRun, SANDBOX_INSECURE_NO_TOKEN: 'true' }, logger).serviceToken,
+    ).toBeUndefined();
+    expect(warnings).toEqual([expect.stringContaining('the only lock of the service')]);
+  });
+
   it('refuses a malformed base URL, and Cloud Run without a bucket', () => {
     expect(() => sandboxesConfig({ SANDBOX_BASE_URLS: 'nonsense' }, silentLogger)).toThrow(
       'is not NAME=url',
