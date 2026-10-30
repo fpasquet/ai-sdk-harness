@@ -89,6 +89,55 @@ describe('the service configuration', () => {
     ).rejects.toThrow('SANDBOX_MAX_RUNNING: `0` is not a positive integer.');
   });
 
+  it('trades speed for cost by its profile, cost by default, each setting of it overridable', async () => {
+    const info = vi.fn();
+    const logger = { ...silentLogger, info };
+    const settings = async (env: Record<string, string>) => {
+      const { warmPool, proxyAlwaysOn } = await sandboxesConfig({ ...REQUIRED, ...env }, logger);
+      return { warmPool, proxyAlwaysOn };
+    };
+
+    expect(await settings({})).toEqual({ warmPool: 0, proxyAlwaysOn: false });
+    expect(await settings({ SANDBOX_PROFILE: 'cost' })).toEqual({
+      warmPool: 0,
+      proxyAlwaysOn: false,
+    });
+    expect(info).not.toHaveBeenCalledWith(expect.stringContaining('SANDBOX_WARM_POOL'));
+    expect(await settings({ SANDBOX_PROFILE: 'fast' })).toEqual({
+      warmPool: 1,
+      proxyAlwaysOn: true,
+    });
+    expect(info).toHaveBeenCalledWith(
+      'SANDBOX_WARM_POOL=1: a machine is kept booted from each template in use, billed all the time.',
+    );
+    expect(
+      await settings({
+        SANDBOX_PROFILE: 'fast',
+        SANDBOX_WARM_POOL: '0',
+        SANDBOX_PROXY_ALWAYS_ON: 'false',
+      }),
+    ).toEqual({ warmPool: 0, proxyAlwaysOn: false });
+    expect(await settings({ SANDBOX_WARM_POOL: '2' })).toEqual({
+      warmPool: 2,
+      proxyAlwaysOn: false,
+    });
+  });
+
+  it('refuses a profile it does not know, a pool that is no whole number, a flag neither true nor false', async () => {
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_PROFILE: 'cheap' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_PROFILE: `cheap` is neither `cost` nor `fast`.');
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_WARM_POOL: '1.5' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_WARM_POOL: `1.5` is not a whole number of machines.');
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_WARM_POOL: '-1' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_WARM_POOL: `-1` is not a whole number of machines.');
+    await expect(
+      sandboxesConfig({ ...REQUIRED, SANDBOX_PROXY_ALWAYS_ON: 'yes' }, silentLogger),
+    ).rejects.toThrow('SANDBOX_PROXY_ALWAYS_ON: `yes` is neither `true` nor `false`.');
+  });
+
   it('refuses a reconciliation period that is no number of minutes', async () => {
     await expect(
       sandboxesConfig({ ...REQUIRED, SANDBOX_RECONCILE_MINUTES: 'often' }, silentLogger),

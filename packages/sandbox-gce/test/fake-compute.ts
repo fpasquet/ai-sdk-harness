@@ -16,6 +16,8 @@ interface FakeInstance {
   name: string;
   status: string;
   labels: Record<string, string>;
+  /** What a change of its labels is made with, a new one at each. */
+  labelFingerprint: string;
   /** The disk's directory: the machine's home, working directory and agent state. */
   disk: string;
   /** Its metadata, the agent's token in it: read by the agent as the machine boots. */
@@ -106,6 +108,11 @@ export class FakeCompute {
       /\/zones\/[^/]+\/instances\/([^/]+)\/setMetadata$/,
       (name, body) => Promise.resolve(this.setMetadata(name, body)),
     ],
+    [
+      'POST',
+      /\/zones\/[^/]+\/instances\/([^/]+)\/setLabels$/,
+      (name, body) => Promise.resolve(this.setLabels(name, body)),
+    ],
     ['DELETE', /\/zones\/[^/]+\/instances\/([^/]+)$/, (name) => this.remove(name)],
     [
       'GET',
@@ -128,6 +135,11 @@ export class FakeCompute {
 
   instance(name: string): FakeInstance | undefined {
     return this.instances.get(name);
+  }
+
+  /** The names of the instances, in the order they were made. */
+  instanceNames(): string[] {
+    return [...this.instances.keys()];
   }
 
   /** The port of the agent of the running instance `name`. */
@@ -177,6 +189,7 @@ export class FakeCompute {
         name: instance.name,
         status: instance.status,
         labels: instance.labels,
+        labelFingerprint: instance.labelFingerprint,
         networkInterfaces: [{ networkIP: '127.0.0.1' }],
         metadata: instance.metadata,
       },
@@ -198,6 +211,7 @@ export class FakeCompute {
       name,
       status: 'STAGING',
       labels: (body['labels'] ?? {}) as Record<string, string>,
+      labelFingerprint: `l${++this.operations}`,
       disk,
       metadata: { fingerprint: 'f0', items: [], ...(body['metadata'] as Partial<Metadata>) },
       body,
@@ -230,6 +244,21 @@ export class FakeCompute {
     }
     const items = (body['items'] ?? []) as Metadata['items'];
     instance.metadata = { fingerprint: `f${++this.operations}`, items };
+    return this.operation();
+  }
+
+  /** Replaces the labels of `name`, unless they changed since their `labelFingerprint` was read. */
+  private setLabels(name: string, body: Json): Answer {
+    const instance = this.instances.get(name);
+    if (instance === undefined) return NOT_FOUND;
+    if (body['labelFingerprint'] !== instance.labelFingerprint) {
+      return [
+        412,
+        { error: { message: 'Labels fingerprint either invalid or resource labels have changed' } },
+      ];
+    }
+    instance.labels = (body['labels'] ?? {}) as Record<string, string>;
+    instance.labelFingerprint = `l${++this.operations}`;
     return this.operation();
   }
 

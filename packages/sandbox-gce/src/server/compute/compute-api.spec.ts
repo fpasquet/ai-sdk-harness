@@ -144,6 +144,23 @@ describe('the Compute Engine API', () => {
     expect(calls[0]).toBe('POST /projects/p/zones/z/instances/box/setMetadata');
   });
 
+  it('changes labels read with their fingerprint, and refuses labels changed since', async () => {
+    answers.push(
+      { name: 'op', status: 'DONE', selfLink: `${endpoint}/op` },
+      {
+        status: 412,
+        error: { message: 'Labels fingerprint either invalid or resource labels have changed' },
+      },
+    );
+
+    await api().setLabels('box', { 'ai-sdk-sandbox': 'sandbox' }, 'abc=');
+    await expect(
+      api().setLabels('box', { 'ai-sdk-sandbox': 'sandbox' }, 'abc='),
+    ).rejects.toMatchObject({ status: 412 });
+
+    expect(calls[0]).toBe('POST /projects/p/zones/z/instances/box/setLabels');
+  });
+
   it('reports a failed operation that says little, and an error that is not JSON', async () => {
     answers.push(
       { name: 'op', status: 'DONE', selfLink: `${endpoint}/op`, error: { errors: [{}] } },
