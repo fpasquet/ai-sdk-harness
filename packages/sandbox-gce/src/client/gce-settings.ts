@@ -1,6 +1,7 @@
 import type {
   HarnessV1SandboxSessionCreateOptions,
   HarnessV1SandboxSessionResumeOptions,
+  HarnessV1SandboxTemplate,
 } from '@ai-sdk/harness';
 
 /**
@@ -91,6 +92,31 @@ export interface GceCreationSettings extends GceConnectionSettings {
    * @defaultValue `[]`
    */
   setup?: readonly string[];
+}
+
+/** Options of `prepareGceSandboxService()`: the sandbox likely to be created next. */
+export interface GcePrepareSettings extends GceConnectionSettings {
+  /**
+   * The template the sandbox will be created from, `await agent.getSandboxTemplate()`: the service
+   * boots a machine from it ahead of the sandbox, which the creation takes. Only once the template
+   * exists on the service: preparing never builds it. Without it, only the egress proxy is booted.
+   */
+  template?: HarnessV1SandboxTemplate;
+  /**
+   * The `setup` the sandbox will be created with: with the template, what names the template's
+   * image.
+   *
+   * @defaultValue `[]`
+   */
+  setup?: readonly string[];
+  /**
+   * The image the sandbox will be created on, by the name the service gives it in `SANDBOX_IMAGES`.
+   *
+   * @defaultValue the service's `SANDBOX_IMAGE`
+   */
+  image?: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
 }
 
 /** Options of `createGceNetworkSandboxSession()`. */

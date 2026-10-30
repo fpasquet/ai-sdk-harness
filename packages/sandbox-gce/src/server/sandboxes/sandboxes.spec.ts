@@ -1165,4 +1165,108 @@ describe('the warm pool', () => {
 
     await expect(sandboxesOf({ compute, proxy }).reconcile()).resolves.toEqual(['pool-a']);
   });
+
+  describe('prepared ahead of a sandbox', () => {
+    /** The machines of the pool prepared for a sandbox. */
+    const preparedIn = (machines: Map<string, Instance>): Instance[] =>
+      poolIn(machines).filter(({ labels }) => labels?.['ai-sdk-sandbox-prepared'] === 'true');
+
+    it('boots one machine from the template when its pool holds none, with no pool kept', async () => {
+      const deps = await depsLabel();
+      const { compute, machines } = zoneOf([poolMachine('sbx-pool-other', 'other-template')]);
+      const sandboxes = sandboxesOf({ compute });
+
+      await sandboxes.prepare({ template: 'deps' });
+      await sandboxes.prepare({ template: 'deps' });
+
+      const [prepared, ...more] = preparedIn(machines);
+      expect(more).toEqual([]);
+      expect(prepared?.labels).toEqual({
+        'ai-sdk-sandbox': 'pool',
+        'ai-sdk-sandbox-image': 'default',
+        'ai-sdk-sandbox-template': deps,
+        'ai-sdk-sandbox-prepared': 'true',
+      });
+      expect(compute.insertInstance).toHaveBeenCalledTimes(1);
+      expect(compute.insertInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ name: prepared?.name }),
+        { wait: false },
+      );
+    });
+
+    it('boots none when a machine of the template is running or booting already', async () => {
+      const deps = await depsLabel();
+      for (const status of ['RUNNING', 'STAGING']) {
+        const { compute } = zoneOf([poolMachine('sbx-pool-a', deps, { status })]);
+        await sandboxesOf({ compute }).prepare({ template: 'deps' });
+        expect(compute.insertInstance).not.toHaveBeenCalled();
+      }
+    });
+
+    it('boots none without a template, or for one not made yet: the proxy only', async () => {
+      const { compute } = zoneOf([
+        poolMachine('sandbox-proxy', 'none', { status: 'TERMINATED', labels: {} }),
+      ]);
+      compute.getImage.mockImplementation((path: string) =>
+        Promise.resolve(path.includes('/deps-') ? undefined : image),
+      );
+      const sandboxes = sandboxesOf({ compute, proxyInstance: 'sandbox-proxy' });
+
+      await sandboxes.prepare();
+      await sandboxes.prepare({ template: 'deps' });
+
+      expect(compute.insertInstance).not.toHaveBeenCalled();
+      expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+    });
+
+    it('gives the machine to the creation from the template, refilling nothing', async () => {
+      await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf();
+      const sandboxes = sandboxesOf({ compute });
+
+      await sandboxes.prepare({ template: 'deps' });
+      const [prepared] = preparedIn(machines);
+      await sandboxes.create('box', { template: 'deps' });
+
+      expect(machines.has('sbx-box')).toBe(false);
+      expect(machines.get(prepared?.name ?? '')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
+      expect(poolIn(machines)).toEqual([]);
+      expect(compute.insertInstance).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes a machine left unused for 15 minutes, as a creation or a preparation meets it', async () => {
+      const deps = await depsLabel();
+      agentAnswers(PROTOCOL_VERSION);
+      const stale = (name: string) =>
+        poolMachine(name, deps, {
+          creationTimestamp: hoursAgo(0.3),
+          labels: { ...poolMachine(name, deps).labels, 'ai-sdk-sandbox-prepared': 'true' },
+        });
+      const created = zoneOf([stale('sbx-pool-a')]);
+      await sandboxesOf({ compute: created.compute }).create('box', { template: 'deps' });
+      expect(created.machines.has('sbx-pool-a')).toBe(false);
+      expect(created.machines.has('sbx-box')).toBe(true);
+
+      const prepared = zoneOf([stale('sbx-pool-b')]);
+      await sandboxesOf({ compute: prepared.compute }).prepare({ template: 'deps' });
+      expect(prepared.machines.has('sbx-pool-b')).toBe(false);
+      expect(preparedIn(prepared.machines)).toHaveLength(1);
+    });
+
+    it('gives way to a machine another preparation made meanwhile', async () => {
+      const deps = await depsLabel();
+      const { compute, machines } = zoneOf();
+      const insert = compute.insertInstance.getMockImplementation();
+      compute.insertInstance.mockImplementation(async (body: Record<string, unknown>) => {
+        await insert?.(body);
+        // Another preparation's, made while this one inserted its own.
+        machines.set('sbx-pool-other', poolMachine('sbx-pool-other', deps));
+      });
+
+      await sandboxesOf({ compute }).prepare({ template: 'deps' });
+
+      expect(poolIn(machines).map(({ name }) => name)).toEqual(['sbx-pool-other']);
+    });
+  });
 });

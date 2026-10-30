@@ -426,18 +426,21 @@ try {
 
 `auth` takes `'gcloud'` (the default: `gcloud auth print-identity-token`), `'metadata'` (the workload's service account on Google Cloud), `'none'`, or a function returning an identity token for the service's URL, such as one from `google-auth-library`.
 
-When the service starts and stops the egress proxy (`SANDBOX_PROXY_INSTANCE`), the first sandbox after a quiet spell waits for the proxy's machine to boot. Ask the service to boot it as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds it up:
+A sandbox made after a quiet spell waits for machines to boot: its own, some 25 s, and the egress proxy's when the service starts and stops it (`SANDBOX_PROXY_INSTANCE`). Ask the service to boot them as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds them up, created in a few seconds:
 
 ```ts
 import { prepareGceSandboxService } from 'ai-sdk-sandbox-gce';
 
-// Not awaited: it only starts the proxy's machine, and an error changes nothing for the sandboxes.
-void prepareGceSandboxService({ url: process.env.GCE_SANDBOX_URL!, auth: 'metadata' }).catch(
-  () => undefined,
-);
+// A hint, not awaited: an error changes nothing for the sandboxes.
+void prepareGceSandboxService({
+  url: process.env.GCE_SANDBOX_URL!,
+  auth: 'metadata',
+  // The sandbox's template, setup and image, as it will be created: a machine boots from it.
+  template: await agent.getSandboxTemplate(),
+}).catch(() => undefined);
 ```
 
-The proxy stops again with the next sandbox that stops, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit). A service that keeps its proxy always on, or of an earlier version, does nothing.
+It never builds the template: until the first sandbox made from it, only the proxy boots. The proxy stops again with the next sandbox that stops, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit); the machine, as [Speed or cost](#speed-or-cost) says. A service of an earlier version boots the proxy only, or nothing.
 
 ## Images and toolchains
 
@@ -497,6 +500,10 @@ await sandboxSession.destroy();
 - `SANDBOX_MAX_RUN_HOURS` applies to the pool's machines as to every other, the bill's guard: for a sandbox taken from the pool, Compute Engine counts it from the machine's boot in the pool, 24 h ago at most. How long a session lasts is the application's to decide, not the limit's. With `SANDBOX_SPOT=true`, Compute Engine may take a machine back. A machine stopped either way is deleted by the next creation that meets it, and the pool fills again.
 - With `SANDBOX_PROXY_INSTANCE`, the service starts the proxy with the first sandbox and leaves it running: leave the three lines of `SANDBOX_PROXY_IDLE_EXIT_MINUTES` out of its unit, or the proxy stops itself after 10 minutes with no sandbox. Without `SANDBOX_PROXY_INSTANCE`, the proxy is always on anyway.
 - Back to `cost`, the next creation from a template takes what is left in its pool, and makes nothing more.
+
+With `cost`, a person who reads before a sandbox is launched, a summary of what will run say, gets it in a few seconds too, for no fixed cost: call `prepareGceSandboxService()` with the sandbox's template as the summary opens (see [Usage](#usage)). The service boots one machine from the template, labelled `ai-sdk-sandbox-prepared=true`, and the creation that follows takes it like a machine of the pool. One at a time: a template whose pool holds a machine, running or booting, gets none more, however many people open a summary.
+
+A prepared machine no creation takes costs while it runs. The next creation or preparation that meets it once it waited 15 minutes deletes it; should neither come, it runs until `SANDBOX_MAX_RUN_HOURS` stops it, or until the next call that meets it after 24 h without the limit: set `SANDBOX_MAX_RUN_HOURS` when you prepare. The proxy the preparation started stops by itself after `SANDBOX_PROXY_IDLE_EXIT_MINUTES`.
 
 ## Stopping and resuming
 
