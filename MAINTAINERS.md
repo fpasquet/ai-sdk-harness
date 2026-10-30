@@ -50,6 +50,17 @@ Releases run in **CI** from `main` via `changesets/action` (`release.yml`).
 
 Packages are versioned independently: only the packages that changed are released.
 
+### Service images
+
+A release of `ai-sdk-sandbox-gce` or `ai-sdk-sandbox-cloud-run` also publishes its service's image to Docker Hub, `<namespace>/<package>:<version>` and `latest`, built from the version on npm by `images.yml` with a provenance attestation. The `Dockerfile` of each package is built on every pull request too, from the package packed as npm would publish it, and run once.
+
+Docker Hub needs, in the repository's settings:
+
+- the variable `DOCKERHUB_NAMESPACE`: the account or organization the images go to (the job is skipped without it);
+- the secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`: a personal access token with read and write access, scoped to that namespace.
+
+To publish an image for a version already on npm (a release whose image failed, or one before the images were), run the **Images** workflow by hand with the package and the version. It leaves `latest` alone unless asked.
+
 ### First publish of a new package
 
 npm trusted publishing (OIDC) is declared per package on npmjs.com, and the package has to exist there before a trusted publisher can be attached to it. The very first version is therefore published by hand, from the `fpasquet` npm account, from the package's own pull request before it is merged: nothing reaches `main` but through a pull request.

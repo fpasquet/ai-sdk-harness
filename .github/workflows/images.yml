@@ -1,0 +1,136 @@
+name: Images
+
+# The images of the sandbox services, published to Docker Hub for each release of their package:
+# called by the release workflow, or run by hand to publish a version already on npm.
+on:
+  workflow_call:
+    inputs:
+      package:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      package:
+        description: The package whose service image to publish
+        required: true
+        type: choice
+        options: [ai-sdk-sandbox-gce, ai-sdk-sandbox-cloud-run]
+      version:
+        description: A version of it already on npm, such as 0.3.1
+        required: true
+        type: string
+      latest:
+        description: Also tag it latest
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.package }} ${{ inputs.version }}
+    # Skipped until the Docker Hub namespace is set, in a fork say.
+    if: vars.DOCKERHUB_NAMESPACE != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # The provenance attestation, signed with the workflow's identity and pushed beside the image.
+      id-token: write
+      attestations: write
+    env:
+      PACKAGE: ${{ inputs.package }}
+      VERSION: ${{ inputs.version }}
+      IMAGE: docker.io/${{ vars.DOCKERHUB_NAMESPACE }}/${{ inputs.package }}
+    steps:
+      - name: Check the package and the version
+        id: package
+        run: |
+          case "$PACKAGE" in
+            ai-sdk-sandbox-gce | ai-sdk-sandbox-cloud-run) ;;
+            *) echo "::error::No service image for $PACKAGE." && exit 1 ;;
+          esac
+          if ! printf '%s' "$VERSION" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::$VERSION is not a released version." && exit 1
+          fi
+          echo "dockerfile=packages/${PACKAGE#ai-sdk-}/Dockerfile" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The image installs the package from npm: a version just published takes a moment to show.
+      - name: Wait for the version on npm
+        run: |
+          for _ in $(seq 30); do
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::$PACKAGE@$VERSION is not on npm." && exit 1
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          # `latest` follows the releases, not an older version published again by hand.
+          tags: |
+            type=raw,value=${{ inputs.version }}
+            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' || inputs.latest }}
+          labels: |
+            org.opencontainers.image.title=${{ inputs.package }}
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.licenses=MIT
+
+      # An empty context: the package comes from npm, as published with its own provenance.
+      - name: Make the build context
+        run: mkdir -p "$RUNNER_TEMP/context"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ runner.temp }}/context
+          file: ${{ steps.package.outputs.dockerfile }}
+          build-args: PACKAGE=${{ inputs.package }}@${{ inputs.version }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "Published \`$IMAGE:$VERSION\` (\`$DIGEST\`)." >> "$GITHUB_STEP_SUMMARY"

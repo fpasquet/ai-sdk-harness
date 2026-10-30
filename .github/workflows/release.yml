@@ -26,6 +26,8 @@ jobs:
     name: Version or publish packages
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      images: ${{ steps.images.outputs.packages }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -50,6 +52,7 @@ jobs:
         run: pnpm build
 
       - name: Create release PR or publish
+        id: changesets
         uses: changesets/action@v2
         with:
           # v2 reads the token from this input only; the GITHUB_TOKEN env var is ignored.
@@ -67,3 +70,32 @@ jobs:
           # No NPM_TOKEN: the publish authenticates via npm trusted publishing (OIDC),
           # which also attaches build provenance to every package (needs id-token: write).
           NPM_CONFIG_PROVENANCE: true
+
+      - name: List the service images to publish
+        id: images
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          packages=$(jq -c '[.[] | select(.name == "ai-sdk-sandbox-gce" or .name == "ai-sdk-sandbox-cloud-run")]' <<< "$PUBLISHED")
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Publish the service images
+    needs: release
+    if: needs.release.outputs.images != '' && needs.release.outputs.images != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.release.outputs.images) }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/images.yml
+    with:
+      package: ${{ matrix.name }}
+      version: ${{ matrix.version }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
