@@ -7,6 +7,7 @@ import type { Reply } from '../common/http-reply.js';
 import type { Logger } from '../common/logger.js';
 import type { AgentConfig, AgentDescription } from '../protocol/agent.js';
 import type { CommandSettings } from './environment.js';
+import type { IdlePowerOffSettings } from './idle-power-off.js';
 import type { CommandUser } from './processes.js';
 
 import { readCommandLine } from '../common/command-line.js';
@@ -24,6 +25,7 @@ import { MAX_INPUT_WRITE_BYTES } from '../protocol/api.js';
 import { encodeData, encodeFrame, FrameType, STDERR, STDOUT } from '../protocol/frames.js';
 import { configureDocker } from './docker-proxy.js';
 import { commandEnvironment } from './environment.js';
+import { watchIdlePowerOff } from './idle-power-off.js';
 import { Processes } from './processes.js';
 
 /** What the agent is made with: its machine's to give. */
@@ -36,6 +38,11 @@ export interface AgentSettings extends CommandSettings {
   commandUser?: CommandUser;
   /** Whether to point Docker at the egress proxy: as root, on a machine that has it. */
   configureDocker: boolean;
+  /**
+   * Powers the machine off when the agent is not configured soon enough after its boot: on a
+   * machine the service booted ahead of a sandbox. Never without it.
+   */
+  idlePowerOff?: Omit<IdlePowerOffSettings, 'logger'>;
   logger: Logger;
 }
 
@@ -62,14 +69,24 @@ function toConfig(body: Record<string, unknown>): AgentConfig {
 export class Agent {
   readonly processes: Processes;
   private config?: AgentConfig;
+  private readonly idle?: { configured(): void; stop(): void };
 
   constructor(private readonly settings: AgentSettings) {
     this.processes = new Processes(settings.commandUser);
+    if (settings.idlePowerOff !== undefined) {
+      this.idle = watchIdlePowerOff({ ...settings.idlePowerOff, logger: settings.logger });
+    }
     try {
       this.config = toConfig(parseObject(readFileSync(this.configFile, 'utf8')));
     } catch {
       // Not configured yet: the service does so before the first command.
     }
+  }
+
+  /** Stops the processes and the idle watch: the agent is closing. */
+  async close(): Promise<void> {
+    this.idle?.stop();
+    await this.processes.killAll();
   }
 
   private get configFile(): string {
@@ -117,6 +134,8 @@ export class Agent {
 
   private async configure(config: AgentConfig): Promise<AgentDescription> {
     const { settings } = this;
+    // A sandbox took the machine: it runs on, whatever the configuration below comes to.
+    this.idle?.configured();
     if (settings.configureDocker) {
       await configureDocker(config, { home: settings.home, user: settings.commandUser });
     }

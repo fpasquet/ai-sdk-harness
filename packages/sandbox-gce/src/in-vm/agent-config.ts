@@ -6,7 +6,11 @@ import type { Logger } from '../common/logger.js';
 import type { AgentSettings } from './agent.js';
 import type { CommandUser } from './processes.js';
 
-import { AGENT_TOKEN_METADATA_KEY, DEFAULT_AGENT_PORT } from '../protocol/agent.js';
+import {
+  AGENT_TOKEN_METADATA_KEY,
+  DEFAULT_AGENT_PORT,
+  IDLE_POWER_OFF_METADATA_KEY,
+} from '../protocol/agent.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -33,6 +37,48 @@ async function metadataToken(url: string): Promise<string> {
     }
     await sleep(1000);
   }
+}
+
+/**
+ * The minutes after its boot the machine is powered off unless configured, from its instance
+ * metadata: read once, the metadata server having just answered the token. `undefined` when the
+ * key is missing, or cannot be read: the machine then runs on, as before the key was.
+ */
+async function metadataIdleMinutes(url: string, logger: Logger): Promise<number | undefined> {
+  try {
+    const response = await fetch(`${url}${IDLE_POWER_OFF_METADATA_KEY}`, {
+      headers: { 'metadata-flavor': 'Google' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.status === 404) return undefined;
+    const text = (await response.text()).trim();
+    const minutes = Number(text);
+    if (response.ok && Number.isInteger(minutes) && minutes > 0) return minutes;
+    logger.warn(`\`${IDLE_POWER_OFF_METADATA_KEY}\` is not a positive integer: \`${text}\`.`);
+  } catch (error) {
+    logger.warn(`\`${IDLE_POWER_OFF_METADATA_KEY}\` could not be read: ${String(error)}`);
+  }
+  return undefined;
+}
+
+/**
+ * The token, from the environment or else the instance metadata, and with the latter, as root, when
+ * to power the machine off unless configured.
+ */
+async function fromMetadata(
+  env: Environment,
+  logger: Logger,
+): Promise<Pick<AgentSettings, 'idlePowerOff' | 'token'>> {
+  const given = env['SANDBOX_AGENT_TOKEN'];
+  if (given !== undefined) return { token: given };
+  const url = env['METADATA_URL'] ?? METADATA;
+  const token = await metadataToken(url);
+  // Only root powers the machine off: an agent run by hand, or in tests, never does.
+  if (process.getuid?.() !== 0) return { token };
+  const minutes = await metadataIdleMinutes(url, logger);
+  if (minutes === undefined) return { token };
+  const runDirectory = env['SANDBOX_RUN_DIR'] ?? '/run/ai-sdk-sandbox';
+  return { token, idlePowerOff: { afterMs: minutes * 60_000, runDirectory } };
 }
 
 /** The ids of `user`, from `id`. */
@@ -84,7 +130,7 @@ export async function agentSettings(env: Environment, logger: Logger): Promise<A
     if (commandUser !== undefined) chownSync(directory, commandUser.uid, commandUser.gid);
   }
   return {
-    token: env['SANDBOX_AGENT_TOKEN'] ?? (await metadataToken(env['METADATA_URL'] ?? METADATA)),
+    ...(await fromMetadata(env, logger)),
     user,
     home,
     workingDirectory,

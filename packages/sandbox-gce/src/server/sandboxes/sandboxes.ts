@@ -11,7 +11,7 @@ import type { ProxyAdmin } from './proxy-admin.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
-import { AGENT_TOKEN_METADATA_KEY } from '../../protocol/agent.js';
+import { AGENT_TOKEN_METADATA_KEY, IDLE_POWER_OFF_METADATA_KEY } from '../../protocol/agent.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
@@ -181,6 +181,14 @@ const POOL_WAIT_MS = 24 * 3_600_000;
  * not at all.
  */
 const PREPARED_WAIT_MS = 15 * 60_000;
+
+/**
+ * The minutes after its boot the agent of a prepared machine powers it off, unless a sandbox took
+ * it: a minute past {@link PREPARED_WAIT_MS}, which the service counts from the machine's creation,
+ * earlier, so that a creation never takes a machine about to power off. Applied by the agent
+ * itself, whether a creation comes or not, from images of this version on.
+ */
+const PREPARED_POWER_OFF_MINUTES = PREPARED_WAIT_MS / 60_000 + 1;
 
 /** Why a creation is refused: the name is taken. */
 const alreadyExists = (name: string): HttpError =>
@@ -665,7 +673,10 @@ export class Sandboxes {
       [POOL_TEMPLATE_LABEL]: templateLabel,
       ...(prepared ? { [PREPARED_LABEL]: 'true' } : {}),
     };
-    await this.insert(instance, { ...template, labels }, { wait: false });
+    const metadata = prepared
+      ? [{ key: IDLE_POWER_OFF_METADATA_KEY, value: String(PREPARED_POWER_OFF_MINUTES) }]
+      : [];
+    await this.insert(instance, { ...template, labels, metadata }, { wait: false });
     return instance;
   }
 
@@ -752,8 +763,12 @@ export class Sandboxes {
    */
   private async drawRun(instance: Instance | undefined): Promise<void> {
     if (instance === undefined || !STOPPED.has(instance.status)) return;
+    // Its power-off goes too: stopped, the machine is a sandbox's, which no longer waits for one.
     const items = (instance.metadata?.items ?? []).filter(
-      ({ key }) => key !== AGENT_TOKEN_METADATA_KEY && key !== AGENT_RUN_METADATA_KEY,
+      ({ key }) =>
+        key !== AGENT_TOKEN_METADATA_KEY &&
+        key !== AGENT_RUN_METADATA_KEY &&
+        key !== IDLE_POWER_OFF_METADATA_KEY,
     );
     try {
       await this.options.compute.setMetadata(instance.name, {
@@ -904,7 +919,12 @@ export class Sandboxes {
    */
   private async insert(
     instance: string,
-    source: { image: string; sourceImage: string; labels?: Record<string, string> },
+    source: {
+      image: string;
+      sourceImage: string;
+      labels?: Record<string, string>;
+      metadata?: readonly { key: string; value: string }[];
+    },
     { wait = true }: { wait?: boolean } = {},
   ): Promise<void> {
     const { compute, logger, zone } = this.options;
@@ -1145,8 +1165,15 @@ export class Sandboxes {
       sourceImage,
       image,
       labels = { [LABEL]: 'sandbox', [IMAGE_LABEL]: image },
+      metadata = [],
       standard = false,
-    }: { image: string; sourceImage: string; labels?: Record<string, string>; standard?: boolean },
+    }: {
+      image: string;
+      sourceImage: string;
+      labels?: Record<string, string>;
+      metadata?: readonly { key: string; value: string }[];
+      standard?: boolean;
+    },
   ): Record<string, unknown> {
     const { machine, zone } = this.options;
     return {
@@ -1179,6 +1206,7 @@ export class Sandboxes {
           ...this.agentItems(name),
           { key: 'block-project-ssh-keys', value: 'true' },
           { key: 'serial-port-enable', value: 'false' },
+          ...metadata,
         ],
       },
       // No service account: nothing in the machine holds a Google credential.
@@ -1188,16 +1216,20 @@ export class Sandboxes {
         enableVtpm: true,
         enableIntegrityMonitoring: true,
       },
-      scheduling:
-        machine.spot && !standard
-          ? {
-              provisioningModel: 'SPOT',
-              instanceTerminationAction: 'STOP',
-              automaticRestart: false,
-              onHostMaintenance: 'TERMINATE',
-              ...this.runLimit(),
-            }
-          : { ...STANDARD_SCHEDULING, ...this.runLimit() },
+      scheduling: this.scheduling(standard),
     };
+  }
+
+  /** How a machine runs: Spot when the service's are, unless `standard`, its run limit either way. */
+  private scheduling(standard: boolean): Record<string, unknown> {
+    return this.options.machine.spot && !standard
+      ? {
+          provisioningModel: 'SPOT',
+          instanceTerminationAction: 'STOP',
+          automaticRestart: false,
+          onHostMaintenance: 'TERMINATE',
+          ...this.runLimit(),
+        }
+      : { ...STANDARD_SCHEDULING, ...this.runLimit() };
   }
 }

@@ -503,7 +503,9 @@ await sandboxSession.destroy();
 
 With `cost`, a person who reads before a sandbox is launched, a summary of what will run say, gets it in a few seconds too, for no fixed cost: call `prepareGceSandboxService()` with the sandbox's template as the summary opens (see [Usage](#usage)). The service boots one machine from the template, labelled `ai-sdk-sandbox-prepared=true`, and the creation that follows takes it like a machine of the pool. One at a time: a template whose pool holds a machine, running or booting, gets none more, however many people open a summary.
 
-A prepared machine no creation takes costs while it runs. The next creation or preparation that meets it once it waited 15 minutes deletes it; should neither come, it runs until `SANDBOX_MAX_RUN_HOURS` stops it, or until the next call that meets it after 24 h without the limit: set `SANDBOX_MAX_RUN_HOURS` when you prepare. The proxy the preparation started stops by itself after `SANDBOX_PROXY_IDLE_EXIT_MINUTES`.
+A prepared machine no creation takes costs while it runs, and two bounds stop it. Its agent powers it off itself 16 minutes after its boot unless a sandbox took it (`systemctl poweroff`, read from its metadata key `ai-sdk-sandbox-idle-poweroff-minutes`, which only prepared machines have), whether any call comes or not: it then costs its disk alone, until the next creation or preparation that meets it deletes it. And the service deletes it, running or not, as the next creation or preparation meets it once it waited 15 minutes, a minute before its agent would: a creation never takes a machine about to power off.
+
+The agent's bound comes with the sandbox image: rebuild it with this version of the package (step 3) for it to apply. A machine of an older image keeps only the service's bound: should no call come, it runs until `SANDBOX_MAX_RUN_HOURS` stops it, or until the next call that meets it after 24 h without the limit; set `SANDBOX_MAX_RUN_HOURS` when you prepare. The proxy the preparation started stops by itself after `SANDBOX_PROXY_IDLE_EXIT_MINUTES`.
 
 ## Stopping and resuming
 
@@ -672,16 +674,17 @@ Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.
 
 ### The agent (`agent`)
 
-| Variable                   | Default                                      | Description                                             |
-| -------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| `SANDBOX_USER`             | `agent`                                      | The user the commands run as, when the agent is root    |
-| `SANDBOX_HOME`             | `/home/<user>`                               | Their `HOME`                                            |
-| `SANDBOX_WORKDIR`          | `/workspace`                                 | Their working directory, made the user's                |
-| `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                            |
-| `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                 |
-| `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata |
-| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's        |
-| `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone          |
+| Variable                   | Default                                      | Description                                                                                                                         |
+| -------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_USER`             | `agent`                                      | The user the commands run as, when the agent is root                                                                                |
+| `SANDBOX_HOME`             | `/home/<user>`                               | Their `HOME`                                                                                                                        |
+| `SANDBOX_WORKDIR`          | `/workspace`                                 | Their working directory, made the user's                                                                                            |
+| `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                                                                                                        |
+| `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                                                                                             |
+| `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata                                                                             |
+| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's                                                                                    |
+| `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone                                                                                      |
+| `SANDBOX_RUN_DIR`          | `/run/ai-sdk-sandbox`                        | Where it marks it was configured since the machine booted, emptied at each boot: an agent restarted then never powers a machine off |
 
 A sandbox's commands run with nothing of the agent's environment: only their `PATH`, `HOME`, `USER`, the proxy and base URL variables, and the variables the command sets.
 

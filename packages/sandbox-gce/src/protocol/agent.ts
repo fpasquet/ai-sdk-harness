@@ -20,6 +20,12 @@ export const AGENT_TOKEN_HEADER = 'x-ai-sdk-sandbox-agent-token';
 /** The instance metadata key the agent reads its token from, when its environment has none. */
 export const AGENT_TOKEN_METADATA_KEY = 'ai-sdk-sandbox-agent-token';
 
+/**
+ * The instance metadata key of a machine booted ahead of a sandbox: the minutes after its boot its
+ * agent powers it off unless configured meanwhile. Never without it.
+ */
+export const IDLE_POWER_OFF_METADATA_KEY = 'ai-sdk-sandbox-idle-poweroff-minutes';
+
 /** The port the agent listens on, in its machine. */
 export const DEFAULT_AGENT_PORT = 8100;
 

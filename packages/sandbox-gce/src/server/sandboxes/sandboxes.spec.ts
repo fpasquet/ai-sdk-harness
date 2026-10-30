@@ -1192,6 +1192,37 @@ describe('the warm pool', () => {
         expect.objectContaining({ name: prepared?.name }),
         { wait: false },
       );
+      // Its agent powers it off 16 minutes after its boot, unless a sandbox took it.
+      expect(prepared?.metadata?.items).toContainEqual({
+        key: 'ai-sdk-sandbox-idle-poweroff-minutes',
+        value: '16',
+      });
+    });
+
+    it('gives the power-off to prepared machines only, and drops it once a sandbox stops', async () => {
+      agentAnswers(PROTOCOL_VERSION);
+      const { compute, machines } = zoneOf();
+      const sandboxes = sandboxesOf({ compute, warmPool: 1 });
+      await sandboxes.create('box', { template: 'deps' });
+      const keys = (machine: Instance | undefined): string[] =>
+        (machine?.metadata?.items ?? []).map(({ key }) => key);
+      expect(poolIn(machines).flatMap(keys)).not.toContain('ai-sdk-sandbox-idle-poweroff-minutes');
+
+      const taken = poolMachine('sbx-pool-a', 'deps-x', {
+        labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'taken' },
+        metadata: {
+          fingerprint: 'f1',
+          items: [{ key: 'ai-sdk-sandbox-idle-poweroff-minutes', value: '16' }],
+        },
+      });
+      machines.set(taken.name, taken);
+      await sandboxes.suspend('taken');
+      const [[, metadata]] = compute.setMetadata.mock.calls as unknown as [
+        [string, { items: { key: string }[] }],
+      ];
+      expect(metadata.items.map(({ key }) => key)).not.toContain(
+        'ai-sdk-sandbox-idle-poweroff-minutes',
+      );
     });
 
     it('boots none when a machine of the template is running or booting already', async () => {
@@ -1248,9 +1279,15 @@ describe('the warm pool', () => {
       expect(created.machines.has('sbx-pool-a')).toBe(false);
       expect(created.machines.has('sbx-box')).toBe(true);
 
-      const prepared = zoneOf([stale('sbx-pool-b')]);
+      // Powered off by its agent, and stopped by Compute Engine.
+      const off = poolMachine('sbx-pool-c', deps, {
+        status: 'TERMINATED',
+        labels: { ...poolMachine('sbx-pool-c', deps).labels, 'ai-sdk-sandbox-prepared': 'true' },
+      });
+      const prepared = zoneOf([stale('sbx-pool-b'), off]);
       await sandboxesOf({ compute: prepared.compute }).prepare({ template: 'deps' });
       expect(prepared.machines.has('sbx-pool-b')).toBe(false);
+      expect(prepared.machines.has('sbx-pool-c')).toBe(false);
       expect(preparedIn(prepared.machines)).toHaveLength(1);
     });
 
