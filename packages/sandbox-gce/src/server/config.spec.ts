@@ -108,7 +108,7 @@ describe('the service configuration', () => {
       proxyAlwaysOn: true,
     });
     expect(info).toHaveBeenCalledWith(
-      'SANDBOX_WARM_POOL=1: a machine is kept booted from the last template, billed all the time.',
+      'SANDBOX_WARM_POOL=1: a machine is kept booted from each template in use, billed all the time.',
     );
     expect(
       await settings({

@@ -863,6 +863,10 @@ describe('the warm pool', () => {
     ...overrides,
   });
 
+  /** The time `hours` ago, as Compute Engine writes it. */
+  const hoursAgo = (hours: number): string =>
+    new Date(Date.now() - hours * 3_600_000).toISOString();
+
   /** The label the pool gives the template `deps` of the default image. */
   async function depsLabel(): Promise<string> {
     agentAnswers(PROTOCOL_VERSION);
@@ -975,44 +979,87 @@ describe('the warm pool', () => {
     expect(machines.has('sbx-pool-a')).toBe(true);
   });
 
-  it('deletes the machines of another template, stopped, or past half their run limit', async () => {
+  it('keeps a pool per template, and deletes the machines stopped or waiting for over a day', async () => {
     const deps = await depsLabel();
     agentAnswers(PROTOCOL_VERSION);
-    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    const dayAgo = hoursAgo(25);
     const { compute, machines } = zoneOf([
-      poolMachine('sbx-pool-old', 'other-template'),
+      poolMachine('sbx-pool-other', 'other-template'),
       poolMachine('sbx-pool-stopped', deps, { status: 'TERMINATED' }),
-      poolMachine('sbx-pool-aged', deps, { lastStartTimestamp: hourAgo }),
+      poolMachine('sbx-pool-unused', 'other-template', { creationTimestamp: dayAgo }),
+      poolMachine('sbx-pool-waited', deps, { creationTimestamp: dayAgo }),
       // Another service's pool, under its own prefix.
-      poolMachine('dev-pool-a', 'other-template'),
+      poolMachine('dev-pool-a', 'other-template', { creationTimestamp: dayAgo }),
     ]);
-    const sandboxes = sandboxesOf({
-      compute,
-      warmPool: 1,
-      machine: { ...machine, maxRunSeconds: 6000 },
-    });
+    const sandboxes = sandboxesOf({ compute, warmPool: 1 });
 
     await sandboxes.create('box', { template: 'deps' });
 
     expect(machines.has('sbx-box')).toBe(true);
     expect([...machines.keys()].filter((name) => name.includes('pool'))).toEqual([
+      'sbx-pool-other',
       'dev-pool-a',
       expect.stringMatching(/^sbx-pool-[0-9a-f]{8}$/),
     ]);
     // Labelled first, so that no creation takes it meanwhile.
     expect(compute.setLabels).toHaveBeenCalledWith(
-      'sbx-pool-old',
+      'sbx-pool-unused',
       expect.objectContaining({ 'ai-sdk-sandbox-retired': 'true' }),
-      'sbx-pool-old-l0',
+      'sbx-pool-unused-l0',
     );
+  });
+
+  it('takes a machine still booting rather than boot one, a running one first', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-booting', deps, {
+        status: 'STAGING',
+        creationTimestamp: hoursAgo(2),
+      }),
+      poolMachine('sbx-pool-running', deps, { creationTimestamp: hoursAgo(1) }),
+    ]);
+    // Compute Engine says the booting machine runs once read again.
+    const get = compute.getInstance.getMockImplementation();
+    let reads = 0;
+    compute.getInstance.mockImplementation((name: string) => {
+      const machine = machines.get(name);
+      if (name === 'sbx-pool-booting' && machine !== undefined && ++reads > 1) {
+        machines.set(name, { ...machine, status: 'RUNNING' });
+      }
+      return get?.(name) ?? Promise.resolve(undefined);
+    });
+    const sandboxes = sandboxesOf({ compute, warmPool: 1 });
+
+    await sandboxes.create('one', { template: 'deps' });
+    expect(machines.get('sbx-pool-running')?.labels?.['ai-sdk-sandbox-name']).toBe('one');
+
+    await sandboxes.create('two', { template: 'deps' });
+    expect(machines.get('sbx-pool-booting')?.labels?.['ai-sdk-sandbox-name']).toBe('two');
+    expect(machines.get('sbx-pool-booting')?.status).toBe('RUNNING');
+    expect(machines.has('sbx-one')).toBe(false);
+    expect(machines.has('sbx-two')).toBe(false);
+  });
+
+  it('deletes a machine taken while booting that never boots', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-stuck', deps, { status: 'STAGING' }),
+    ]);
+
+    await expect(
+      sandboxesOf({ compute, startTimeoutMs: -1 }).create('box', { template: 'deps' }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(machines.has('sbx-pool-stuck')).toBe(false);
   });
 
   it('keeps no more machines than asked, and takes the last ones once none is', async () => {
     const deps = await depsLabel();
     agentAnswers(PROTOCOL_VERSION);
     const { compute, machines } = zoneOf([
-      poolMachine('sbx-pool-a', deps, { creationTimestamp: '2026-01-01T00:00:00Z' }),
-      poolMachine('sbx-pool-b', deps, { creationTimestamp: '2026-01-02T00:00:00Z' }),
+      poolMachine('sbx-pool-a', deps, { creationTimestamp: hoursAgo(2) }),
+      poolMachine('sbx-pool-b', deps, { creationTimestamp: hoursAgo(1) }),
     ]);
 
     await sandboxesOf({ compute, warmPool: 0 }).create('box', { template: 'deps' });

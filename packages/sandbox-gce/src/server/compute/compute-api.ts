@@ -12,9 +12,8 @@ export interface Instance {
   labelFingerprint?: string;
   networkInterfaces?: { networkIP?: string }[];
   metadata?: InstanceMetadata;
-  /** When the instance was made, and when it last started: RFC 3339 timestamps. */
+  /** When the instance was made: an RFC 3339 timestamp. */
   creationTimestamp?: string;
-  lastStartTimestamp?: string;
 }
 
 /** The metadata of an instance: its `fingerprint` must be given back to change it. */

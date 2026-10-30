@@ -201,7 +201,7 @@ function speedSettings(
   const pool = warmPool(env['SANDBOX_WARM_POOL'], defaults.warmPool);
   if (pool > 0) {
     logger.info(
-      `SANDBOX_WARM_POOL=${pool}: ${pool === 1 ? 'a machine is' : `${pool} machines are`} kept booted from the last template, billed all the time.`,
+      `SANDBOX_WARM_POOL=${pool}: ${pool === 1 ? 'a machine is' : `${pool} machines are`} kept booted from each template in use, billed all the time.`,
     );
   }
   return {

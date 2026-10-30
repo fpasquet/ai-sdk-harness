@@ -87,9 +87,9 @@ export interface SandboxesOptions {
    */
   reconcileEveryMs?: number;
   /**
-   * How many machines are kept booted from the template of the last creation from one, for the
-   * next such creations to take at once rather than boot one: billed while they run, all the time.
-   * Created in the request of a creation, never waited for. None without it.
+   * How many machines are kept booted from each template in use, for the next creations from it to
+   * take at once rather than boot one: billed while they run, all the time, and deleted once they
+   * waited a day. Created in the request of a creation, never waited for. None without it.
    */
   warmPool?: number;
   /**
@@ -154,11 +154,17 @@ const AGENT_RUN_METADATA_KEY = 'ai-sdk-sandbox-agent-run';
 const runOf = (instance: Instance): string | undefined =>
   instance.metadata?.items?.find(({ key }) => key === AGENT_RUN_METADATA_KEY)?.value;
 
-/** When the machine `instance` last started, in milliseconds: now when Compute Engine does not say. */
-function startedAt(instance: Instance): number {
-  const started = Date.parse(instance.lastStartTimestamp ?? instance.creationTimestamp ?? '');
-  return Number.isNaN(started) ? Date.now() : started;
+/** When the machine `instance` was made, in milliseconds: now when Compute Engine does not say. */
+function createdAt(instance: Instance): number {
+  const created = Date.parse(instance.creationTimestamp ?? '');
+  return Number.isNaN(created) ? Date.now() : created;
 }
+
+/**
+ * How long a machine of the warm pool waits for a creation before the next creation that meets it
+ * deletes it, whatever its template: what a template no longer used costs, at most.
+ */
+const POOL_WAIT_MS = 24 * 3_600_000;
 
 /** Why a creation is refused: the name is taken. */
 const alreadyExists = (name: string): HttpError =>
@@ -436,12 +442,12 @@ export class Sandboxes {
   }
 
   /**
-   * Takes for the sandbox `name` a running machine of the warm pool booted from `sourceImage`, and
-   * sees to the pool: its machines of another template, or no longer running (a Spot machine taken
-   * back, one at its run limit), deleted, and those missing created. `upkeep` does so without
-   * waiting for Compute Engine, never failing: the caller awaits it before answering. A machine of
-   * the pool never ran an agent, as fresh as one made from the template; once taken, it never goes
-   * back to the pool.
+   * Takes for the sandbox `name` a machine of the warm pool of its template, `sourceImage`, and sees
+   * to the pool: the template's machines missing created, and any machine no longer running (a Spot
+   * machine taken back, one at its run limit) or waiting for more than a day deleted, whatever its
+   * template. `upkeep` does so without waiting for Compute Engine, never failing: the caller awaits
+   * it before answering. A machine of the pool never ran an agent, as fresh as one made from the
+   * template; once taken, it never goes back to the pool.
    */
   private async fromPool(
     name: string,
@@ -449,24 +455,29 @@ export class Sandboxes {
   ): Promise<{ taken?: Instance; upkeep: Promise<void> }> {
     const { compute, logger, warmPool = 0 } = this.options;
     const templateLabel = template.sourceImage.split('/').at(-1) ?? '';
-    const machines = (await compute.listInstances(LABEL, 'pool'))
-      .filter(
-        ({ name: instance, labels }) =>
-          labels?.[LABEL] === 'pool' && instance.startsWith(this.poolPrefix),
-      )
-      .sort((a, b) => startedAt(a) - startedAt(b));
-    const fit = (machine: Instance): boolean =>
-      machine.labels?.[POOL_TEMPLATE_LABEL] === templateLabel &&
-      machine.labels[RETIRED_LABEL] === undefined &&
+    const machines = (await compute.listInstances(LABEL, 'pool')).filter(
+      ({ name: instance, labels }) =>
+        labels?.[LABEL] === 'pool' && instance.startsWith(this.poolPrefix),
+    );
+    const usable = (machine: Instance): boolean =>
+      machine.labels?.[RETIRED_LABEL] === undefined &&
       RUNNING.has(machine.status) &&
-      this.youngEnough(machine);
-    const kept = machines.filter(fit);
-    const dropped = machines.filter((machine) => !fit(machine));
+      Date.now() - createdAt(machine) < POOL_WAIT_MS;
+    const dropped = machines.filter((machine) => !usable(machine));
+    // A running machine first, then the one booting longest: the soonest ready.
+    const kept = machines
+      .filter(
+        (machine) => usable(machine) && machine.labels?.[POOL_TEMPLATE_LABEL] === templateLabel,
+      )
+      .sort(
+        (a, b) =>
+          Number(b.status === 'RUNNING') - Number(a.status === 'RUNNING') ||
+          createdAt(a) - createdAt(b),
+      );
     let taken: Instance | undefined;
     const tried = new Set<string>();
     try {
-      // The oldest first: its agent is the likeliest to answer already.
-      for (const machine of kept.filter(({ status }) => status === 'RUNNING')) {
+      for (const machine of kept) {
         tried.add(machine.name);
         taken = await this.take(machine, name);
         if (taken !== undefined) break;
@@ -496,8 +507,8 @@ export class Sandboxes {
   /**
    * Takes the machine `machine` of the warm pool for the sandbox `name`, by its labels: of two
    * creations taking it at once, Compute Engine lets one change them only. The machine as it is
-   * then, `undefined` when another creation took it, or it no longer runs. Fails when Compute
-   * Engine refuses the change for another reason.
+   * then, running or still booting, `undefined` when another creation took it, or it no longer
+   * runs. Fails when Compute Engine refuses the change for another reason.
    */
   private async take(machine: Instance, name: string): Promise<Instance | undefined> {
     const { compute, logger } = this.options;
@@ -515,7 +526,7 @@ export class Sandboxes {
     }
     const taken = await compute.getInstance(machine.name);
     if (taken === undefined || !this.holds(taken, name)) return undefined;
-    if (taken.status !== 'RUNNING') {
+    if (!RUNNING.has(taken.status)) {
       // Stopped meanwhile, and the sandbox's now: deleted rather than left to block its name.
       await compute.deleteInstance(taken.name, { wait: false });
       return undefined;
@@ -559,15 +570,6 @@ export class Sandboxes {
       [POOL_TEMPLATE_LABEL]: templateLabel,
     };
     await this.insert(instance, { ...template, labels }, { wait: false });
-  }
-
-  /**
-   * Whether the machine `machine` of the warm pool has half its run limit left at least, so that the
-   * sandbox taking it is not stopped soon after: Compute Engine counts it from the machine's start.
-   */
-  private youngEnough(machine: Instance): boolean {
-    const { maxRunSeconds } = this.options.machine;
-    return maxRunSeconds === undefined || Date.now() - startedAt(machine) < maxRunSeconds * 500;
   }
 
   /** What the machines of the warm pool are named after: the service's prefix, then `pool-`. */
@@ -694,6 +696,25 @@ export class Sandboxes {
   }
 
   /**
+   * The machine `instance` once it runs: a machine of the warm pool taken while it boots, which
+   * Compute Engine says is `RUNNING` some seconds later. As it is when it is not on its way.
+   */
+  private async booted(instance: Instance | undefined): Promise<Instance | undefined> {
+    const deadline = Date.now() + this.options.startTimeoutMs;
+    let current = instance;
+    while (
+      current !== undefined &&
+      current.status !== 'RUNNING' &&
+      RUNNING.has(current.status) &&
+      Date.now() < deadline
+    ) {
+      await sleep(1000);
+      current = await this.options.compute.getInstance(current.name);
+    }
+    return current;
+  }
+
+  /**
    * Whether no instance is named after the sandbox `name`, nor holds it under its label, once those
    * going away are gone: a machine stopping may be on its way to deletion, which takes some 50 s
    * after the sandbox's own.
@@ -746,7 +767,7 @@ export class Sandboxes {
     try {
       const instance =
         typeof made === 'string' ? await this.options.compute.getInstance(made) : made;
-      return await this.ready(name, network, instance);
+      return await this.ready(name, network, await this.booted(instance));
     } catch (error) {
       await this.removeMachine(name, machine).catch(() => undefined);
       throw error;
