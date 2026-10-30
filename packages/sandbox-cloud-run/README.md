@@ -90,9 +90,14 @@ gcloud storage buckets create gs://$BUCKET --project=$PROJECT --location=$REGION
 gcloud iam service-accounts create $SERVICE --project=$PROJECT
 gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
   --member=serviceAccount:$SERVICE@$PROJECT.iam.gserviceaccount.com --role=roles/storage.objectUser
+
+# The service token: a second lock beside Cloud Run's IAM, which every call carries.
+printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create $SERVICE-token --data-file=- --project=$PROJECT
+gcloud secrets add-iam-policy-binding $SERVICE-token --project=$PROJECT \
+  --member=serviceAccount:$SERVICE@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 ```
 
-The service account needs nothing but that role: the sandboxes never reach the metadata server, only the service does.
+The service account needs nothing but those two roles: the sandboxes never reach the metadata server, only the service does.
 
 Cloud Build makes the image from the sources. Give it an account of its own, limited to the build:
 
@@ -112,7 +117,8 @@ gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION --source=. \
   --no-allow-unauthenticated \
   --min-instances=0 --max-instances=1 --cpu-throttling --cpu=2 --memory=4Gi \
   --timeout=3600 --concurrency=1000 \
-  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=$(git rev-parse HEAD)
+  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=$(git rev-parse HEAD) \
+  --set-secrets=SANDBOX_SERVICE_TOKEN=$SERVICE-token:latest
 ```
 
 What these settings are for:
@@ -124,6 +130,7 @@ What these settings are for:
 - `--timeout=3600`: the longest a request lasts, so the longest a bridge WebSocket lasts. The harness reconnects beyond it.
 - `--concurrency=1000`: every open bridge holds a request.
 - `--memory`: see [Capacity](#capacity). 4 GiB runs two or three agent sandboxes at once.
+- `SANDBOX_SERVICE_TOKEN`: a second lock beside Cloud Run's IAM, should the service ever be deployed open; the client hands it over as `serviceToken`. The service refuses to start on Cloud Run without it, unless `SANDBOX_INSECURE_NO_TOKEN=true`.
 - `SANDBOX_IMAGE_ID`: what the image is made of, a commit or a digest. Templates are tied to it; without it, to the Cloud Run revision, so every deployment makes them again.
 
 ### 4. Who may call it
@@ -137,15 +144,7 @@ gcloud run services add-iam-policy-binding $SERVICE --project=$PROJECT --region=
 
 Grant the service account of your application the same role when it runs on Google Cloud. Anyone with that role can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs.
 
-For a second lock, should the service ever be deployed open by mistake, give it a shared secret, kept in Secret Manager, and hand the same to the client as `serviceToken`:
-
-```bash
-printf '%s' "$(openssl rand -hex 32)" | gcloud secrets create sandboxes-token --data-file=- --project=$PROJECT
-gcloud secrets add-iam-policy-binding sandboxes-token --project=$PROJECT \
-  --member=serviceAccount:$SERVICE@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
-gcloud run services update $SERVICE --project=$PROJECT --region=$REGION \
-  --set-secrets=SANDBOX_SERVICE_TOKEN=sandboxes-token:latest
-```
+Hand the service token to the client as `serviceToken`: `gcloud secrets versions access latest --secret=$SERVICE-token --project=$PROJECT`.
 
 ### 5. The service's URL
 
@@ -419,25 +418,26 @@ A view starts its own processes and hands its own credentials to the service, an
 
 The service reads its settings from the environment. Every variable has a default fit for Cloud Run.
 
-| Variable                        | Default                                                                                  | Description                                                                                                       |
-| ------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `SNAPSHOT_BUCKET`               | required on Cloud Run                                                                    | The bucket of the snapshots and templates                                                                         |
-| `SANDBOX_ALLOWED_HOSTS`         | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                                     |
-| `SANDBOX_BASE_URLS`             | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the service, as `NAME=url` pairs                                                |
-| `SANDBOX_HOME`                  | `/home/agent`                                                                            | The `HOME` of the sandboxes' commands                                                                             |
-| `SANDBOX_WORKDIR`               | `/workspace`                                                                             | Their working directory                                                                                           |
-| `SANDBOX_PATH`                  | `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`                           | Their `PATH`                                                                                                      |
-| `SANDBOX_EGRESS_PORT`           | `3128`                                                                                   | The port of the egress relay in each sandbox                                                                      |
-| `SANDBOX_IMAGE_ID`              | the Cloud Run revision                                                                   | What the image is made of, a commit or a digest: templates are tied to it                                         |
-| `SANDBOX_SERVICE_TOKEN`         | none                                                                                     | A secret every call must carry, beside Cloud Run's IAM                                                            |
-| `SANDBOX_ALLOW_EGRESS`          | `false`                                                                                  | `true` gives the sandboxes a network of their own (`--allow-egress`), beside the proxy: see [Security](#security) |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`                                                                                  | Off Cloud Run only, for tests: lets the sandboxes reach private addresses and plain HTTP                          |
-| `SNAPSHOT_TRANSFER`             | `fifo`                                                                                   | `file` to pass layers through a file rather than a pipe; the service falls back by itself                         |
-| `SANDBOX_CLI`                   | `/usr/local/gcp/bin/sandbox`                                                             | The `sandbox` CLI                                                                                                 |
-| `SANDBOX_NODE`                  | the service's Node.js                                                                    | The Node.js the sandboxes run the relay with                                                                      |
-| `SNAPSHOT_DIRECTORY`            | `.snapshots`                                                                             | Off Cloud Run, without a bucket: the directory of the snapshots                                                   |
-| `PORT`, `HOST`                  | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                         |
-| `LOG_FORMAT`                    | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                       |
+| Variable                        | Default                                                                                  | Description                                                                                                               |
+| ------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `SNAPSHOT_BUCKET`               | required on Cloud Run                                                                    | The bucket of the snapshots and templates                                                                                 |
+| `SANDBOX_ALLOWED_HOSTS`         | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                                             |
+| `SANDBOX_BASE_URLS`             | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the service, as `NAME=url` pairs                                                        |
+| `SANDBOX_HOME`                  | `/home/agent`                                                                            | The `HOME` of the sandboxes' commands                                                                                     |
+| `SANDBOX_WORKDIR`               | `/workspace`                                                                             | Their working directory                                                                                                   |
+| `SANDBOX_PATH`                  | `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`                           | Their `PATH`                                                                                                              |
+| `SANDBOX_EGRESS_PORT`           | `3128`                                                                                   | The port of the egress relay in each sandbox                                                                              |
+| `SANDBOX_IMAGE_ID`              | the Cloud Run revision                                                                   | What the image is made of, a commit or a digest: templates are tied to it                                                 |
+| `SANDBOX_SERVICE_TOKEN`         | required on Cloud Run                                                                    | A secret every call must carry, beside Cloud Run's IAM                                                                    |
+| `SANDBOX_INSECURE_NO_TOKEN`     | `false`                                                                                  | `true` to run on Cloud Run without `SANDBOX_SERVICE_TOKEN`, Cloud Run's IAM then the only lock, with a warning at startup |
+| `SANDBOX_ALLOW_EGRESS`          | `false`                                                                                  | `true` gives the sandboxes a network of their own (`--allow-egress`), beside the proxy: see [Security](#security)         |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`                                                                                  | Off Cloud Run only, for tests: lets the sandboxes reach private addresses and plain HTTP                                  |
+| `SNAPSHOT_TRANSFER`             | `fifo`                                                                                   | `file` to pass layers through a file rather than a pipe; the service falls back by itself                                 |
+| `SANDBOX_CLI`                   | `/usr/local/gcp/bin/sandbox`                                                             | The `sandbox` CLI                                                                                                         |
+| `SANDBOX_NODE`                  | the service's Node.js                                                                    | The Node.js the sandboxes run the relay with                                                                              |
+| `SNAPSHOT_DIRECTORY`            | `.snapshots`                                                                             | Off Cloud Run, without a bucket: the directory of the snapshots                                                           |
+| `PORT`, `HOST`                  | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                 |
+| `LOG_FORMAT`                    | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                               |
 
 A sandbox's commands run with nothing of the service's environment: only their `PATH`, `HOME`, proxy and base URL variables, `IS_SANDBOX=1` (a Cloud Run sandbox runs as root), `npm_config_side_effects_cache=false` (pnpm's side-effects cache crashes a Cloud Run sandbox, the Claude Code bridge's install included) and the variables the command sets.
 
@@ -475,7 +475,7 @@ To keep the bill down, suspend idle sandboxes early, destroy finished ones, and 
 - **Nothing leaves the sandbox but through the proxy**, which only opens allowed hosts and the base URLs' APIs, and never a private address. Unless `SANDBOX_ALLOW_EGRESS` is on: the sandboxes then get a network of their own, beside the proxy, which neither its allowed hosts nor its refusal of private addresses applies to, and Google does not document whether it reaches the metadata server. The service warns about it when it starts; keep it off.
 - **A credential an API echoes back in its response headers** is taken out of them by the proxy, so the sandbox never reads it there. One echoed in a response body is not.
 - **The real credentials** never enter the sandbox, a snapshot or a log: see [Credentials](#credentials). Keep them out of the image too: everything in it is readable from every sandbox.
-- **The service trusts its callers**: anyone granted `roles/run.invoker` can run commands in any sandbox. Never deploy it with `--allow-unauthenticated`; add `SANDBOX_SERVICE_TOKEN` as a second lock.
+- **The service trusts its callers**: anyone granted `roles/run.invoker` can run commands in any sandbox. Never deploy it with `--allow-unauthenticated`. `SANDBOX_SERVICE_TOKEN` is a second lock, which the service requires on Cloud Run.
 - **Snapshots hold the sandbox's files**: the agent's work and its transcript. Keep the bucket private, and readable by the service account alone.
 - **Commands are not logged**: Cloud Run logs the launcher's command line only. Your application's own logs are yours to keep clean: it is the one holding the credentials.
 - **The harness's bridge token** is in the URL of its WebSocket, which Cloud Run logs with every request. It only opens the bridge of one sandbox, to someone who may already call the service, and dies with the bridge.
@@ -526,7 +526,7 @@ What the sandbox does, or does not, against the essential risks of running an ag
 This package lives in the [`ai-sdk-harness`](https://github.com/fpasquet/ai-sdk-harness) monorepo.
 
 - `pnpm test` runs the client against the real service, itself running over a fake `sandbox` CLI that isolates nothing.
-- `pnpm test:e2e` runs against a service deployed on Cloud Run. Set `CLOUD_RUN_SANDBOX_URL` to its URL, sign gcloud in with an account granted `roles/run.invoker`, and set `CLOUD_RUN_SANDBOX_SERVICE_TOKEN` if the service has a token.
+- `pnpm test:e2e` runs against a service deployed on Cloud Run. Set `CLOUD_RUN_SANDBOX_URL` to its URL, sign gcloud in with an account granted `roles/run.invoker`, and set `CLOUD_RUN_SANDBOX_SERVICE_TOKEN` to the service's token.
 
 To prove that a credential is put in on the way out of the sandbox, and never inside it, the e2e suite needs a host that sends back the headers it received: it calls `https://postman-echo.com/headers`, Postman's public echo API, with a fake credential made for the test. The package itself never calls it.
 

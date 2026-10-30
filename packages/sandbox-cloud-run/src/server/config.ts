@@ -86,8 +86,24 @@ export function sandboxesConfig(env: Environment, logger: Logger): ServiceOption
     scratch: tmpdir(),
     layerTransfer: env['SNAPSHOT_TRANSFER'] === 'file' ? 'file' : 'fifo',
     templateNamespace: templateNamespace(env),
-    serviceToken: nonEmpty(env['SANDBOX_SERVICE_TOKEN']),
+    serviceToken: serviceToken(env, logger),
   };
+}
+
+/**
+ * `SANDBOX_SERVICE_TOKEN`, required on Cloud Run: a second lock beside its IAM, should the service
+ * ever be deployed open. `SANDBOX_INSECURE_NO_TOKEN=true` goes without, with a warning.
+ */
+function serviceToken(env: Environment, logger: Logger): string | undefined {
+  const token = nonEmpty(env['SANDBOX_SERVICE_TOKEN']);
+  if (token !== undefined || !onCloudRun(env)) return token;
+  if (env['SANDBOX_INSECURE_NO_TOKEN'] !== 'true') {
+    throw new Error(
+      'SANDBOX_SERVICE_TOKEN is required on Cloud Run: a second lock beside its IAM, should the service ever be deployed open. Set SANDBOX_INSECURE_NO_TOKEN=true to go without.',
+    );
+  }
+  logger.warn('SANDBOX_INSECURE_NO_TOKEN=true: Cloud Run’s IAM is the only lock of the service.');
+  return undefined;
 }
 
 /**

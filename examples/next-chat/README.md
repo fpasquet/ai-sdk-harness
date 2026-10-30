@@ -76,6 +76,7 @@ Then, in `.env.local`:
 ```dotenv
 EXAMPLE_SANDBOX=cloud-run
 CLOUD_RUN_SANDBOX_URL=<the URL printed above>
+CLOUD_RUN_SANDBOX_SERVICE_TOKEN=<the service's token: gcloud secrets versions access latest --secret=<service>-token>
 # CLOUD_RUN_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
 ```
 
@@ -101,6 +102,7 @@ To delete the sandbox:
 
 ```bash
 curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  -H "x-ai-sdk-sandbox-token: $CLOUD_RUN_SANDBOX_SERVICE_TOKEN" \
   "$CLOUD_RUN_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
 ```
 
@@ -112,7 +114,7 @@ The chat runs its agents in a Compute Engine virtual machine of their own, Docke
 EXAMPLE_SANDBOX=gce
 GCE_SANDBOX_URL=<the URL of the service>
 # GCE_SANDBOX_AUTH=gcloud   # or `metadata` on Google Cloud, `none` for a service run locally
-# GCE_SANDBOX_SERVICE_TOKEN=  # when the service has a token of its own (SANDBOX_SERVICE_TOKEN)
+GCE_SANDBOX_SERVICE_TOKEN=<the service's token: gcloud secrets versions access latest --secret=sandbox-service-token>
 ```
 
 Make the template with Claude Code and Codex once, when you deploy, rather than in the first conversation: some 5 minutes, during which Compute Engine saves it as an image. Run it again after a deploy that changes the harnesses or the sandbox image:
@@ -129,6 +131,7 @@ To delete the machine:
 
 ```bash
 curl -X DELETE -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  -H "x-ai-sdk-sandbox-token: $GCE_SANDBOX_SERVICE_TOKEN" \
   "$GCE_SANDBOX_URL/v1/sandboxes/ai-sdk-harness-example"
 ```
 

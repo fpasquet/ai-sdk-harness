@@ -297,7 +297,9 @@ async function openCloudRun(template: TemplateOf, hosts: readonly string[]): Pro
 
 /**
  * The settings of the Cloud Run sandbox `sandboxId`: the service at `CLOUD_RUN_SANDBOX_URL`, called
- * as the gcloud account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise.
+ * as the gcloud account unless `CLOUD_RUN_SANDBOX_AUTH` says otherwise, with
+ * `CLOUD_RUN_SANDBOX_SERVICE_TOKEN`, the token the service requires on Cloud Run
+ * (`SANDBOX_SERVICE_TOKEN`).
  */
 function cloudRunSettings(sandboxId: string, hosts: readonly string[]) {
   const url = process.env.CLOUD_RUN_SANDBOX_URL;
@@ -315,6 +317,7 @@ function cloudRunSettings(sandboxId: string, hosts: readonly string[]) {
   return {
     url,
     auth: auth as CloudRunAuth,
+    serviceToken: process.env.CLOUD_RUN_SANDBOX_SERVICE_TOKEN || undefined,
     sandboxId,
     ports: [BRIDGE_PORT],
     // The service does not keep them while the sandbox is suspended: a resume passes them again.
@@ -343,8 +346,8 @@ async function openGce(template: TemplateOf, hosts: readonly string[]): Promise<
 
 /**
  * The settings of the Compute Engine sandbox `sandboxId`: the service at `GCE_SANDBOX_URL`, called
- * as the gcloud account unless `GCE_SANDBOX_AUTH` says otherwise, with `GCE_SANDBOX_SERVICE_TOKEN`
- * when the service has a token of its own (`SANDBOX_SERVICE_TOKEN`).
+ * as the gcloud account unless `GCE_SANDBOX_AUTH` says otherwise, with `GCE_SANDBOX_SERVICE_TOKEN`,
+ * the token the service requires on Cloud Run (`SANDBOX_SERVICE_TOKEN`).
  */
 function gceSettings(sandboxId: string, hosts: readonly string[]) {
   const url = process.env.GCE_SANDBOX_URL;
