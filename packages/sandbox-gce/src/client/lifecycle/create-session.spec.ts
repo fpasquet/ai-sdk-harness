@@ -530,8 +530,8 @@ describe('a template', () => {
       const { stdout } = await session.run({ command: 'cat "$HOME/baked.txt" "$HOME/setup.txt"' });
       expect(stdout).toBe('bakedset-up\n');
     }
-    const inserts = fake.compute.calls.filter((call) =>
-      call.endsWith('/zones/test-zone/instances'),
+    const inserts = fake.compute.calls.filter(
+      (call) => call.startsWith('POST ') && call.endsWith('/zones/test-zone/instances'),
     );
     expect(inserts).toHaveLength(3);
   });
@@ -580,6 +580,51 @@ describe('a template', () => {
     await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one', template });
 
     expect(attempts).toBe(2);
+  });
+});
+
+describe('a sandbox from the warm pool', () => {
+  let fake: FakeService;
+
+  afterEach(() => fake.dispose());
+
+  /** The machines of the warm pool, booted from the template and waiting for a sandbox. */
+  const pool = (): string[] =>
+    fake.compute
+      .instanceNames()
+      .filter((name) => fake.compute.instance(name)?.labels['ai-sdk-sandbox'] === 'pool');
+
+  it('runs on a machine booted from the template ahead of it, which it never gives back', async () => {
+    fake = await startFakeService({ warmPool: 1 });
+    const options = { url: fake.url, auth: 'none' } as const;
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'warm',
+      prepare: async ({ session }) => {
+        await session.run({ command: 'printf baked > "$HOME/baked.txt"' });
+      },
+    };
+
+    await createGceNetworkSandboxSession({ ...options, sandboxId: 'one', template });
+    const [ahead = ''] = pool();
+    expect(ahead).toMatch(/^sbx-pool-[0-9a-f]{8}$/);
+
+    const two = await createGceNetworkSandboxSession({ ...options, sandboxId: 'two', template });
+    expect(fake.compute.instance('sbx-two')).toBeUndefined();
+    expect(fake.compute.instance(ahead)?.labels).toMatchObject({
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'two',
+    });
+    expect((await two.run({ command: 'cat "$HOME/baked.txt"' })).stdout).toBe('baked');
+    expect(pool()).toEqual([expect.not.stringMatching(ahead)]);
+
+    await two.stop();
+    const resumed = await resumeGceNetworkSandboxSession({ ...options, sandboxId: 'two' });
+    expect((await resumed.run({ command: 'echo back' })).stdout).toBe('back\n');
+    await resumed.destroy();
+    expect(fake.compute.instance(ahead)).toBeUndefined();
+    await expect(
+      resumeGceNetworkSandboxSession({ ...options, sandboxId: 'two' }),
+    ).rejects.toBeInstanceOf(GceSandboxNotFoundError);
   });
 });
 

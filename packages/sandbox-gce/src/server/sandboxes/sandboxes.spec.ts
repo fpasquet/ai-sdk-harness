@@ -49,6 +49,7 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
     }),
     setScheduling: vi.fn(() => Promise.resolve()),
     setMetadata: vi.fn(() => Promise.resolve()),
+    setLabels: vi.fn(() => Promise.resolve()),
     deleteInstance: vi.fn(() => {
       statuses.splice(0, statuses.length, undefined);
       return Promise.resolve();
@@ -282,6 +283,7 @@ describe('the sandboxes of the service', () => {
     }).create('box', {});
     expect(spot.insertInstance).toHaveBeenCalledWith(
       expect.objectContaining({ scheduling: expect.objectContaining(limit) as unknown }),
+      { wait: true },
     );
 
     const standard = computeOf([undefined, sandbox('RUNNING')]);
@@ -291,6 +293,7 @@ describe('the sandboxes of the service', () => {
     );
     expect(standard.insertInstance).toHaveBeenCalledWith(
       expect.objectContaining({ scheduling: expect.objectContaining(limit) as unknown }),
+      { wait: true },
     );
 
     const exhausted = computeOf([sandbox('TERMINATED'), sandbox('RUNNING')]);
@@ -328,6 +331,7 @@ describe('the sandboxes of the service', () => {
         networkInterfaces: [{ network: 'vpc', subnetwork: 'sandboxes' }],
         scheduling: expect.objectContaining({ provisioningModel: 'SPOT' }) as unknown,
       }),
+      { wait: true },
     );
     expect(proxy.register).toHaveBeenCalledWith('box', {
       address: '10.0.0.3',
@@ -716,12 +720,15 @@ describe('the sandboxes of the service', () => {
     );
   });
 
-  it('deletes a machine without waiting for Compute Engine to be done', async () => {
-    const compute = computeOf();
+  it('deletes a machine without waiting for Compute Engine to be done, and nothing not its own', async () => {
+    const compute = computeOf([sandbox('RUNNING'), undefined]);
 
     await sandboxesOf({ compute }).delete('box');
-
     expect(compute.deleteInstance).toHaveBeenCalledWith('sbx-box', { wait: false });
+
+    const foreign = computeOf([{ ...sandbox('RUNNING'), labels: {} }]);
+    await sandboxesOf({ compute: foreign }).delete('box');
+    expect(foreign.deleteInstance).not.toHaveBeenCalled();
   });
 
   it('passes on what a sandbox may reach and its credentials to the proxy', async () => {
@@ -778,5 +785,336 @@ describe('the sandboxes of the service', () => {
 
     expect(compute.deleteImage).toHaveBeenCalledWith(expect.stringMatching(/^deps-[0-9a-f]{8}$/));
     await expect(sandboxes.deleteTemplate('Not_Valid')).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('the warm pool', () => {
+  /**
+   * A zone holding whole machines by name: listed by label, labelled with their fingerprint, made
+   * running by an insert and stopped or gone as asked.
+   */
+  function zoneOf(initial: Instance[] = []): {
+    compute: Stub<ComputeApi>;
+    machines: Map<string, Instance>;
+  } {
+    const machines = new Map(initial.map((machine) => [machine.name, machine]));
+    let fingerprints = 0;
+    const compute = computeOf();
+    compute.getInstance.mockImplementation((name: string) => Promise.resolve(machines.get(name)));
+    compute.listInstances.mockImplementation((key: string, value: string) =>
+      Promise.resolve([...machines.values()].filter(({ labels }) => labels?.[key] === value)),
+    );
+    compute.insertInstance.mockImplementation((body: Record<string, unknown>) => {
+      const name = body['name'] as string;
+      machines.set(name, {
+        name,
+        status: 'RUNNING',
+        labels: body['labels'] as Record<string, string>,
+        labelFingerprint: `l${++fingerprints}`,
+        networkInterfaces: [{ networkIP: `10.0.1.${machines.size}` }],
+        metadata: body['metadata'] as Instance['metadata'],
+      });
+      return Promise.resolve();
+    });
+    compute.setLabels.mockImplementation(
+      (name: string, labels: Record<string, string>, fingerprint: string | undefined) => {
+        const machine = machines.get(name);
+        if (machine === undefined) return Promise.reject(new ComputeError(404, 'not found'));
+        if (machine.labelFingerprint !== fingerprint) {
+          return Promise.reject(new ComputeError(412, 'Labels fingerprint invalid'));
+        }
+        machines.set(name, { ...machine, labels, labelFingerprint: `l${++fingerprints}` });
+        return Promise.resolve();
+      },
+    );
+    compute.stopInstance.mockImplementation((name: string) => {
+      const machine = machines.get(name);
+      if (machine !== undefined) machines.set(name, { ...machine, status: 'TERMINATED' });
+      return Promise.resolve();
+    });
+    compute.startInstance.mockImplementation((name: string) => {
+      const machine = machines.get(name);
+      if (machine !== undefined) machines.set(name, { ...machine, status: 'RUNNING' });
+      return Promise.resolve();
+    });
+    compute.deleteInstance.mockImplementation((name: string) => {
+      machines.delete(name);
+      return Promise.resolve();
+    });
+    return { compute, machines };
+  }
+
+  /** The machines of the pool in `machines`. */
+  const poolIn = (machines: Map<string, Instance>): Instance[] =>
+    [...machines.values()].filter(({ labels }) => labels?.['ai-sdk-sandbox'] === 'pool');
+
+  /** A machine of the pool of `template`, running unless told otherwise. */
+  const poolMachine = (name: string, template: string, overrides: Partial<Instance> = {}) => ({
+    name,
+    status: 'RUNNING',
+    labels: {
+      'ai-sdk-sandbox': 'pool',
+      'ai-sdk-sandbox-image': 'default',
+      'ai-sdk-sandbox-template': template,
+    },
+    labelFingerprint: `${name}-l0`,
+    networkInterfaces: [{ networkIP: '10.0.2.1' }],
+    metadata: { items: [{ key: 'ai-sdk-sandbox-agent-run', value: 'r1' }] },
+    ...overrides,
+  });
+
+  /** The label the pool gives the template `deps` of the default image. */
+  async function depsLabel(): Promise<string> {
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf();
+    await sandboxesOf({ compute, warmPool: 1 }).create('first', { template: 'deps' });
+    return poolIn(machines)[0]?.labels?.['ai-sdk-sandbox-template'] ?? '';
+  }
+
+  it('makes a machine from the template beside a creation from it, and none without one', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf();
+    const sandboxes = sandboxesOf({ compute, warmPool: 1 });
+
+    await sandboxes.create('plain', {});
+    expect(poolIn(machines)).toEqual([]);
+
+    await sandboxes.create('box', { template: 'deps' });
+    const [pooled] = poolIn(machines);
+    expect(pooled?.name).toMatch(/^sbx-pool-[0-9a-f]{8}$/);
+    expect(pooled?.labels).toEqual({
+      'ai-sdk-sandbox': 'pool',
+      'ai-sdk-sandbox-image': 'default',
+      'ai-sdk-sandbox-template': expect.stringMatching(/^deps-[0-9a-f]{8}$/) as unknown,
+    });
+    expect(compute.insertInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: pooled?.name,
+        serviceAccounts: [],
+        disks: [
+          expect.objectContaining({
+            initializeParams: expect.objectContaining({
+              sourceImage: expect.stringMatching(/\/images\/deps-[0-9a-f]{8}$/) as unknown,
+            }) as unknown,
+          }),
+        ],
+      }),
+      { wait: false },
+    );
+    expect(machines.has('sbx-box')).toBe(true);
+  });
+
+  it('gives a creation from the template a running machine of the pool, and makes the next', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
+    const proxy = proxyOf();
+    const info = vi.fn();
+    const sandboxes = sandboxesOf({
+      compute,
+      proxy,
+      warmPool: 1,
+      logger: { ...silentLogger, info },
+    });
+
+    await expect(sandboxes.create('box', { template: 'deps' })).resolves.toMatchObject({
+      name: 'box',
+    });
+
+    expect(machines.has('sbx-box')).toBe(false);
+    expect(machines.get('sbx-pool-a')?.labels).toMatchObject({
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'box',
+    });
+    expect(proxy.register).toHaveBeenCalledWith(
+      'box',
+      expect.objectContaining({ address: '10.0.2.1' }),
+    );
+    const [next] = poolIn(machines);
+    expect(next?.name).toMatch(/^sbx-pool-/);
+    expect(info).toHaveBeenCalledWith(
+      expect.stringMatching(/^box created in \d+ ms on sbx-pool-a of the warm pool$/),
+    );
+
+    // The machine keeps its name: its agent's token is still the one of its machine.
+    const agent = await sandboxesOf({ compute }).agent('box');
+    expect(agent.endpoint.token).toBe(agentToken('a-secret', 'sbx-pool-a', 'r1'));
+  });
+
+  it('finds the sandbox of a machine of the pool by its label, to stop, start and delete it', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const taken = poolMachine('sbx-pool-a', 'deps-x', {
+      labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+    });
+    const { compute, machines } = zoneOf([taken]);
+    const sandboxes = sandboxesOf({ compute });
+
+    await expect(sandboxes.create('box', {})).rejects.toMatchObject({ status: 409 });
+    await sandboxes.suspend('box');
+    expect(compute.stopInstance).toHaveBeenCalledWith('sbx-pool-a', { wait: false });
+    expect(compute.setMetadata).toHaveBeenCalledWith('sbx-pool-a', expect.anything());
+
+    await sandboxes.resume('box', {});
+    expect(compute.startInstance).toHaveBeenCalledWith('sbx-pool-a');
+
+    await sandboxes.delete('box');
+    expect(machines.has('sbx-pool-a')).toBe(false);
+    await expect(sandboxes.resume('box', {})).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('never takes a machine named after a sandbox for another one', async () => {
+    // Taken from the pool by `box`, its name is that of a sandbox `pool-a`.
+    const taken = poolMachine('sbx-pool-a', 'deps-x', {
+      labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+    });
+    const { compute, machines } = zoneOf([taken]);
+    const sandboxes = sandboxesOf({ compute });
+
+    await expect(sandboxes.agent('pool-a')).rejects.toMatchObject({ status: 404 });
+    await sandboxes.delete('pool-a');
+    expect(machines.has('sbx-pool-a')).toBe(true);
+  });
+
+  it('deletes the machines of another template, stopped, or past half their run limit', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-old', 'other-template'),
+      poolMachine('sbx-pool-stopped', deps, { status: 'TERMINATED' }),
+      poolMachine('sbx-pool-aged', deps, { lastStartTimestamp: hourAgo }),
+      // Another service's pool, under its own prefix.
+      poolMachine('dev-pool-a', 'other-template'),
+    ]);
+    const sandboxes = sandboxesOf({
+      compute,
+      warmPool: 1,
+      machine: { ...machine, maxRunSeconds: 6000 },
+    });
+
+    await sandboxes.create('box', { template: 'deps' });
+
+    expect(machines.has('sbx-box')).toBe(true);
+    expect([...machines.keys()].filter((name) => name.includes('pool'))).toEqual([
+      'dev-pool-a',
+      expect.stringMatching(/^sbx-pool-[0-9a-f]{8}$/),
+    ]);
+    // Labelled first, so that no creation takes it meanwhile.
+    expect(compute.setLabels).toHaveBeenCalledWith(
+      'sbx-pool-old',
+      expect.objectContaining({ 'ai-sdk-sandbox-retired': 'true' }),
+      'sbx-pool-old-l0',
+    );
+  });
+
+  it('keeps no more machines than asked, and takes the last ones once none is', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-a', deps, { creationTimestamp: '2026-01-01T00:00:00Z' }),
+      poolMachine('sbx-pool-b', deps, { creationTimestamp: '2026-01-02T00:00:00Z' }),
+    ]);
+
+    await sandboxesOf({ compute, warmPool: 0 }).create('box', { template: 'deps' });
+
+    expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
+    expect(poolIn(machines)).toEqual([]);
+    expect(compute.insertInstance).not.toHaveBeenCalled();
+  });
+
+  it('makes a machine of its own when another creation took the one of the pool first', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
+    // Taken by another creation between the list and the change of its labels.
+    compute.setLabels.mockRejectedValueOnce(new ComputeError(412, 'Labels fingerprint invalid'));
+
+    await sandboxesOf({ compute, warmPool: 1 }).create('box', { template: 'deps' });
+
+    expect(machines.get('sbx-box')?.status).toBe('RUNNING');
+    expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox']).toBe('pool');
+    expect(poolIn(machines)).toHaveLength(2);
+  });
+
+  it('leaves the pool alone when Compute Engine refuses to label its machines', async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
+    compute.setLabels.mockRejectedValue(new ComputeError(403, 'Required permission'));
+    const warn = vi.fn();
+
+    await sandboxesOf({ compute, warmPool: 1, logger: { ...silentLogger, warn } }).create('box', {
+      template: 'deps',
+    });
+
+    expect(machines.has('sbx-box')).toBe(true);
+    expect(poolIn(machines).map(({ name }) => name)).toEqual(['sbx-pool-a']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('The warm pool is left alone'));
+  });
+
+  it('gives a name to one machine only, when two creations of it race', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf();
+    const insert = compute.insertInstance.getMockImplementation();
+    compute.insertInstance.mockImplementation(async (body: Record<string, unknown>) => {
+      await insert?.(body);
+      // Meanwhile, another creation of `box` took a machine of the pool.
+      machines.set(
+        'sbx-pool-z',
+        poolMachine('sbx-pool-z', 'deps-x', {
+          labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+        }),
+      );
+    });
+
+    await expect(sandboxesOf({ compute }).create('box', {})).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(machines.has('sbx-box')).toBe(false);
+    expect(machines.has('sbx-pool-z')).toBe(true);
+  });
+
+  it('counts its machines neither as running sandboxes nor as keeping the proxy up', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute } = zoneOf([
+      poolMachine('sbx-pool-a', 'deps-x'),
+      poolMachine('sandbox-proxy', 'none', { labels: {} }),
+    ]);
+    const sandboxes = sandboxesOf({ compute, maxRunning: 1, proxyInstance: 'sandbox-proxy' });
+
+    await sandboxes.create('box', {});
+    await sandboxes.delete('box');
+
+    expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+  });
+
+  it('keeps the proxy running when told to, once no sandbox runs', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute } = zoneOf([poolMachine('sandbox-proxy', 'none', { labels: {} })]);
+    const sandboxes = sandboxesOf({
+      compute,
+      proxyInstance: 'sandbox-proxy',
+      proxyAlwaysOn: true,
+    });
+
+    await sandboxes.create('box', {});
+    await sandboxes.delete('box');
+
+    expect(compute.stopInstance).not.toHaveBeenCalled();
+  });
+
+  it('keeps in the proxy a sandbox on a machine taken from the pool', async () => {
+    const { compute } = zoneOf([
+      poolMachine('sbx-pool-a', 'deps-x', {
+        labels: { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+      }),
+    ]);
+    const proxy = proxyOf();
+    proxy.list.mockResolvedValue([
+      { name: 'box', address: '10.0.2.1', serial: 1, sent: 0, received: 0 },
+      { name: 'pool-a', address: '10.0.2.1', serial: 2, sent: 0, received: 0 },
+    ]);
+
+    await expect(sandboxesOf({ compute, proxy }).reconcile()).resolves.toEqual(['pool-a']);
   });
 });

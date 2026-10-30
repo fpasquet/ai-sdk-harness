@@ -8,8 +8,13 @@ export interface Instance {
   /** `PROVISIONING`, `STAGING`, `RUNNING`, `STOPPING`, `TERMINATED`, `SUSPENDING`, `SUSPENDED`… */
   status: string;
   labels?: Record<string, string>;
+  /** What the labels are changed with: Compute Engine refuses a change made on older ones. */
+  labelFingerprint?: string;
   networkInterfaces?: { networkIP?: string }[];
   metadata?: InstanceMetadata;
+  /** When the instance was made, and when it last started: RFC 3339 timestamps. */
+  creationTimestamp?: string;
+  lastStartTimestamp?: string;
 }
 
 /** The metadata of an instance: its `fingerprint` must be given back to change it. */
@@ -84,8 +89,11 @@ export class ComputeApi {
     return instances;
   }
 
-  async insertInstance(body: Record<string, unknown>): Promise<void> {
-    await this.change('POST', this.zonal('instances'), { body });
+  async insertInstance(
+    body: Record<string, unknown>,
+    { wait = true }: ChangeOptions = {},
+  ): Promise<void> {
+    await this.change('POST', this.zonal('instances'), { body, wait });
   }
 
   async startInstance(name: string, { wait = true }: ChangeOptions = {}): Promise<void> {
@@ -111,6 +119,20 @@ export class ComputeApi {
    */
   async setMetadata(name: string, metadata: InstanceMetadata): Promise<void> {
     await this.change('POST', this.zonal(`instances/${name}/setMetadata`), { body: metadata });
+  }
+
+  /**
+   * Replaces the labels of the instance `name`. Refused with a 412 when they changed since they were
+   * read with `fingerprint`: of two changes made on the same labels, one only goes through.
+   */
+  async setLabels(
+    name: string,
+    labels: Record<string, string>,
+    fingerprint: string | undefined,
+  ): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/setLabels`), {
+      body: { labels, labelFingerprint: fingerprint },
+    });
   }
 
   /** Deletes the instance `name` and its disks set to go with it. Nothing when there is none. */

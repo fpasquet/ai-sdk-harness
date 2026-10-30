@@ -44,6 +44,8 @@ interface FakeServiceOverrides {
   reconcileEveryMs?: number;
   /** The port the proxy's tunnels reach, 443 without it. */
   tunnelPort?: number;
+  /** How many machines the service keeps booted from the last template: none without it. */
+  warmPool?: number;
 }
 
 async function listen(server: Server): Promise<number> {
@@ -95,6 +97,7 @@ export async function startFakeService(overrides: FakeServiceOverrides = {}): Pr
     startTimeoutMs: 15_000,
     serviceToken: overrides.serviceToken,
     reconcileEveryMs: overrides.reconcileEveryMs,
+    warmPool: overrides.warmPool,
   });
   const port = await listen(service.server);
   return {

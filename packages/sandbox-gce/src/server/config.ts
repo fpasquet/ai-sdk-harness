@@ -152,6 +152,68 @@ function reconcileEveryMs(value: string | undefined): number | undefined {
   return minutes === 0 ? undefined : minutes * 60_000;
 }
 
+/**
+ * What `SANDBOX_PROFILE` sets the defaults of: `cost`, nothing running but the sandboxes, each
+ * booted on demand; `fast`, a machine of the warm pool always booted and the proxy always on, for a
+ * sandbox in seconds at a fixed cost.
+ */
+const PROFILES = {
+  cost: { warmPool: 0, proxyAlwaysOn: false },
+  fast: { warmPool: 1, proxyAlwaysOn: true },
+} as const;
+
+/** `SANDBOX_PROFILE`, `cost` or `fast`: `cost` when unset. */
+function profile(value: string | undefined): (typeof PROFILES)[keyof typeof PROFILES] {
+  const text = nonEmpty(value) ?? 'cost';
+  if (text !== 'cost' && text !== 'fast') {
+    throw new Error(`SANDBOX_PROFILE: \`${text}\` is neither \`cost\` nor \`fast\`.`);
+  }
+  return PROFILES[text];
+}
+
+/** `SANDBOX_WARM_POOL`, a whole number of machines: `fallback` when unset. */
+function warmPool(value: string | undefined, fallback: number): number {
+  const text = nonEmpty(value);
+  if (text === undefined) return fallback;
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`SANDBOX_WARM_POOL: \`${text}\` is not a whole number of machines.`);
+  }
+  return parsed;
+}
+
+/** A variable that is `true` or `false`: `fallback` when unset. */
+function flag(name: string, value: string | undefined, fallback: boolean): boolean {
+  const text = nonEmpty(value);
+  if (text === undefined) return fallback;
+  if (text !== 'true' && text !== 'false') {
+    throw new Error(`${name}: \`${text}\` is neither \`true\` nor \`false\`.`);
+  }
+  return text === 'true';
+}
+
+/** The settings `SANDBOX_PROFILE` gives the defaults of, with a word on the cost of a warm pool. */
+function speedSettings(
+  env: Environment,
+  logger: Logger,
+): { warmPool: number; proxyAlwaysOn: boolean } {
+  const defaults = profile(env['SANDBOX_PROFILE']);
+  const pool = warmPool(env['SANDBOX_WARM_POOL'], defaults.warmPool);
+  if (pool > 0) {
+    logger.info(
+      `SANDBOX_WARM_POOL=${pool}: ${pool === 1 ? 'a machine is' : `${pool} machines are`} kept booted from the last template, billed all the time.`,
+    );
+  }
+  return {
+    warmPool: pool,
+    proxyAlwaysOn: flag(
+      'SANDBOX_PROXY_ALWAYS_ON',
+      env['SANDBOX_PROXY_ALWAYS_ON'],
+      defaults.proxyAlwaysOn,
+    ),
+  };
+}
+
 /** The secret the agents' tokens are derived from. */
 function agentSecret(env: Environment): string {
   const secret = required(
@@ -228,6 +290,7 @@ export async function sandboxesConfig(env: Environment, logger: Logger): Promise
     maxRunning: maxRunning(env['SANDBOX_MAX_RUNNING']),
     reconcileEveryMs: reconcileEveryMs(env['SANDBOX_RECONCILE_MINUTES']),
     proxyInstance: nonEmpty(env['SANDBOX_PROXY_INSTANCE']),
+    ...speedSettings(env, logger),
     serviceToken: serviceToken(env, logger),
   };
 }

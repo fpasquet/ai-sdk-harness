@@ -1,4 +1,4 @@
-import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
+import type { HarnessV1RequestTransformation, HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 import type { AddressInfo } from 'node:net';
 
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
@@ -110,6 +110,41 @@ describe('a sandbox machine', () => {
         'GET /v1/ports/4000 HTTP/1.1\r\nHost: x\r\nUpgrade: echo\r\nConnection: Upgrade\r\n\r\n',
       ),
     ).toMatch(/^HTTP\/1.1 401/);
+  });
+
+  it('has an agent, once taken from the warm pool, that only answers the token of its machine', async () => {
+    fake = await startFakeService({ warmPool: 1 });
+    const secret = 'a-secret-of-thirty-two-characters!';
+    const options = { url: fake.url, auth: 'none' } as const;
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'warm',
+      prepare: () => Promise.resolve(),
+    };
+    await createGceNetworkSandboxSession({ ...options, sandboxId: 'one', template });
+    const [machine = ''] = fake.compute
+      .instanceNames()
+      .filter((name) => fake.compute.instance(name)?.labels['ai-sdk-sandbox'] === 'pool');
+    const session = await createGceNetworkSandboxSession({
+      ...options,
+      sandboxId: 'box',
+      template,
+    });
+    const run = fake.compute
+      .instance(machine)
+      ?.metadata.items.find(({ key }) => key === 'ai-sdk-sandbox-agent-run')?.value;
+    const exec = (token: string): Promise<Response> =>
+      fetch(`http://127.0.0.1:${fake.compute.agentPort(machine)}/v1/exec`, {
+        method: 'POST',
+        headers: { 'x-ai-sdk-sandbox-agent-token': token },
+        body: '{"command":"true"}\n',
+      });
+
+    expect(fake.compute.instance(machine)?.labels['ai-sdk-sandbox-name']).toBe('box');
+    // Neither the token of a machine named after the sandbox, nor that of another sandbox.
+    expect((await exec(agentToken(secret, 'sbx-box', run))).status).toBe(401);
+    expect((await exec(agentToken(secret, 'sbx-one', run))).status).toBe(401);
+    expect((await exec(agentToken(secret, machine, run))).status).not.toBe(401);
+    expect((await session.run({ command: 'echo ok' })).stdout).toBe('ok\n');
   });
 
   it('gives its agent a new token at each stop: one read before no longer opens it', async () => {
