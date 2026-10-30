@@ -203,6 +203,12 @@ Wants=network-online.target
 ExecCondition=+/usr/local/bin/ai-sdk-sandbox-proxy-pinned
 ExecStart=/bin/sh -c 'SANDBOX_PROXY_TOKEN=$(/usr/local/bin/ai-sdk-sandbox-proxy-token) exec ai-sdk-sandbox-gce proxy'
 Restart=always
+# With SANDBOX_PROXY_INSTANCE on the service: after 10 minutes with no sandbox, the proxy exits
+# with 100 and its machine stops, should no sandbox come after prepareGceSandboxService(). Leave
+# these three lines out for a proxy always on.
+Environment=SANDBOX_PROXY_IDLE_EXIT_MINUTES=10
+RestartPreventExitStatus=100
+ExecStopPost=+/bin/sh -c 'if [ "$$EXIT_STATUS" = 100 ]; then systemctl poweroff; fi'
 DynamicUser=yes
 # Every sandbox holds up to SANDBOX_PROXY_MAX_CONNECTIONS (128) connections at once.
 LimitNOFILE=65536
@@ -244,7 +250,7 @@ gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
 gcloud compute instances reset sandbox-proxy --zone=$ZONE
 ```
 
-The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
+The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. A sandbox then waits some 40 s for the proxy to boot: call `prepareGceSandboxService()` (see [Usage](#usage)) as soon as one is likely to be asked for, and it finds the proxy up. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
 
 ### 3. The sandbox image
 
@@ -427,6 +433,19 @@ try {
 ```
 
 `auth` takes `'gcloud'` (the default: `gcloud auth print-identity-token`), `'metadata'` (the workload's service account on Google Cloud), `'none'`, or a function returning an identity token for the service's URL, such as one from `google-auth-library`.
+
+When the service starts and stops the egress proxy (`SANDBOX_PROXY_INSTANCE`), the first sandbox after a quiet spell waits for the proxy's machine to boot. Ask the service to boot it as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds it up:
+
+```ts
+import { prepareGceSandboxService } from 'ai-sdk-sandbox-gce';
+
+// Not awaited: it only starts the proxy's machine, and an error changes nothing for the sandboxes.
+void prepareGceSandboxService({ url: process.env.GCE_SANDBOX_URL!, auth: 'metadata' }).catch(
+  () => undefined,
+);
+```
+
+The proxy stops again with the next sandbox that stops, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit). A service that keeps its proxy always on, or of an earlier version, does nothing.
 
 ## Images and toolchains
 

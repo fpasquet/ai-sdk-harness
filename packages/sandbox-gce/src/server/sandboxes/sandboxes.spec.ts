@@ -207,6 +207,22 @@ describe('the sandboxes of the service', () => {
     expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
   });
 
+  it('starts the stopped proxy ahead of a sandbox, without waiting for it', async () => {
+    const compute = machinesOf({ 'sandbox-proxy': 'TERMINATED' });
+    const proxy = proxyOf();
+
+    await sandboxesOf({ compute, proxy, proxyInstance: 'sandbox-proxy' }).prepare();
+    expect(compute.startInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+    expect(proxy.healthy).not.toHaveBeenCalled();
+
+    const running = machinesOf({ 'sandbox-proxy': 'RUNNING' });
+    await sandboxesOf({ compute: running, proxyInstance: 'sandbox-proxy' }).prepare();
+    const alwaysOn = machinesOf({});
+    await sandboxesOf({ compute: alwaysOn }).prepare();
+    expect(running.startInstance).not.toHaveBeenCalled();
+    expect(alwaysOn.getInstance).not.toHaveBeenCalled();
+  });
+
   it('keeps the proxy running while another sandbox runs, and leaves a stopped one alone', async () => {
     const compute = machinesOf({
       'sandbox-proxy': 'RUNNING',

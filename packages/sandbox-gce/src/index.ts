@@ -10,6 +10,7 @@ export type {
 } from './client/gce-settings.js';
 export {
   createGceNetworkSandboxSession,
+  prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';
 export { GCE_SANDBOX_PROVIDER_ID } from './client/provider-id.js';

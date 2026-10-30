@@ -118,6 +118,19 @@ export async function createGceNetworkSandboxSession(
 }
 
 /**
+ * Has the sandbox service at `url` boot what a sandbox needs, its egress proxy when the service
+ * starts and stops it, without waiting for it: call it as soon as a sandbox is likely to be asked
+ * for, the person who launches it still reading what will run, and the creation that follows finds
+ * the proxy up. The proxy stops again with the next sandbox that stops, or by itself when none is
+ * made. A service that does not drive its proxy, or of an earlier version, does nothing.
+ */
+export async function prepareGceSandboxService(
+  options: GceConnectionSettings & { abortSignal?: AbortSignal },
+): Promise<void> {
+  await clientOf(options).prepare(options.abortSignal);
+}
+
+/**
  * Reattaches to a sandbox made by {@link createGceNetworkSandboxSession}, from this process or
  * another one: a running sandbox as it is, a stopped one started again on its disk. Never creates
  * one: throws `GceSandboxNotFoundError` when no sandbox is named `sandboxId`.

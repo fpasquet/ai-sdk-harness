@@ -52,6 +52,16 @@ describe('SandboxServiceClient', () => {
     expect(authorization).toBe('Bearer secret');
   });
 
+  it('prepares the service, one of an earlier version without the route included', async () => {
+    const client = new SandboxServiceClient(url);
+    answer = { status: 204, body: '' };
+    await client.prepare();
+
+    answer = { status: 404, body: JSON.stringify({ error: 'Not found.' }) };
+    await expect(client.prepare()).resolves.toBeUndefined();
+    expect(requests).toEqual(['POST /v1/prepare', 'POST /v1/prepare']);
+  });
+
   it('turns a refusal of IAM into an authentication error', async () => {
     answer = { status: 403, body: 'Forbidden' };
     const client = new SandboxServiceClient(url);

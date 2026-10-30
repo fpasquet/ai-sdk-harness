@@ -88,8 +88,8 @@ export class ComputeApi {
     await this.change('POST', this.zonal('instances'), { body });
   }
 
-  async startInstance(name: string): Promise<void> {
-    await this.change('POST', this.zonal(`instances/${name}/start`));
+  async startInstance(name: string, { wait = true }: ChangeOptions = {}): Promise<void> {
+    await this.change('POST', this.zonal(`instances/${name}/start`), { wait });
   }
 
   async resumeInstance(name: string): Promise<void> {
