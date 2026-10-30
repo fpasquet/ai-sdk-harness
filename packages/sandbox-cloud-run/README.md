@@ -58,24 +58,20 @@ flowchart TB
 
 ### 1. The image
 
-The image runs the service, and is what the sandboxes see. Start from this `Dockerfile` and add your agent's tools:
+The image runs the service, and is what the sandboxes see. It is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-cloud-run:<version>`: Node.js, git, `pnpm`, `curl`, `python3`, `ripgrep` and the package, built by the release workflow from the version on npm, with a provenance attestation (`gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.0 --owner fpasquet`). Deploy it as it is when your agents need nothing more.
+
+Otherwise start from it and add your project's toolchain, Python, Go or Rust:
 
 ```dockerfile title="Dockerfile"
-FROM node:24-bookworm-slim
-
-# procps (pgrep) lets the service stop a process with everything it started.
+FROM docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.0
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends ca-certificates curl git procps python3 ripgrep \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --silent pnpm@10 ai-sdk-sandbox-cloud-run@0.3.0 \
-  && npm cache clean --force
-
-CMD ["ai-sdk-sandbox-cloud-run", "serve"]
+  && apt-get install --yes --no-install-recommends golang \
+  && rm -rf /var/lib/apt/lists/*
 ```
 
-Whatever your project's language, keep Node.js and git in the image: the harness needs Node.js for its bridge, and git fetches the repositories. Add your project's toolchain beside them, Python, Go or Rust: every sandbox of the service sees this one image, so it holds every toolchain your agents need, or you deploy one service per toolchain. [Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) shows the other ways.
+Every sandbox of the service sees this one image, so it holds every toolchain your agents need, or you deploy one service per toolchain. Keep Node.js and git in it: the harness needs Node.js for its bridge, and git fetches the repositories. [Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) shows the other ways.
 
-Pin `ai-sdk-sandbox-cloud-run` to the version your application depends on. The client and the service check that they speak the same protocol, and the service refuses a client that does not, saying which version to deploy.
+Pin the image to the version of `ai-sdk-sandbox-cloud-run` your application depends on. The client and the service check that they speak the same protocol, and the service refuses a client that does not, saying which version to deploy.
 
 ### 2. The bucket and the service account
 
@@ -99,15 +95,7 @@ gcloud secrets add-iam-policy-binding $SERVICE-token --project=$PROJECT \
 
 The service account needs nothing but those two roles: the sandboxes never reach the metadata server, only the service does.
 
-Cloud Build makes the image from the sources. Give it an account of its own, limited to the build:
-
-```bash
-gcloud iam service-accounts create $SERVICE-build --project=$PROJECT
-gcloud projects add-iam-policy-binding $PROJECT \
-  --member=serviceAccount:$SERVICE-build@$PROJECT.iam.gserviceaccount.com --role=roles/run.builder
-```
-
-Cloud Build makes the image from the sources. Give it an account of its own, limited to the build:
+With an image of your own, Cloud Build makes it from the sources. Give it an account of its own, limited to the build:
 
 ```bash
 gcloud iam service-accounts create $SERVICE-build --project=$PROJECT
@@ -118,28 +106,28 @@ gcloud projects add-iam-policy-binding $PROJECT \
 ### 3. The service
 
 ```bash
-gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION --source=. \
+gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION \
+  --image=docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.0 \
   --sandbox-launcher --execution-environment=gen2 \
   --service-account=$SERVICE@$PROJECT.iam.gserviceaccount.com \
-  --build-service-account=projects/$PROJECT/serviceAccounts/$SERVICE-build@$PROJECT.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --min-instances=0 --max-instances=1 --cpu-throttling --cpu=2 --memory=4Gi \
   --timeout=3600 --concurrency=1000 \
-  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=$(git rev-parse HEAD) \
+  --set-env-vars=SNAPSHOT_BUCKET=$BUCKET,SANDBOX_ALLOWED_HOSTS=registry.npmjs.org,SANDBOX_IMAGE_ID=0.3.0 \
   --set-secrets=SANDBOX_SERVICE_TOKEN=$SERVICE-token:latest
 ```
 
 What these settings are for:
 
 - `--sandbox-launcher` and `gen2` enable the `sandbox` CLI in the instance. The flag is only in the `beta` track of gcloud; with Terraform, set `launch_stage = "BETA"` on the service.
-- `--build-service-account`: Cloud Build makes the image as the account above, which only reads the sources, pushes the image and writes the build's logs. Without it, Cloud Build builds as the Compute Engine default service account, which older projects grant `roles/editor`: anything a build runs would then reach everything in the project. Once no build uses it, take `roles/editor` away from that account.
+- `--image`: the published image, resolved to its digest for the revision. With an image of your own, deploy its directory with `--source=.` and `--build-service-account=projects/$PROJECT/serviceAccounts/$SERVICE-build@$PROJECT.iam.gserviceaccount.com` instead: Cloud Build makes it as the account above, which only reads the sources, pushes the image and writes the build's logs. Without it, Cloud Build builds as the Compute Engine default service account, which older projects grant `roles/editor`: anything a build runs would then reach everything in the project.
 - `--max-instances=1`: a running sandbox lives in the memory of the instance that started it, and every call for it must reach that instance.
 - `--min-instances=0 --cpu-throttling`: no instance and no bill while no sandbox runs.
 - `--timeout=3600`: the longest a request lasts, so the longest a bridge WebSocket lasts. The harness reconnects beyond it.
 - `--concurrency=1000`: every open bridge holds a request.
 - `--memory`: see [Capacity](#capacity). 4 GiB runs two or three agent sandboxes at once.
 - `SANDBOX_SERVICE_TOKEN`: a second lock beside Cloud Run's IAM, should the service ever be deployed open; the client hands it over as `serviceToken`. The service refuses to start on Cloud Run without it, unless `SANDBOX_INSECURE_NO_TOKEN=true`.
-- `SANDBOX_IMAGE_ID`: what the image is made of, a commit or a digest. Templates are tied to it; without it, to the Cloud Run revision, so every deployment makes them again.
+- `SANDBOX_IMAGE_ID`: what the image is made of, the published image's version, or a commit or a digest for an image of your own (`$(git rev-parse HEAD)`). Templates are tied to it; without it, to the Cloud Run revision, so every deployment makes them again.
 
 ### 4. Who may call it
 

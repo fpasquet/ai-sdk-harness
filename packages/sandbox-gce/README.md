@@ -303,13 +303,7 @@ The agent runs as root and starts the commands as `agent`. It does not wait for 
 
 ### 4. The service
 
-The service's image is the package and Node.js:
-
-```dockerfile title="Dockerfile"
-FROM node:24-bookworm-slim
-RUN npm install --global --silent ai-sdk-sandbox-gce@0.3.0 && npm cache clean --force
-CMD ["ai-sdk-sandbox-gce", "serve"]
-```
+The service's image is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-gce:<version>`: Node.js and the package, built by the release workflow from the version on npm. Deploy the version your application depends on. Each image carries a provenance attestation, which `gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.0 --owner fpasquet` checks; its [`Dockerfile`](https://github.com/fpasquet/ai-sdk-harness/blob/main/packages/sandbox-gce/Dockerfile) builds the same image from your own registry.
 
 Its service account gets a role of its own, with what the service calls and nothing else, limited by a condition to the names it uses: the sandboxes' machines and disks (`sbx-`), the proxy's machine, the sandbox images and templates (`ai-sdk-`).
 
@@ -347,14 +341,8 @@ for secret in sandbox-agent-secret sandbox-proxy-token sandbox-service-token; do
     --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 done
 
-# What Cloud Build makes the service's image as: the build, and nothing else.
-gcloud iam service-accounts create sandboxes-build
-gcloud projects add-iam-policy-binding $PROJECT \
-  --member=serviceAccount:sandboxes-build@$PROJECT.iam.gserviceaccount.com --role=roles/run.builder
-
-gcloud run deploy sandboxes --region=$REGION --source=. \
+gcloud run deploy sandboxes --region=$REGION --image=docker.io/fpasquet/ai-sdk-sandbox-gce:0.3.0 \
   --service-account=sandboxes@$PROJECT.iam.gserviceaccount.com \
-  --build-service-account=projects/$PROJECT/serviceAccounts/sandboxes-build@$PROJECT.iam.gserviceaccount.com \
   --network=sandboxes --subnet=service --vpc-egress=private-ranges-only \
   --no-allow-unauthenticated --min-instances=0 --timeout=3600 --concurrency=1000 \
   --set-env-vars=SANDBOX_ZONE=$ZONE,SANDBOX_IMAGE=family/ai-sdk-sandbox \
@@ -369,7 +357,7 @@ gcloud run deploy sandboxes --region=$REGION --source=. \
 What these settings are for:
 
 - `--network`, `--subnet`, `--vpc-egress`: Direct VPC egress, so that the service reaches the agents and the proxy on their internal addresses.
-- `--build-service-account`: Cloud Build makes the image as an account of its own, which only reads the sources, pushes the image and writes the build's logs. Without it, Cloud Build builds as the Compute Engine default service account, which older projects grant `roles/editor`: anything a build runs would then read the agents' tokens, and everything else in the project. Once no build uses it, take `roles/editor` away from that account.
+- `--image`: Cloud Run resolves the tag to its digest when it deploys a revision, which runs that image whatever is pushed under the tag later. Nothing is built in your project: no Cloud Build, and no build account to keep away from the agents' tokens.
 - `sandboxService`: create, stop, start and delete the machines, save a template as an image, start and stop the proxy; nothing outside the names of the condition. A missing permission shows in `pnpm test:e2e`.
 - `SANDBOX_PROXY_INSTANCE`: the proxy only runs while a sandbox does. `SANDBOX_MAX_RUNNING`: the machines running at once, a cap on the bill. `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever happens.
 - `SANDBOX_SERVICE_TOKEN`: a second lock beside Cloud Run's IAM, should the service ever be deployed open; the client hands it over as `serviceToken`. The service refuses to start on Cloud Run without it, unless `SANDBOX_INSECURE_NO_TOKEN=true`.
