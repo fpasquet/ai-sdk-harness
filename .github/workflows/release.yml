@@ -75,8 +75,12 @@ jobs:
         id: images
         if: steps.changesets.outputs.published == 'true'
         env:
-          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
+          # `published-packages` in v2, `publishedPackages` in v1.
+          PUBLISHED: ${{ steps.changesets.outputs.published-packages }}
         run: |
+          if [ -z "$PUBLISHED" ]; then
+            echo "::error::changesets/action published, but gave no list of the published packages." && exit 1
+          fi
           packages=$(jq -c '[.[] | select(.name == "ai-sdk-sandbox-gce" or .name == "ai-sdk-sandbox-cloud-run")]' <<< "$PUBLISHED")
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
 
