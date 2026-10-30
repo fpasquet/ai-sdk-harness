@@ -91,6 +91,45 @@ describe('createTaskList', () => {
     expect(list.result({ toolCallId: 'unknown', output: 'ok' })).toBe(undefined);
     expect(list.tasks).toEqual([]);
   });
+
+  it('skips what it cannot read: an input, a todo or a task without its fields', () => {
+    const list = createTaskList();
+
+    expect(list.call({ toolName: 'TodoWrite', input: 'not an object' })).toBe(undefined);
+    expect(list.call({ toolName: 'TodoWrite', input: { todos: 'none' } })).toBe(undefined);
+    expect(list.call({ toolName: 'TaskCreate', input: { description: 'no subject' } })).toBe(
+      undefined,
+    );
+    expect(
+      list.call({
+        toolName: 'TodoWrite',
+        input: {
+          todos: [
+            'a todo as text',
+            { status: 'pending' },
+            { content: 'Unknown status', status: 'blocked' },
+            { content: 'Kept', status: 'pending', description: 42 },
+          ],
+        },
+      }),
+    ).toEqual([{ id: '4', subject: 'Kept', status: 'pending' }]);
+  });
+
+  it('takes a numeric id from the output, and changes nothing when the id is the same', () => {
+    const list = createTaskList();
+    list.call({ toolCallId: 'c1', toolName: 'TaskCreate', input: { subject: 'One' } });
+    list.call({ toolCallId: 'c2', toolName: 'TaskCreate', input: { subject: 'Two' } });
+    list.call({ toolCallId: 'c3', toolName: 'TaskCreate', input: { subject: 'Three' } });
+
+    expect(list.result({ toolCallId: 'c1', output: { task: { id: 11 } } })).toEqual([
+      expect.objectContaining({ id: '11' }),
+      expect.objectContaining({ id: '2' }),
+      expect.objectContaining({ id: '3' }),
+    ]);
+    expect(list.result({ toolCallId: 'c2', output: { task: { id: '2' } } })).toBe(undefined);
+    expect(list.result({ toolCallId: 'c3', output: null })).toBe(undefined);
+    expect(list.tasks.map(({ id }) => id)).toEqual(['11', '2', '3']);
+  });
 });
 
 describe('isTaskToolName', () => {
