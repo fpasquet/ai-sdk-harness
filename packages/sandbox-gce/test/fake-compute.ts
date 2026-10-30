@@ -41,6 +41,18 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/** Whether `agent` says it listens before it exits: its output read until then, drained after. */
+function listening(agent: ChildProcess): Promise<boolean> {
+  return new Promise((resolve) => {
+    let output = '';
+    agent.once('exit', () => resolve(false));
+    agent.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
+      if (output.includes('Agent listening on')) resolve(true);
+    });
+  });
+}
+
 async function readBody(request: IncomingMessage): Promise<Json> {
   const chunks: Buffer[] = [];
   for await (const chunk of request as AsyncIterable<Buffer>) chunks.push(chunk);
@@ -262,18 +274,35 @@ export class FakeCompute {
     return this.operation();
   }
 
-  /** Boots the machine: its agent, as a process of this host, as the user running the tests. */
+  /**
+   * Boots the machine: its agent, as a process of this host, as the user running the tests. The
+   * port free when picked may be taken by another test file before the agent listens on it: an
+   * agent that exits before it listens boots again on another, a few times, before the operation
+   * ends, since the service reads the machine's address once.
+   */
   private async boot(instance: FakeInstance): Promise<void> {
-    const port = await freePort();
-    const { disk } = instance;
+    for (let attempt = 1; ; attempt++) {
+      const port = await freePort();
+      const agent = this.spawnAgent(instance, port);
+      const listens = await listening(agent);
+      if (listens || attempt === 3) {
+        instance.agent = agent;
+        instance.port = port;
+        instance.status = 'RUNNING';
+        return;
+      }
+    }
+  }
+
+  private spawnAgent({ metadata, disk }: FakeInstance, port: number): ChildProcess {
     const path = process.env['PATH'] ?? '/usr/bin:/bin';
-    instance.agent = spawn(process.execPath, [join(TEST_BUILD, 'cli.js'), 'agent'], {
+    return spawn(process.execPath, [join(TEST_BUILD, 'cli.js'), 'agent'], {
       env: {
         PATH: path,
         HOST: '127.0.0.1',
         LOG_FORMAT: 'text',
         SANDBOX_AGENT_PORT: String(port),
-        SANDBOX_AGENT_TOKEN: tokenOf(instance.metadata),
+        SANDBOX_AGENT_TOKEN: tokenOf(metadata),
         SANDBOX_USER: userInfo().username,
         SANDBOX_HOME: join(disk, 'home'),
         SANDBOX_WORKDIR: join(disk, 'workspace'),
@@ -281,10 +310,8 @@ export class FakeCompute {
         SANDBOX_PATH: path,
         SANDBOX_CONFIGURE_DOCKER: 'false',
       },
-      stdio: ['ignore', 'ignore', 'inherit'],
+      stdio: ['ignore', 'pipe', 'inherit'],
     });
-    instance.port = port;
-    instance.status = 'RUNNING';
   }
 
   /** Stops the machine: its agent, and the processes it started with it. */
