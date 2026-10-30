@@ -1,5 +1,17 @@
 # ai-sdk-sandbox-cloud-run
 
+## 0.3.0
+
+### Minor Changes
+
+- d05e941: On Cloud Run, the sandbox service refuses to start without `SANDBOX_SERVICE_TOKEN`, as the Compute Engine one does since 0.3.0. The token was optional: a service deployed open by mistake let anyone who reached it run commands in every sandbox. `SANDBOX_INSECURE_NO_TOKEN=true` runs without it, Cloud Run's IAM then the only lock, and logs a warning at startup. The README's deployment now creates the token and sets it.
+  
+  BREAKING: a service on Cloud Run without `SANDBOX_SERVICE_TOKEN` no longer starts. Set the token, and hand it to the client as `serviceToken`, or set `SANDBOX_INSECURE_NO_TOKEN=true`.
+
+### Patch Changes
+
+- a9476c5: The READMEs deploy the service with a build account of its own, `--build-service-account` granted `roles/run.builder`, rather than the Compute Engine default service account, which older projects grant `roles/editor`: whatever a build ran could then reach everything in the project, the agents' tokens included. The sandbox-gce README also has the roles inherited from the folder and the organization checked, since they read the machines' metadata as well.
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # ai-sdk-sandbox-gce
 
+## 0.3.1
+
+### Patch Changes
+
+- f6225e5: The README pins `ai-sdk-sandbox-gce@0.3.0` in the service's Dockerfile, the proxy's startup script and the sandbox image, rather than `0.2.0`: the service of 0.3.0 makes the proxy forget the sandboxes whose machine no longer runs, which takes a proxy of the same version.
+- a9476c5: The READMEs deploy the service with a build account of its own, `--build-service-account` granted `roles/run.builder`, rather than the Compute Engine default service account, which older projects grant `roles/editor`: whatever a build ran could then reach everything in the project, the agents' tokens included. The sandbox-gce README also has the roles inherited from the folder and the organization checked, since they read the machines' metadata as well.
+
 ## 0.3.0
 
 ### Minor Changes
