@@ -390,6 +390,20 @@ export class Sandboxes {
   }
 
   /**
+   * Starts the proxy's machine when the service drives it and it is stopped, without waiting for it
+   * to boot: a sandbox created soon after finds it up, rather than waiting for it. Nothing else:
+   * the proxy stops with the next sandbox that stops, or by itself when none comes.
+   */
+  async prepare(): Promise<void> {
+    const { proxyInstance, compute, logger } = this.options;
+    if (proxyInstance === undefined) return;
+    const current = await compute.getInstance(proxyInstance);
+    if (current?.status !== 'TERMINATED') return;
+    logger.info(`Preparing: starting the egress proxy ${proxyInstance}`);
+    await compute.startInstance(proxyInstance, { wait: false });
+  }
+
+  /**
    * Starts the proxy's machine when the service drives it and it is stopped, and waits until the
    * proxy answers. Stopping, it is first let stop: its registrations go with it, and the sandboxes
    * that start register again.

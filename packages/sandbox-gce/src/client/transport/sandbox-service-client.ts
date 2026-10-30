@@ -242,6 +242,11 @@ export class SandboxServiceClient {
     return response.status !== 404;
   }
 
+  /** Boots what a sandbox needs ahead of it. A service without the route answers 404: it is fine. */
+  async prepare(abortSignal?: AbortSignal): Promise<void> {
+    await this.call('POST', 'v1/prepare', { abortSignal, accept: [404] });
+  }
+
   async deleteTemplate(id: string, image?: string): Promise<void> {
     await this.call('DELETE', templatePath(id, image));
   }

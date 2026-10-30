@@ -17,3 +17,7 @@ Reattaches to a running sandbox, or starts a stopped one again on its disk. Besi
   path="packages/sandbox-gce/src/client/gce-settings.ts"
   name="GceConnectionSettings"
 />
+
+## `prepareGceSandboxService(options)`
+
+Has the sandbox service boot its egress proxy, when it starts and stops it, without waiting for it: the sandbox created next finds the proxy up. It takes the connection settings above and `abortSignal`, and resolves without doing anything on a service that keeps its proxy always on, or of an earlier version.

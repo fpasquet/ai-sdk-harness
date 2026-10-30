@@ -67,6 +67,11 @@ export const ROUTES: Route[] = [
       body: { status: 'ok', protocol: PROTOCOL_VERSION, version: PACKAGE_VERSION },
     }),
   ),
+  // Beyond `ai-sdk-sandbox-cloud-run`'s API: boots what a sandbox will need, ahead of it.
+  route('POST', /^\/v1\/prepare$/, async ({ sandboxes }) => {
+    await sandboxes.prepare();
+    return NO_CONTENT;
+  }),
   route('POST', /^\/v1\/sandboxes$/, async ({ sandboxes, request }) => {
     const { name, ...options } = await network(request);
     return { status: 201, body: await sandboxes.create(name ?? '', options) };

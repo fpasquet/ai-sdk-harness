@@ -536,6 +536,24 @@ describe('a template', () => {
     expect(inserts).toHaveLength(3);
   });
 
+  it('keeps its builder until the sandbox made from it runs, for the proxy to stay up', async () => {
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'kept',
+      prepare: () => Promise.resolve(),
+    };
+
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one', template });
+
+    const changes = fake.compute.calls.filter((call) =>
+      /^(POST|DELETE) .*\/instances(\/[^/]+)?$/.test(call),
+    );
+    expect(changes).toEqual([
+      expect.stringMatching(/^POST .*\/instances$/),
+      expect.stringMatching(/^POST .*\/instances$/),
+      expect.stringMatching(/^DELETE .*\/instances\/sbx-ai-sdk-harness-template-/),
+    ]);
+  });
+
   it('gets an id of its own for each harness version and setup', () => {
     const template = (identity: string): HarnessV1SandboxTemplate => ({
       identity,

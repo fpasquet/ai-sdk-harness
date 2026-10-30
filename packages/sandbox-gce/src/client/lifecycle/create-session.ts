@@ -13,7 +13,7 @@ import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
 import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
-import { ensureTemplate, runSetup } from './sandbox-template.js';
+import { ensureTemplate, type ReadyTemplate, runSetup } from './sandbox-template.js';
 
 /**
  * What a Compute Engine instance name takes once the service's prefix is put before it, and a URL
@@ -48,6 +48,23 @@ function sessionOf(
   );
 }
 
+/** What a sandbox is created with, but its template. */
+type CreateOptions = Omit<Parameters<SandboxServiceClient['create']>[1], 'template'>;
+
+/** Creates the sandbox `name`, from `template` when given, its builder removed once it runs. */
+async function createFrom(
+  client: SandboxServiceClient,
+  name: string,
+  { template, ...options }: CreateOptions & { template: ReadyTemplate | undefined },
+): Promise<SandboxDescription> {
+  try {
+    return await client.create(name, { ...options, template: template?.id });
+  } finally {
+    // Not before: with no sandbox running in between, the service would stop the egress proxy.
+    await template?.releaseBuilder();
+  }
+}
+
 /**
  * Creates a sandbox, a [Compute Engine](https://cloud.google.com/compute) virtual machine of its
  * own, through the sandbox service at `url`, and returns a network sandbox session on it, to hand
@@ -72,17 +89,17 @@ export async function createGceNetworkSandboxSession(
   assertSandboxName(name);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls };
-  const templateId = template
+  const ready = template
     ? await ensureTemplate(
         client,
         { template, setup, network, image, requiredCommands },
         abortSignal,
       )
     : undefined;
-  const description = await client.create(name, {
+  const description = await createFrom(client, name, {
     ...network,
     image,
-    template: templateId,
+    template: ready,
     abortSignal,
   });
   const session = sessionOf(client, description, options);
@@ -98,6 +115,19 @@ export async function createGceNetworkSandboxSession(
     await client.remove(name).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Has the sandbox service at `url` boot what a sandbox needs, its egress proxy when the service
+ * starts and stops it, without waiting for it: call it as soon as a sandbox is likely to be asked
+ * for, the person who launches it still reading what will run, and the creation that follows finds
+ * the proxy up. The proxy stops again with the next sandbox that stops, or by itself when none is
+ * made. A service that does not drive its proxy, or of an earlier version, does nothing.
+ */
+export async function prepareGceSandboxService(
+  options: GceConnectionSettings & { abortSignal?: AbortSignal },
+): Promise<void> {
+  await clientOf(options).prepare(options.abortSignal);
 }
 
 /**

@@ -26,8 +26,19 @@ interface BuildSettings {
   requiredCommands: readonly string[];
 }
 
+/** A template ready to boot from, and the builder it was made with, if this process made it. */
+export interface ReadyTemplate {
+  id: string;
+  /**
+   * Removes the builder, once for all the sandboxes waiting for the template: after the first of
+   * them is created, so that a sandbox always runs meanwhile and the service keeps its egress proxy
+   * up. Never fails.
+   */
+  releaseBuilder(): Promise<void>;
+}
+
 /** Templates being built by this process, by service and id: one build at a time. */
-const building = new Map<string, Promise<string>>();
+const building = new Map<string, Promise<ReadyTemplate>>();
 
 /**
  * The template's id: `ai-sdk-harness-template-<digest>`, the digest covering the harness's recipe
@@ -56,22 +67,31 @@ export async function runSetup(
 }
 
 /**
- * The id of a template prepared by `source.template`, built the first time and reused afterwards:
- * one sandbox is created, set up, prepared and its disk saved as an image by the service, then
- * deleted. Every later sandbox boots from that image, the harness already installed.
+ * The template prepared by `source.template`, built the first time and reused afterwards: one
+ * sandbox is created, set up, prepared and its disk saved as an image by the service, then deleted
+ * by {@link ReadyTemplate.releaseBuilder}. Every later sandbox boots from that image, the harness
+ * already installed.
  */
 export function ensureTemplate(
   client: SandboxServiceClient,
   source: BuildSettings & TemplateSource,
   abortSignal?: AbortSignal,
-): Promise<string> {
+): Promise<ReadyTemplate> {
   const id = templateId(source);
   const key = `${client.baseUrl} ${source.image ?? ''} ${id}`;
   let ready = building.get(key);
   if (ready === undefined) {
-    ready = client
-      .templateExists(id, source.image, abortSignal)
-      .then((exists) => (exists ? id : build(client, { ...source, id }, abortSignal)));
+    ready = client.templateExists(id, source.image, abortSignal).then(async (exists) => {
+      let builder = exists ? undefined : await build(client, { ...source, id }, abortSignal);
+      return {
+        id,
+        releaseBuilder: async () => {
+          const name = builder;
+          builder = undefined;
+          if (name !== undefined) await client.remove(name).catch(() => undefined);
+        },
+      };
+    });
     building.set(key, ready);
     // A failed build is not remembered: the next sandbox tries again.
     ready.catch(() => building.delete(key));
@@ -93,6 +113,7 @@ async function build(
 ): Promise<string> {
   const builder = `${TEMPLATE_PREFIX}-${id.slice(-8)}-${randomBytes(3).toString('hex')}`;
   const { workingDirectory } = await client.create(builder, { ...network, image, abortSignal });
+  // Answered once saved, for the caller to remove it; removed here when anything fails.
   try {
     const session = new GceNetworkSandboxSession(
       { client, name: builder, workingDirectory, processes: new Set() },
@@ -101,10 +122,10 @@ async function build(
     await runSetup(session, setup, abortSignal);
     await assertRequiredCommands(session, requiredCommands, abortSignal);
     await template.prepare({ session: session.restricted(), abortSignal });
-    // Removed below only once saved: its disk is what the template's image is made of.
     await client.saveTemplate(builder, id, { image, abortSignal });
-    return id;
-  } finally {
+    return builder;
+  } catch (error) {
     await client.remove(builder).catch(() => undefined);
+    throw error;
   }
 }

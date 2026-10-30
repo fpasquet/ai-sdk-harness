@@ -134,15 +134,27 @@ gcloud compute instances create sandbox-proxy --zone=$ZONE --machine-type=e2-sma
 ```bash title="proxy-startup.sh"
 #!/bin/sh
 set -e
+# The version of the proxy: the one your application depends on.
+VERSION=0.3.0
+# Writes $2 to the file $1 when it differs, and says whether it did.
+changed() {
+  mkdir -p "$(dirname "$1")"
+  if printf '%b' "$2" | cmp -s - "$1"; then return 1; fi
+  printf '%b' "$2" > "$1"
+}
 # Public resolvers, not the metadata server's, which the sandboxes' response policy answers.
-mkdir -p /etc/systemd/resolved.conf.d
 # After gce-resolved.conf, which adds the metadata server: the empty DNS= resets the list.
-printf '[Resolve]\nDNS=\nDNS=8.8.8.8 1.1.1.1\nDomains=~.\n' > /etc/systemd/resolved.conf.d/public-dns.conf
+dns=false
+if changed /etc/systemd/resolved.conf.d/public-dns.conf '[Resolve]\nDNS=\nDNS=8.8.8.8 1.1.1.1\nDomains=~.\n'; then
+  dns=true
+fi
 for network in /run/systemd/network/*.network; do
-  mkdir -p "/etc/systemd/network/$(basename "$network").d"
-  printf '[DHCPv4]\nUseDNS=false\n' > "/etc/systemd/network/$(basename "$network").d/no-dhcp-dns.conf"
+  if changed "/etc/systemd/network/$(basename "$network").d/no-dhcp-dns.conf" '[DHCPv4]\nUseDNS=false\n'; then
+    dns=true
+  fi
 done
-systemctl restart systemd-networkd systemd-resolved
+# Restarted on a change only: from the second boot on, the proxy already runs, resolving names.
+if [ "$dns" = true ]; then systemctl restart systemd-networkd systemd-resolved; fi
 # Node.js and the Ops Agent from their signed apt repositories: no script piped into a shell.
 install -m 0755 -d /etc/apt/keyrings
 if ! command -v npm >/dev/null; then
@@ -154,8 +166,8 @@ if ! command -v npm >/dev/null; then
 fi
 # Installed again whenever the pinned version changes: the proxy then restarts on it, below.
 restart=false
-if ! npm ls --global ai-sdk-sandbox-gce@0.3.0 >/dev/null 2>&1; then
-  npm install --global ai-sdk-sandbox-gce@0.3.0
+if ! npm ls --global "ai-sdk-sandbox-gce@$VERSION" >/dev/null 2>&1; then
+  npm install --global "ai-sdk-sandbox-gce@$VERSION"
   restart=true
 fi
 # Its logs, the refusals among them, sent to Cloud Logging by the Ops Agent.
@@ -186,8 +198,17 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# Started at boot only when it is the version this script pins: an earlier one would take the
+# sandboxes the service registers meanwhile, and forget them as the script upgrades it.
+ExecCondition=+/usr/local/bin/ai-sdk-sandbox-proxy-pinned
 ExecStart=/bin/sh -c 'SANDBOX_PROXY_TOKEN=$(/usr/local/bin/ai-sdk-sandbox-proxy-token) exec ai-sdk-sandbox-gce proxy'
 Restart=always
+# With SANDBOX_PROXY_INSTANCE on the service: after 10 minutes with no sandbox, the proxy exits
+# with 100 and its machine stops, should no sandbox come after prepareGceSandboxService(). Leave
+# these three lines out for a proxy always on.
+Environment=SANDBOX_PROXY_IDLE_EXIT_MINUTES=10
+RestartPreventExitStatus=100
+ExecStopPost=+/bin/sh -c 'if [ "$$EXIT_STATUS" = 100 ]; then systemctl poweroff; fi'
 DynamicUser=yes
 # Every sandbox holds up to SANDBOX_PROXY_MAX_CONNECTIONS (128) connections at once.
 LimitNOFILE=65536
@@ -200,9 +221,20 @@ if ! cmp -s /tmp/ai-sdk-sandbox-proxy.service /etc/systemd/system/ai-sdk-sandbox
   systemctl daemon-reload
   restart=true
 fi
-# Started here, once its package is the pinned one, and not by systemd at boot: the previous
-# version would take the sandboxes the service registers meanwhile, and forget them as it restarts.
-systemctl disable --quiet ai-sdk-sandbox-proxy
+# Whether the installed proxy is the version the startup script in the metadata pins: read anew at
+# each boot, before this script runs again.
+cat > /usr/local/bin/ai-sdk-sandbox-proxy-pinned <<'SCRIPT'
+#!/bin/sh
+set -e
+pinned=$(curl -fsS -H Metadata-Flavor:Google \
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/startup-script \
+  | sed -n 's/^VERSION=//p')
+npm ls --global "ai-sdk-sandbox-gce@$pinned" >/dev/null 2>&1
+SCRIPT
+chmod 755 /usr/local/bin/ai-sdk-sandbox-proxy-pinned
+# Started by systemd as the machine boots, seconds before this script runs, when its package is
+# the pinned one; started here otherwise, once upgraded.
+systemctl enable --quiet ai-sdk-sandbox-proxy
 if [ "$restart" = true ]; then
   systemctl restart ai-sdk-sandbox-proxy
 else
@@ -210,7 +242,7 @@ else
 fi
 ```
 
-Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol. Every version published by the release workflow carries a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements): `npm audit signatures` checks it, in a project that depends on the package. To upgrade the proxy, change the version in the script, hand it to the machine again, and reboot it, or let the service start it with the next sandbox if it is stopped:
+Pin `ai-sdk-sandbox-gce` to the version your application depends on, here and in the two images below: every side checks that the others speak its protocol. Every version published by the release workflow carries a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements): `npm audit signatures` checks it, in a project that depends on the package. To upgrade the proxy, change `VERSION` in the script, hand it to the machine again, and reboot it, or let the service start it with the next sandbox if it is stopped:
 
 ```bash
 gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
@@ -218,7 +250,7 @@ gcloud compute instances add-metadata sandbox-proxy --zone=$ZONE \
 gcloud compute instances reset sandbox-proxy --zone=$ZONE
 ```
 
-The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
+The proxy need not run when no sandbox does: set `SANDBOX_PROXY_INSTANCE=sandbox-proxy` on the service (step 4), which then starts it with the first sandbox, booting alongside it, and stops it once none runs. A sandbox then waits some 40 s for the proxy to boot: call `prepareGceSandboxService()` (see [Usage](#usage)) as soon as one is likely to be asked for, and it finds the proxy up. Its startup script runs again at each boot, and its registrations, held in memory, are made again by the sandboxes that start.
 
 ### 3. The sandbox image
 
@@ -401,6 +433,19 @@ try {
 ```
 
 `auth` takes `'gcloud'` (the default: `gcloud auth print-identity-token`), `'metadata'` (the workload's service account on Google Cloud), `'none'`, or a function returning an identity token for the service's URL, such as one from `google-auth-library`.
+
+When the service starts and stops the egress proxy (`SANDBOX_PROXY_INSTANCE`), the first sandbox after a quiet spell waits for the proxy's machine to boot. Ask the service to boot it as soon as a sandbox is likely to be asked for, a person reading what is about to run, say, and the sandbox finds it up:
+
+```ts
+import { prepareGceSandboxService } from 'ai-sdk-sandbox-gce';
+
+// Not awaited: it only starts the proxy's machine, and an error changes nothing for the sandboxes.
+void prepareGceSandboxService({ url: process.env.GCE_SANDBOX_URL!, auth: 'metadata' }).catch(
+  () => undefined,
+);
+```
+
+The proxy stops again with the next sandbox that stops, or by itself after 10 minutes when none comes (`SANDBOX_PROXY_IDLE_EXIT_MINUTES` in its unit). A service that keeps its proxy always on, or of an earlier version, does nothing.
 
 ## Images and toolchains
 
