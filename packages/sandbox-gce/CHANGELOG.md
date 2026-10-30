@@ -1,5 +1,16 @@
 # ai-sdk-sandbox-gce
 
+## 0.3.2
+
+### Patch Changes
+
+- b40ea5d: `prepareGceSandboxService({ url, auth })` has the service boot its egress proxy ahead of a sandbox, when it starts and stops it (`SANDBOX_PROXY_INSTANCE`), without waiting for it: call it as soon as a sandbox is likely to be asked for, and the sandbox finds the proxy up rather than waiting some 40 s for its machine. The service answers it at `POST /v1/prepare`; a service of an earlier version answers 404, which the client takes as nothing to do.
+  
+  Should no sandbox come, the proxy exits after `SANDBOX_PROXY_IDLE_EXIT_MINUTES` with no sandbox, with the exit code 100, on which the unit of the README stops its machine: set to 10 minutes there. The proxy never exits by itself without the variable: leave it out of the unit of a proxy always on.
+- b40ea5d: The proxy's startup script in the README lets systemd start the proxy as its machine boots again, some 25 s before the startup script runs: a sandbox waited for the script since 0.3.0, about 60 s for a stopped proxy rather than 35 s. A condition of its unit (`ExecCondition`) only lets the proxy start at boot when it is the version the script pins, its new `VERSION` line: after a change of version, the script upgrades it and starts it, as 0.3.0 does. The script also restarts the network's resolver only when its settings change. Hand the new script to the proxy's machine (`gcloud compute instances add-metadata … --metadata-from-file=startup-script=proxy-startup.sh`).
+- a9d2fe3: The sandbox service's image is published to Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-gce:<version>`, with a provenance attestation: deploy it with `gcloud run deploy --image`, rather than writing a `Dockerfile` and having Cloud Build make it with an account of its own. The README deploys it so.
+- b40ea5d: The client deletes a template's throwaway sandbox once the sandbox made from the template runs, rather than as soon as the template is saved. With `SANDBOX_PROXY_INSTANCE`, no sandbox ran in between: the service stopped the egress proxy, and the sandbox that followed waited a whole minute for it to boot again.
+
 ## 0.3.1
 
 ### Patch Changes
