@@ -1069,7 +1069,7 @@ describe('the warm pool', () => {
     expect(compute.insertInstance).not.toHaveBeenCalled();
   });
 
-  it('makes a machine of its own when another creation took the one of the pool first', async () => {
+  it('makes a machine of its own when another creation took the one of the pool first, which refills it', async () => {
     const deps = await depsLabel();
     agentAnswers(PROTOCOL_VERSION);
     const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
@@ -1080,7 +1080,8 @@ describe('the warm pool', () => {
 
     expect(machines.get('sbx-box')?.status).toBe('RUNNING');
     expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox']).toBe('pool');
-    expect(poolIn(machines)).toHaveLength(2);
+    // Nothing added: the creation that took the machine makes the next one.
+    expect(poolIn(machines)).toHaveLength(1);
   });
 
   it('leaves the pool alone when Compute Engine refuses to label its machines', async () => {

@@ -489,7 +489,10 @@ export class Sandboxes {
     }
     const left = kept.filter((machine) => !tried.has(machine.name));
     dropped.push(...left.slice(warmPool));
-    const missing = Math.max(0, warmPool - left.length);
+    // A machine lost to another creation is refilled by that creation: both refilling it, the
+    // pool would grow past its size until the next creation.
+    const lostRace = taken === undefined && tried.size > 0;
+    const missing = lostRace ? 0 : Math.max(0, warmPool - left.length);
     const changes = [
       ...dropped.map((machine) => this.retire(machine)),
       ...Array.from({ length: missing }, () => this.addToPool(template, templateLabel)),
