@@ -315,8 +315,14 @@ for secret in sandbox-agent-secret sandbox-proxy-token sandbox-service-token; do
     --member=serviceAccount:sandboxes@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 done
 
+# What Cloud Build makes the service's image as: the build, and nothing else.
+gcloud iam service-accounts create sandboxes-build
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member=serviceAccount:sandboxes-build@$PROJECT.iam.gserviceaccount.com --role=roles/run.builder
+
 gcloud run deploy sandboxes --region=$REGION --source=. \
   --service-account=sandboxes@$PROJECT.iam.gserviceaccount.com \
+  --build-service-account=projects/$PROJECT/serviceAccounts/sandboxes-build@$PROJECT.iam.gserviceaccount.com \
   --network=sandboxes --subnet=service --vpc-egress=private-ranges-only \
   --no-allow-unauthenticated --min-instances=0 --timeout=3600 --concurrency=1000 \
   --set-env-vars=SANDBOX_ZONE=$ZONE,SANDBOX_IMAGE=family/ai-sdk-sandbox \
@@ -331,6 +337,7 @@ gcloud run deploy sandboxes --region=$REGION --source=. \
 What these settings are for:
 
 - `--network`, `--subnet`, `--vpc-egress`: Direct VPC egress, so that the service reaches the agents and the proxy on their internal addresses.
+- `--build-service-account`: Cloud Build makes the image as an account of its own, which only reads the sources, pushes the image and writes the build's logs. Without it, Cloud Build builds as the Compute Engine default service account, which older projects grant `roles/editor`: anything a build runs would then read the agents' tokens, and everything else in the project. Once no build uses it, take `roles/editor` away from that account.
 - `sandboxService`: create, stop, start and delete the machines, save a template as an image, start and stop the proxy; nothing outside the names of the condition. A missing permission shows in `pnpm test:e2e`.
 - `SANDBOX_PROXY_INSTANCE`: the proxy only runs while a sandbox does. `SANDBOX_MAX_RUNNING`: the machines running at once, a cap on the bill. `SANDBOX_MAX_RUN_HOURS`: Compute Engine stops a machine after so long, whatever happens.
 - `SANDBOX_SERVICE_TOKEN`: a second lock beside Cloud Run's IAM, should the service ever be deployed open; the client hands it over as `serviceToken`. The service refuses to start on Cloud Run without it, unless `SANDBOX_INSECURE_NO_TOKEN=true`.
@@ -347,7 +354,7 @@ gcloud run services add-iam-policy-binding sandboxes --region=$REGION \
   --member=serviceAccount:my-app@$PROJECT.iam.gserviceaccount.com --role=roles/run.invoker
 ```
 
-Anyone with that role and the service token can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs, and hand the token to the client as `serviceToken` (`gcloud secrets versions access latest --secret=sandbox-service-token`). Each agent's token sits in its machine's metadata, which anyone allowed `compute.instances.get` on the project reads (`roles/viewer`, `roles/compute.viewer`): with a foothold in the `service` subnetwork as well, they run commands in that sandbox as root, until the sandbox is next stopped, which draws it a new token. Grant those roles sparingly, and keep the subnetwork to the service alone.
+Anyone with that role and the service token can run commands in every sandbox of the service: grant it to your application, not to people who only need to read logs, and hand the token to the client as `serviceToken` (`gcloud secrets versions access latest --secret=sandbox-service-token`). Each agent's token sits in its machine's metadata, which anyone allowed `compute.instances.get` on the project reads (`roles/viewer`, `roles/compute.viewer`): with a foothold in the `service` subnetwork as well, they run commands in that sandbox as root, until the sandbox is next stopped, which draws it a new token. Grant those roles sparingly, and keep the subnetwork to the service alone. Roles granted on the project's folder or organization count as well: `gcloud projects get-ancestors-iam-policy $PROJECT` lists them.
 
 Read the service's URL with `gcloud run services describe sandboxes --region=$REGION --format='value(status.url)'`; the examples below read it from `GCE_SANDBOX_URL`.
 
@@ -676,7 +683,7 @@ The steps above set up the network, the proxy and the service as they ran on Goo
 - [ ] **Set a budget alert** on the project, and keep the region's vCPU quota low: unlike an alert, a quota stops the spending.
 - [ ] **Restrict the service's ingress** when your application runs on Google Cloud: `gcloud run services update sandboxes --region=$REGION --ingress=internal`, the application then reaching it through the VPC (Direct VPC egress with `--vpc-egress=all-traffic`). Called from outside Google Cloud, the service stays public, guarded by IAM and its token.
 - [ ] **Review the allowed hosts**: no `*`, no wildcard on a shared domain, a package registry only where the agent installs packages. Each is a way out for the sandbox's files.
-- [ ] **Grant `roles/viewer` and `roles/compute.viewer` sparingly**: they read the agents' tokens in the machines' metadata.
+- [ ] **Grant `roles/viewer` and `roles/compute.viewer` sparingly**: they read the agents' tokens in the machines' metadata. Check the roles inherited from the folder and the organization too (`gcloud projects get-ancestors-iam-policy $PROJECT`), and that no service account, the Compute Engine default one first, holds `roles/editor`.
 - [ ] **Authenticate your users** before anything reaches the service: whoever can call your application runs commands in its sandboxes. With Google accounts, a sign-in limited to your domain (Google OAuth, the `hd` claim checked on the server); on Google Cloud, [Identity-Aware Proxy](https://cloud.google.com/iap/docs/enabling-cloud-run) in front of the application. Either way, `roles/run.invoker` on the service goes to the application's service account alone, and the application checks on the server, at every call, that the sandbox belongs to the user.
 
 ## Limitations
