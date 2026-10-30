@@ -229,7 +229,11 @@ set -e
 pinned=$(curl -fsS -H Metadata-Flavor:Google \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/startup-script \
   | sed -n 's/^VERSION=//p')
-npm ls --global "ai-sdk-sandbox-gce@$pinned" >/dev/null 2>&1
+# Read from its package.json, where Node.js from NodeSource installs it: npm itself takes some 20 s
+# to start on a small machine as it boots.
+installed=$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' \
+  /usr/lib/node_modules/ai-sdk-sandbox-gce/package.json | head -n 1)
+[ -n "$pinned" ] && [ "$installed" = "$pinned" ]
 SCRIPT
 chmod 755 /usr/local/bin/ai-sdk-sandbox-proxy-pinned
 # Started by systemd as the machine boots, seconds before this script runs, when its package is
