@@ -67,7 +67,7 @@ FROM node:24-bookworm-slim
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl git procps python3 ripgrep \
   && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --silent pnpm@10 ai-sdk-sandbox-cloud-run@0.2.0 \
+  && npm install --global --silent pnpm@10 ai-sdk-sandbox-cloud-run@0.3.0 \
   && npm cache clean --force
 
 CMD ["ai-sdk-sandbox-cloud-run", "serve"]
