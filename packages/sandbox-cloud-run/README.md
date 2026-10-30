@@ -94,12 +94,21 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
 
 The service account needs nothing but that role: the sandboxes never reach the metadata server, only the service does.
 
+Cloud Build makes the image from the sources. Give it an account of its own, limited to the build:
+
+```bash
+gcloud iam service-accounts create $SERVICE-build --project=$PROJECT
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member=serviceAccount:$SERVICE-build@$PROJECT.iam.gserviceaccount.com --role=roles/run.builder
+```
+
 ### 3. The service
 
 ```bash
 gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION --source=. \
   --sandbox-launcher --execution-environment=gen2 \
   --service-account=$SERVICE@$PROJECT.iam.gserviceaccount.com \
+  --build-service-account=projects/$PROJECT/serviceAccounts/$SERVICE-build@$PROJECT.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --min-instances=0 --max-instances=1 --cpu-throttling --cpu=2 --memory=4Gi \
   --timeout=3600 --concurrency=1000 \
@@ -109,6 +118,7 @@ gcloud beta run deploy $SERVICE --project=$PROJECT --region=$REGION --source=. \
 What these settings are for:
 
 - `--sandbox-launcher` and `gen2` enable the `sandbox` CLI in the instance. The flag is only in the `beta` track of gcloud; with Terraform, set `launch_stage = "BETA"` on the service.
+- `--build-service-account`: Cloud Build makes the image as the account above, which only reads the sources, pushes the image and writes the build's logs. Without it, Cloud Build builds as the Compute Engine default service account, which older projects grant `roles/editor`: anything a build runs would then reach everything in the project. Once no build uses it, take `roles/editor` away from that account.
 - `--max-instances=1`: a running sandbox lives in the memory of the instance that started it, and every call for it must reach that instance.
 - `--min-instances=0 --cpu-throttling`: no instance and no bill while no sandbox runs.
 - `--timeout=3600`: the longest a request lasts, so the longest a bridge WebSocket lasts. The harness reconnects beyond it.
