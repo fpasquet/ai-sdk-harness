@@ -13,5 +13,10 @@ allowBuilds:
   unrs-resolver: true
   workerd: true
 
+# Some harness adapters pin ws exactly (8.21.0): without one version, @ai-sdk/harness is installed
+# once per ws and its types no longer match across the workspace.
+overrides:
+  ws: ^8.22.0
+
 minimumReleaseAgeExclude:
   - '@ai-sdk/provider-utils@5.0.70'

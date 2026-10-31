@@ -75,9 +75,9 @@
     "ai": "^7.0.0"
   },
   "devDependencies": {
-    "@ai-sdk/harness": "^1.0.153",
-    "@ai-sdk/harness-claude-code": "^1.0.157",
-    "@ai-sdk/harness-codex": "^1.0.155",
+    "@ai-sdk/harness": "^1.0.168",
+    "@ai-sdk/harness-claude-code": "^1.0.172",
+    "@ai-sdk/harness-codex": "^1.0.170",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
     "@repo/prettier-config": "workspace:*",
@@ -85,7 +85,7 @@
     "@repo/vitest-config": "workspace:*",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.5",
-    "ai": "^7.0.142",
+    "ai": "^7.0.157",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
