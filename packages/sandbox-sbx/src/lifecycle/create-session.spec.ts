@@ -103,7 +103,7 @@ describe('createSbxNetworkSandboxSession', () => {
         sandboxId: 'box',
         setup: ['echo broken'],
       }),
-    ).rejects.toThrow(/failing on purpose/);
+    ).rejects.toThrow(/^Setup command `echo broken` exited with \d+: .*failing on purpose/s);
     expect(sbx.state().sandboxes).toEqual({});
   });
 

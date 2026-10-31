@@ -1,6 +1,7 @@
 import type { SbxConnectionSettings } from '../sbx-settings.js';
 import type { SbxCli } from '../transport/sbx-cli.js';
 
+import { SbxError } from '../errors/sbx-error.js';
 import { SbxSandboxNotFoundError } from '../errors/sbx-sandbox-not-found-error.js';
 import { SbxNetworkSandboxSession } from '../session/sbx-network-sandbox-session.js';
 import { assertEnvNames } from '../session/sbx-sandbox-session.js';
@@ -45,7 +46,16 @@ export async function runSetup(
   { setup, abortSignal }: { setup: readonly string[]; abortSignal?: AbortSignal },
 ): Promise<void> {
   for (const command of setup) {
-    await cli.check(['exec', name, 'sh', '-c', command], { abortSignal, unbounded: true });
+    const args = ['exec', name, 'sh', '-c', command];
+    const result = await cli.run(args, { abortSignal, unbounded: true });
+    // Named as the other sandboxes name it: the caller tells which of its commands failed.
+    if (result.exitCode !== 0) {
+      throw new SbxError(
+        args,
+        result,
+        `Setup command \`${command}\` exited with ${result.exitCode}: ${result.stderr.trim()}`,
+      );
+    }
   }
 }
 
