@@ -1,5 +1,14 @@
 # ai-sdk-sandbox-gce
 
+## 0.3.5
+
+### Patch Changes
+
+- 7b6f2e5: The sandbox images carry the tools an agent most often reaches for: `make`, so it can run a project's Makefile, plus `jq`, `unzip` and `xz-utils`. The Compute Engine image script in the README also installs a C/C++ compiler (`build-essential`) for the native modules of a project's dependencies; the Cloud Run image leaves it out, some 300 MB, for an image built `FROM` it to add.
+- 0fab5d6: A command that runs out of memory in a Compute Engine sandbox no longer kills every other command of the sandbox. The commands run in the agent's systemd service, and systemd stops a service whose process the kernel's OOM killer killed: the other commands, a harness bridge included, exited with 143 (`SIGTERM`), and the agent restarted. The agent now sets `OOMPolicy=continue` on its service as it starts, whatever unit the image has: only the command killed goes, with 137.
+  
+  Rebuild the sandbox image with this version (`npm install --global ai-sdk-sandbox-gce@<version>`): the agent runs from the image, and the templates are made again on the new image. The README's unit has the line too.
+
 ## 0.3.4
 
 ### Patch Changes
