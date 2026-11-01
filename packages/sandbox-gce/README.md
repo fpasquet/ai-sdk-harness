@@ -296,6 +296,7 @@ Wants=network-online.target
 [Service]
 ExecStart=/usr/bin/ai-sdk-sandbox-gce agent
 Restart=always
+OOMPolicy=continue
 
 [Install]
 WantedBy=multi-user.target
@@ -303,7 +304,7 @@ UNIT
 systemctl enable ai-sdk-sandbox-agent
 ```
 
-The agent runs as root and starts the commands as `agent`. It does not wait for Docker to boot, some 10 s on a small machine: its socket answers the first `docker` command once the daemon is up. It points Docker at the proxy itself, the daemon and the client: images are pulled through the proxy, and containers get its address in their proxy variables. Rebuild the image every week or so for the security updates: the templates made on the previous one are made again on the next sandbox.
+The agent runs as root and starts the commands as `agent`, in its own service: `OOMPolicy=continue` keeps it running when the kernel kills a command out of memory, which systemd's default, `stop`, answers by stopping the service, every other command of the sandbox killed with it (exit code 143). The agent sets it on its running service too, for an image whose unit lacks the line. It does not wait for Docker to boot, some 10 s on a small machine: its socket answers the first `docker` command once the daemon is up. It points Docker at the proxy itself, the daemon and the client: images are pulled through the proxy, and containers get its address in their proxy variables. Rebuild the image every week or so for the security updates: the templates made on the previous one are made again on the next sandbox.
 
 ### 4. The service
 
