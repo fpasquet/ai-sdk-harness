@@ -48,7 +48,7 @@ export interface ApprovalPolicySettings {
   /**
    * The shell commands the agent runs, with Claude Code's `Bash` for instance. A command made of
    * several, `cd app && pnpm test`, is allowed only when each of them is; one that writes to a
-   * file with `>` is never allowed by a rule, at most asked.
+   * file with `>` is also held to the edit rules for that file.
    */
   commands?: ApprovalRuleSet;
   /** The files the agent writes or edits, by path: `Write`, `Edit`, `NotebookEdit`… */

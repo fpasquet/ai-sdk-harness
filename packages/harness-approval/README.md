@@ -102,7 +102,7 @@ A person who approves a call can allow the same for the rest of the session. `su
 | `Write`: `src/app.ts`         | `{ kind: 'edit' }`, every file edit       | Always allow file edits           |
 | Any other tool, `webFetch`    | `{ kind: 'tool', toolName: 'webFetch' }`  | Always allow webFetch             |
 
-Keep the grants with the session — `sessions.update(id, { metadata })`, merged with `withGrants()` — and give them back through `grants`. A grant allows what the policy would ask about, never what it denies: granting `git push` changes nothing when a rule denies it. A command that writes to a file through a redirection is never allowed by a grant either.
+Keep the grants with the session — `sessions.update(id, { metadata })`, merged with `withGrants()` — and give them back through `grants`. A grant allows what the policy would ask about, never what it denies: granting `git push` changes nothing when a rule denies it. A command that writes to a file through a redirection is allowed by a grant only when the edit of that file is too, by a rule or an edit grant.
 
 ### Without a session manager
 
@@ -166,7 +166,7 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 - A chain — `&&`, `||`, `;`, `|`, `&`, a new line, a subshell — is allowed only when each of its commands is; one denied command denies it all.
 - Command substitutions, `$(…)`, backquotes, `<(…)`, are commands of their own, quoted or not: `echo "$(rm -rf /)"` is denied by `rm -rf`.
 - Leading variable assignments, keywords (`if`, `!`, `{`…) and the path of the command are dropped: `NODE_ENV=test /usr/bin/node app.js` reads `node app.js`.
-- A command that writes to a file through a redirection — `>`, `>>`, `&>`, other than to `/dev/null` or a descriptor — is asked about at least, whatever allows it.
+- A command that writes to a file through a redirection — `>`, `>>`, `&>`, other than to `/dev/null` or a descriptor — edits that file: it is only as allowed as the command and the edit rules for the file. `make e2e > /tmp/e2e.txt` is allowed when `make e2e` is and an edit of `/tmp/e2e.txt` is; `ls > .env` is denied when edits of `.env*` are. A file the shell names only as it runs, `> "$OUT"` or `> ~/out`, is asked about.
 - The body of a here-document, `<<EOF` to `EOF`, is input, not commands: `python3 - <<'EOF'` reads `python3 -`, and what the script it reads does is not checked. Unless its delimiter is quoted, `<<'EOF'`, its substitutions still count as commands. A redirection on its line still writes: `cat > notes.md <<'EOF'` does.
 
 **Edits** are matched by path, as `.gitignore` reads them: a glob without a slash, `.env*`, matches a file name in any directory; one with a slash, `src/**`, the end of the path, whatever directory the session works in. `.` and `..` are resolved first. The edit tools are `write`, `edit`, `MultiEdit` and `NotebookEdit`.
@@ -203,7 +203,7 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 
 ## Limitations
 
-- **Held by the sandbox: Claude Code, and no person asked.** The hook runs in Claude Code's own settings, which Codex does not read; and a sandbox cannot ask anyone, so only a policy that allows or denies everything it decides can be held there. A command that writes to a file through a redirection, which the policy would ask about, is denied.
+- **Held by the sandbox: Claude Code, and no person asked.** The hook runs in Claude Code's own settings, which Codex does not read; and a sandbox cannot ask anyone, so only a policy that allows or denies everything it decides can be held there. A command that writes through a redirection to a file the policy would ask about is denied.
 - **A guard rail, not a sandbox.** Rules read commands the way a shell mostly does, not the way it always does: `bash -c '…'`, `xargs`, `find -exec` or a script the agent wrote run what they run. Allow what you trust — an allow list holds better than a deny list — and keep the agent in a sandbox: it is the boundary.
 - **Only what the runtime asks about.** Claude Code asks about commands and edits, never about reads: a rule on `read` or `grep` does not apply. Codex asks about none of its own tools ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)).
 - **Approvals after a resume, with Claude Code.** A resumed Claude Code session does not take the answers to its approvals, and asks again ([vercel/ai#22549](https://github.com/vercel/ai/issues/22549)). The session manager leaves such a repeated approval to a person rather than answer it forever; a session that never resumed is not concerned.

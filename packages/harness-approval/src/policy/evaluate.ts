@@ -8,8 +8,8 @@ import type {
 import type { CompiledRuleSet } from './rules.js';
 
 import { matchesCommand, matchesPath } from '../utils/patterns.js';
-import { commandOf, pathsOf, toolKindOf } from '../utils/requests.js';
-import { commandSegments } from '../utils/shell.js';
+import { commandOf, normalizePath, pathsOf, toolKindOf } from '../utils/requests.js';
+import { type CommandSegment, commandSegments } from '../utils/shell.js';
 import { describeGrant, grantFor } from './grants.js';
 import { decide, deniedReason, strictest } from './rules.js';
 
@@ -54,6 +54,35 @@ function outright(rule: ToolApprovalRule, toolName: string): ApprovalEvaluation 
 const filesOf = (files: readonly string[]): string =>
   files.length === 0 ? 'a file' : files.map((file) => `\`${file}\``).join(', ');
 
+/**
+ * A redirection edits the files it writes to: the edit rules, and the grants of edits, decide them.
+ * A file the shell names only as it runs, `> "$OUT"` or `> ~/out`, is asked about.
+ */
+function evaluateWrites(
+  policy: CompiledPolicy,
+  { command, files }: Pick<CommandSegment, 'command' | 'files'>,
+  grants: readonly ApprovalGrant[],
+): ApprovalEvaluation {
+  const asked: ApprovalEvaluation = {
+    decision: 'ask',
+    reason: `\`${command}\` writes to ${filesOf(files)}.`,
+  };
+  if (files.length === 0 || files.some((file) => /[$`~*?[]/.test(file))) return asked;
+  const evaluations = files.map((file): ApprovalEvaluation => {
+    const path = normalizePath(file);
+    const evaluation = decide(
+      policy.edits,
+      { value: path, label: `\`${command}\` writing to \`${file}\`` },
+      matchesPath,
+    );
+    const grant =
+      evaluation.decision === 'ask' ? grantFor(grants, { kind: 'edit', value: path }) : undefined;
+    return grant === undefined ? evaluation : allowedBy(grant);
+  });
+  const worst = strictest(evaluations, byDefault(policy.edits.fallback, 'this edit'));
+  return worst.decision === 'ask' ? asked : worst;
+}
+
 /** A command made of several is only as allowed as the least allowed of them. */
 function evaluateCommand(
   policy: CompiledPolicy,
@@ -68,12 +97,15 @@ function evaluateCommand(
       matchesCommand,
     );
     if (evaluation.decision === 'deny') return evaluation;
-    if (writes) return { decision: 'ask', reason: `\`${command}\` writes to ${filesOf(files)}.` };
     const grant =
       evaluation.decision === 'ask'
         ? grantFor(grants, { kind: 'command', value: command })
         : undefined;
-    return grant === undefined ? evaluation : allowedBy(grant);
+    const allowed = grant === undefined ? evaluation : allowedBy(grant);
+    if (!writes) return allowed;
+    // Allowed as a command, it is then only as allowed as the edits it makes.
+    const written = evaluateWrites(policy, { command, files }, grants);
+    return written.decision === 'allow' ? allowed : written;
   });
   const worst = strictest(evaluations, byDefault(policy.commands.fallback, 'this command'));
   if (worst.decision !== 'allow' || evaluations.length < 2) return worst;

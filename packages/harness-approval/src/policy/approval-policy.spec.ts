@@ -57,11 +57,30 @@ describe('ApprovalPolicy.evaluate', () => {
     expect(policy.evaluate(bash('git status && git status')).rule).toBe('git status');
   });
 
-  it('never allows a command that writes to a file through a redirection', () => {
+  it('decides a redirection as an edit of the file it writes to', () => {
     expect(policy.evaluate(bash('cat a > /etc/hosts'))).toEqual({
       decision: 'ask',
       reason: '`cat a` writes to `/etc/hosts`.',
     });
+    expect(policy.evaluate(bash('cat a > src/notes.md'))).toEqual({
+      decision: 'allow',
+      reason: 'Allowed by the approval policy (`cat`).',
+      rule: 'cat',
+    });
+    expect(policy.evaluate(bash('ls >> src/../.env.local'))).toEqual({
+      decision: 'deny',
+      reason: 'The approval policy does not allow `ls` writing to `src/../.env.local` (`.env*`).',
+      rule: '.env*',
+    });
+    expect(policy.evaluate(bash('curl x > src/page.html')).decision).toBe('ask');
+    expect(policy.evaluate(bash('cat a > "$OUT"')).decision).toBe('ask');
+    expect(policy.evaluate(bash('cat a > ~/src/notes.md')).decision).toBe('ask');
+    const sandbox = defineApprovalPolicy({
+      commands: { allow: ['make e2e'] },
+      edits: { deny: ['.git/**'], default: 'allow' },
+    });
+    expect(sandbox.evaluate(bash('make e2e > /tmp/e2e.txt 2>&1')).decision).toBe('allow');
+    expect(sandbox.evaluate(bash('make e2e > .git/config')).decision).toBe('deny');
     expect(policy.evaluate(bash('ls > out.txt; git push')).decision).toBe('deny');
     expect(policy.evaluate(bash('ls 2>/dev/null')).decision).toBe('allow');
     expect(policy.evaluate(bash('pnpm test 2>&1')).decision).toBe('allow');
@@ -153,6 +172,7 @@ describe('ApprovalPolicy.evaluate', () => {
     });
     expect(policy.evaluate(bash('git push'), { grants }).decision).toBe('deny');
     expect(policy.evaluate(bash('curl x > page.html'), { grants }).decision).toBe('ask');
+    expect(policy.evaluate(bash('curl x > docs/page.html'), { grants }).decision).toBe('allow');
     expect(policy.evaluate(write('docs/guide.md'), { grants }).decision).toBe('allow');
     expect(policy.evaluate(write('README.md'), { grants }).decision).toBe('ask');
     expect(policy.evaluate(write('README.md'), { grants: [{ kind: 'edit' }] }).decision).toBe(
