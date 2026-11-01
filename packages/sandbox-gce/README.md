@@ -265,6 +265,8 @@ Every sandbox boots from it: put the tools your agent needs in it, and never a s
 set -e
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git gnupg procps python3 ripgrep sudo
+# A project's Makefile and the native modules of its dependencies; the scripts and archives of the usual toolchains.
+apt-get install -y --no-install-recommends build-essential jq unzip xz-utils
 
 # Docker Engine and Compose.
 install -m 0755 -d /etc/apt/keyrings

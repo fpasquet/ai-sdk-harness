@@ -58,9 +58,9 @@ flowchart TB
 
 ### 1. The image
 
-The image runs the service, and is what the sandboxes see. It is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-cloud-run:<version>`: Node.js, git, `pnpm`, `curl`, `python3`, `ripgrep` and the package, built by the release workflow from the version on npm, with a provenance attestation (`gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2 --owner fpasquet`). Deploy it as it is when your agents need nothing more.
+The image runs the service, and is what the sandboxes see. It is published on Docker Hub with each release, `docker.io/fpasquet/ai-sdk-sandbox-cloud-run:<version>`: Node.js, git, `pnpm`, `curl`, `python3`, `ripgrep`, `make`, `jq`, `unzip`, `xz-utils` and the package, built by the release workflow from the version on npm, with a provenance attestation (`gh attestation verify oci://docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2 --owner fpasquet`). Deploy it as it is when your agents need nothing more.
 
-Otherwise start from it and add your project's toolchain, Python, Go or Rust:
+Otherwise start from it and add your project's toolchain, Python, Go or Rust, or a C/C++ compiler (`build-essential`) for the native modules of its dependencies:
 
 ```dockerfile title="Dockerfile"
 FROM docker.io/fpasquet/ai-sdk-sandbox-cloud-run:0.3.2
