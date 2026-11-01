@@ -4,9 +4,12 @@
 # your own image FROM it and add your project's toolchain.
 FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
-# procps (pgrep) lets the service stop a process with everything it started.
+# procps (pgrep) lets the service stop a process with everything it started. make runs a project's
+# Makefile; jq, unzip and xz-utils serve the scripts and archives of the usual toolchains. A compiler
+# would weigh some 300 MB: an image FROM this one adds it when a project builds native modules.
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates curl git procps python3 ripgrep \
+    make jq unzip xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
 # A version from npm, or a tarball of the build context, which the CI builds the image from.
