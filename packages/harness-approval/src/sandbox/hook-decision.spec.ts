@@ -43,7 +43,20 @@ describe('hookDecision', () => {
     expect(call('Bash', { command: 'cat a > b' })).toEqual({
       decision: 'deny',
       reason:
-        '`cat a` writes to a file. The approval policy would ask a person, and nobody can be asked from the sandbox.',
+        '`cat a` writes to `b`. The approval policy would ask a person, and nobody can be asked from the sandbox.',
+    });
+  });
+
+  it('reads the body of a here-document as input, not as commands or redirections', () => {
+    const script = "cat <<'SQL'\nselect * from rooms where capacity >= $1 and equipment @> $2\nSQL";
+    expect(call('Bash', { command: script })).toEqual({
+      decision: 'allow',
+      reason: 'Allowed by the approval policy (`cat`).',
+    });
+    expect(call('Bash', { command: "cat > apps/e2e/package.json <<'EOF'\n{}\nEOF" })).toEqual({
+      decision: 'deny',
+      reason:
+        '`cat` writes to `apps/e2e/package.json`. The approval policy would ask a person, and nobody can be asked from the sandbox.',
     });
   });
 

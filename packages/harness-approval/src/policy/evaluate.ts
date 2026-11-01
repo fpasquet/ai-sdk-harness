@@ -50,6 +50,10 @@ function outright(rule: ToolApprovalRule, toolName: string): ApprovalEvaluation 
   return { decision, ...(reason !== undefined && { reason }), rule: toolName };
 }
 
+/** The files a command writes to, as a reason names them. */
+const filesOf = (files: readonly string[]): string =>
+  files.length === 0 ? 'a file' : files.map((file) => `\`${file}\``).join(', ');
+
 /** A command made of several is only as allowed as the least allowed of them. */
 function evaluateCommand(
   policy: CompiledPolicy,
@@ -57,14 +61,14 @@ function evaluateCommand(
   grants: readonly ApprovalGrant[],
 ): ApprovalEvaluation {
   const segments = commandSegments(commandOf(toolName, input) ?? '');
-  const evaluations = segments.map(({ command, writes }): ApprovalEvaluation => {
+  const evaluations = segments.map(({ command, writes, files }): ApprovalEvaluation => {
     const evaluation = decide(
       policy.commands,
       { value: command, label: `the command \`${command}\`` },
       matchesCommand,
     );
     if (evaluation.decision === 'deny') return evaluation;
-    if (writes) return { decision: 'ask', reason: `\`${command}\` writes to a file.` };
+    if (writes) return { decision: 'ask', reason: `\`${command}\` writes to ${filesOf(files)}.` };
     const grant =
       evaluation.decision === 'ask'
         ? grantFor(grants, { kind: 'command', value: command })
