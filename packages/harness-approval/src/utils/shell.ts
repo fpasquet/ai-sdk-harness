@@ -4,6 +4,17 @@ export interface CommandSegment {
   command: string;
   /** Whether it writes to a file through a redirection, `>` or `>>`, other than `/dev/null`. */
   writes: boolean;
+  /** The files its redirections write to, as the script names them. */
+  files: string[];
+}
+
+/** A here-document opened on the current line: its body starts on the next one. */
+interface HereDocument {
+  delimiter: string;
+  /** `<<-`: tabs before the delimiter are stripped. */
+  stripTabs: boolean;
+  /** `<<'EOF'`, `<<"EOF"`, `<<\EOF`: the body is taken as is, its substitutions not run. */
+  quoted: boolean;
 }
 
 /** Shell words that open a command rather than name it: `if cmd`, `! cmd`, `{ cmd; }`… */
@@ -53,9 +64,31 @@ function closingParen(script: string, open: number): number {
   return script.length;
 }
 
+/** The substitutions the body of a here-document runs, its delimiter unquoted: not `\$(…)`. */
+function substitutionsOf(body: string): CommandSegment[] {
+  const found: CommandSegment[] = [];
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === '\\') {
+      index += 1;
+    } else if (char === '$' && body[index + 1] === '(') {
+      const close = closingParen(body, index + 1);
+      if (body[index + 2] !== '(') found.push(...commandSegments(body.slice(index + 2, close)));
+      index = close;
+    } else if (char === '`') {
+      const close = body.indexOf('`', index + 1);
+      const end = close === -1 ? body.length : close;
+      found.push(...commandSegments(body.slice(index + 1, end)));
+      index = end;
+    }
+  }
+  return found;
+}
+
 /**
  * Reads a shell script into the simple commands it runs, so that `cd app && rm -rf /` is not
- * taken for `cd`. Command substitutions, `$(…)` and backquotes, count as commands of their own.
+ * taken for `cd`. Command substitutions, `$(…)` and backquotes, count as commands of their own;
+ * the body of a here-document is input, not script.
  * Approximate on purpose: a construct it misreads yields a command that matches no rule, which
  * the policy asks about.
  */
@@ -66,9 +99,11 @@ export function commandSegments(script: string): CommandSegment[] {
 class ShellScanner {
   private readonly segments: CommandSegment[] = [];
   private readonly nested: CommandSegment[] = [];
+  private readonly hereDocuments: HereDocument[] = [];
   private words: string[] = [];
   private word: string | undefined;
   private writes = false;
+  private files: string[] = [];
   private index = 0;
 
   constructor(private readonly script: string) {}
@@ -102,6 +137,7 @@ class ShellScanner {
     };
     if (quoting[char] !== undefined) return quoting[char];
     if ('$<>'.includes(char) && next === '(') return () => this.substitution();
+    if (char === '<' && next === '<') return () => this.hereDocument();
     if (char === '>' || (char === '&' && next === '>')) return () => this.redirection();
     if (';\n|&()'.includes(char)) return () => this.separator(char, next);
     return undefined;
@@ -119,9 +155,10 @@ class ShellScanner {
   private endSegment(): void {
     this.endWord();
     const command = normalizeWords(this.words);
-    if (command !== '') this.segments.push({ command, writes: this.writes });
+    if (command !== '') this.segments.push({ command, writes: this.writes, files: this.files });
     this.words = [];
     this.writes = false;
+    this.files = [];
   }
 
   private blank(): void {
@@ -138,6 +175,7 @@ class ShellScanner {
     this.endSegment();
     const doubled = (char === '&' || char === '|') && next === char;
     this.index += doubled ? 2 : 1;
+    if (char === '\n') this.hereDocumentBodies();
   }
 
   private singleQuoted(): void {
@@ -187,7 +225,10 @@ class ShellScanner {
     this.index += this.charAt(0) === '&' ? 2 : 1;
     if (this.charAt(0) === '>' || this.charAt(0) === '|') this.index += 1;
     if (this.charAt(0) === '&') return this.descriptor();
-    if (this.target() !== '/dev/null') this.writes = true;
+    const { text: target } = this.operand();
+    if (target === '/dev/null') return;
+    this.writes = true;
+    if (target !== '') this.files.push(target);
   }
 
   /** `>&2`, `2>&1`, `>&-`: to another descriptor, not a file. */
@@ -196,13 +237,68 @@ class ShellScanner {
     while (/[\d-]/.test(this.charAt(0))) this.index += 1;
   }
 
-  /** The file a redirection writes to. */
-  private target(): string {
+  /** The word after a redirection or `<<`, quotes removed: the file, or the delimiter. */
+  private operand(): { text: string; quoted: boolean } {
     while (BLANK.test(this.charAt(0))) this.index += 1;
-    const start = this.index;
+    let text = '';
+    let quoted = false;
     while (this.index < this.script.length && !/[\s;&|<>()]/.test(this.charAt(0))) {
-      this.index += 1;
+      const char = this.charAt(0);
+      quoted ||= char === "'" || char === '"' || char === '\\';
+      text += this.operandPart(char);
     }
-    return this.script.slice(start, this.index).replace(/^["']|["']$/g, '');
+    return { text, quoted };
+  }
+
+  /** One character of an operand, or the whole of a quoted part of it. */
+  private operandPart(char: string): string {
+    if (char === '\\') {
+      this.index += 2;
+      return this.script[this.index - 1] ?? '';
+    }
+    if (char !== "'" && char !== '"') {
+      this.index += 1;
+      return char;
+    }
+    const close = this.script.indexOf(char, this.index + 1);
+    const end = close === -1 ? this.script.length : close;
+    const part = this.script.slice(this.index + 1, end);
+    this.index = end + 1;
+    return part;
+  }
+
+  /** `<<EOF`, `<<'EOF'`, `<<-EOF`: input read from the lines after this one. `<<<` is a word. */
+  private hereDocument(): void {
+    if (this.charAt(2) === '<') {
+      this.append('<<<');
+      this.index += 3;
+      return;
+    }
+    if (this.word !== undefined && /^\d+$/.test(this.word)) this.word = undefined;
+    this.endWord();
+    this.index += 2;
+    const stripTabs = this.charAt(0) === '-';
+    if (stripTabs) this.index += 1;
+    const { text: delimiter, quoted } = this.operand();
+    this.hereDocuments.push({ delimiter, stripTabs, quoted });
+  }
+
+  /**
+   * The bodies of the here-documents of the line just ended, one after the other: skipped, but
+   * for the substitutions of a body whose delimiter is unquoted, which the shell runs.
+   */
+  private hereDocumentBodies(): void {
+    for (const { delimiter, stripTabs, quoted } of this.hereDocuments.splice(0)) {
+      const lines: string[] = [];
+      while (this.index < this.script.length) {
+        const newline = this.script.indexOf('\n', this.index);
+        const end = newline === -1 ? this.script.length : newline;
+        const line = this.script.slice(this.index, end);
+        this.index = end + 1;
+        if ((stripTabs ? line.replace(/^\t+/, '') : line) === delimiter) break;
+        lines.push(line);
+      }
+      if (!quoted) this.nested.push(...substitutionsOf(lines.join('\n')));
+    }
   }
 }

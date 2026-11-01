@@ -167,6 +167,7 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 - Command substitutions, `$(…)`, backquotes, `<(…)`, are commands of their own, quoted or not: `echo "$(rm -rf /)"` is denied by `rm -rf`.
 - Leading variable assignments, keywords (`if`, `!`, `{`…) and the path of the command are dropped: `NODE_ENV=test /usr/bin/node app.js` reads `node app.js`.
 - A command that writes to a file through a redirection — `>`, `>>`, `&>`, other than to `/dev/null` or a descriptor — is asked about at least, whatever allows it.
+- The body of a here-document, `<<EOF` to `EOF`, is input, not commands: `python3 - <<'EOF'` reads `python3 -`, and what the script it reads does is not checked. Unless its delimiter is quoted, `<<'EOF'`, its substitutions still count as commands. A redirection on its line still writes: `cat > notes.md <<'EOF'` does.
 
 **Edits** are matched by path, as `.gitignore` reads them: a glob without a slash, `.env*`, matches a file name in any directory; one with a slash, `src/**`, the end of the path, whatever directory the session works in. `.` and `..` are resolved first. The edit tools are `write`, `edit`, `MultiEdit` and `NotebookEdit`.
 

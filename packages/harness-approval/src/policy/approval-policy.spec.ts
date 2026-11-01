@@ -60,10 +60,29 @@ describe('ApprovalPolicy.evaluate', () => {
   it('never allows a command that writes to a file through a redirection', () => {
     expect(policy.evaluate(bash('cat a > /etc/hosts'))).toEqual({
       decision: 'ask',
-      reason: '`cat a` writes to a file.',
+      reason: '`cat a` writes to `/etc/hosts`.',
     });
     expect(policy.evaluate(bash('ls > out.txt; git push')).decision).toBe('deny');
     expect(policy.evaluate(bash('ls 2>/dev/null')).decision).toBe('allow');
+    expect(policy.evaluate(bash('pnpm test 2>&1')).decision).toBe('allow');
+    expect(policy.evaluate(bash("cat > apps/e2e/package.json <<'EOF'\n{}\nEOF"))).toEqual({
+      decision: 'ask',
+      reason: '`cat` writes to `apps/e2e/package.json`.',
+    });
+  });
+
+  it('reads neither commands nor redirections in the body of a here-document', () => {
+    const scripts = defineApprovalPolicy({ commands: { allow: ['cd', 'python3 -'] } });
+    const script = [
+      "cd apps && python3 - <<'E'",
+      'rooms = db.query("select * from rooms where capacity >= $1 and equipment @> $2")',
+      'E',
+    ].join('\n');
+    expect(scripts.evaluate(bash(script))).toEqual({
+      decision: 'allow',
+      reason: 'Allowed by the approval policy (`cd`, `python3 -`).',
+      rule: 'cd, python3 -',
+    });
   });
 
   it('falls back on the default for a command it cannot read', () => {

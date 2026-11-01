@@ -7,7 +7,7 @@ const commands = (script: string) => commandSegments(script).map(({ command }) =
 describe('commandSegments', () => {
   it('reads a simple command, its words one space apart', () => {
     expect(commandSegments('git   status  --short')).toEqual([
-      { command: 'git status --short', writes: false },
+      { command: 'git status --short', writes: false, files: [] },
     ]);
   });
 
@@ -49,22 +49,73 @@ describe('commandSegments', () => {
   });
 
   it('tells a command that writes to a file through a redirection', () => {
-    expect(commandSegments('echo hi > notes.txt')).toEqual([{ command: 'echo hi', writes: true }]);
-    expect(commandSegments('echo hi >> "notes.txt"')[0]?.writes).toBe(true);
+    expect(commandSegments('echo hi > notes.txt')).toEqual([
+      { command: 'echo hi', writes: true, files: ['notes.txt'] },
+    ]);
+    expect(commandSegments('echo hi >> "notes.txt"')[0]?.files).toEqual(['notes.txt']);
+    expect(commandSegments('echo hi > "my notes.txt"')[0]?.files).toEqual(['my notes.txt']);
     expect(commandSegments('make &> build.log')[0]?.writes).toBe(true);
     expect(commandSegments('cat a >| b')[0]?.writes).toBe(true);
   });
 
   it('does not take descriptors and /dev/null for files', () => {
     expect(commandSegments('pnpm test 2>&1 | tail -5')).toEqual([
-      { command: 'pnpm test', writes: false },
-      { command: 'tail -5', writes: false },
+      { command: 'pnpm test', writes: false, files: [] },
+      { command: 'tail -5', writes: false, files: [] },
     ]);
     expect(commandSegments('ls missing 2> /dev/null')).toEqual([
-      { command: 'ls missing', writes: false },
+      { command: 'ls missing', writes: false, files: [] },
     ]);
     expect(commandSegments('echo oops >&2')[0]?.writes).toBe(false);
     expect(commandSegments('exec 3>&-')[0]?.writes).toBe(false);
+  });
+
+  it('never reads the body of a here-document as commands or redirections', () => {
+    const script = [
+      "cd apps && python3 - <<'E'",
+      'import re',
+      'rooms = db.query("select * from rooms where capacity >= $1 and equipment @> $2")',
+      "print('done') && rm -rf / > x",
+      'E',
+      'ls',
+    ].join('\n');
+    expect(commandSegments(script)).toEqual([
+      { command: 'cd apps', writes: false, files: [] },
+      { command: 'python3 -', writes: false, files: [] },
+      { command: 'ls', writes: false, files: [] },
+    ]);
+    expect(commands('cat <<EOF\nrm -rf / > x\nEOF')).toEqual(['cat']);
+    expect(commands('cat <<"EOF"\nrm -rf / > x\nEOF\nls')).toEqual(['cat', 'ls']);
+    expect(commands('cat<<EOF | grep a\na > x\nEOF')).toEqual(['cat', 'grep a']);
+    // `<<-` strips the tabs before the delimiter, which then closes the body.
+    expect(commands('cat <<-EOF\n\trm -rf /\n\tEOF\nls')).toEqual(['cat', 'ls']);
+    // Several here-documents on one line: their bodies follow it, one after the other.
+    expect(commands('cat <<A; cat <<B\na > x\nA\nb > y\nB\nls')).toEqual(['cat', 'cat', 'ls']);
+    expect(commands('cat <<EOF\nnever closed > x')).toEqual(['cat']);
+    // A here-string is a word, not a here-document.
+    expect(commands('cat <<< hi\nls')).toEqual(['cat <<< hi', 'ls']);
+  });
+
+  it('still counts the substitutions of a here-document whose delimiter is not quoted', () => {
+    expect(commands('cat <<EOF\nnow: $(date) `whoami` $1 \\$(id) $((1 + 2))\nEOF')).toEqual([
+      'cat',
+      'date',
+      'whoami',
+    ]);
+    expect(commands("cat <<'EOF'\nnow: $(date) `whoami`\nEOF")).toEqual(['cat']);
+  });
+
+  it('sees the redirections on the line of a here-document', () => {
+    expect(commandSegments("cat > apps/e2e/package.json <<'EOF'\n{}\nEOF")).toEqual([
+      { command: 'cat', writes: true, files: ['apps/e2e/package.json'] },
+    ]);
+    expect(commandSegments("cat <<'EOF' > notes.txt\nhi\nEOF\nls")).toEqual([
+      { command: 'cat', writes: true, files: ['notes.txt'] },
+      { command: 'ls', writes: false, files: [] },
+    ]);
+    expect(commandSegments('cat <<EOF 2>/dev/null\nhi\nEOF')).toEqual([
+      { command: 'cat', writes: false, files: [] },
+    ]);
   });
 
   it('reads nothing in an empty script, and survives unclosed quotes', () => {
