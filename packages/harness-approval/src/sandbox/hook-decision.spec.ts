@@ -40,10 +40,17 @@ describe('hookDecision', () => {
   });
 
   it('denies what the policy would ask a person about, saying why', () => {
-    expect(call('Bash', { command: 'cat a > b' })).toEqual({
+    expect(call('Bash', { command: 'cat a > "$OUT"' })).toEqual({
       decision: 'deny',
       reason:
-        '`cat a` writes to `b`. The approval policy would ask a person, and nobody can be asked from the sandbox.',
+        '`cat a` writes to `$OUT`. The approval policy would ask a person, and nobody can be asked from the sandbox.',
+    });
+  });
+
+  it('decides a redirection as an edit of the file it writes to', () => {
+    expect(call('Bash', { command: 'cat a > b' })).toEqual({
+      decision: 'deny',
+      reason: 'This agent only reads.',
     });
   });
 
@@ -55,8 +62,7 @@ describe('hookDecision', () => {
     });
     expect(call('Bash', { command: "cat > apps/e2e/package.json <<'EOF'\n{}\nEOF" })).toEqual({
       decision: 'deny',
-      reason:
-        '`cat` writes to `apps/e2e/package.json`. The approval policy would ask a person, and nobody can be asked from the sandbox.',
+      reason: 'This agent only reads.',
     });
   });
 
