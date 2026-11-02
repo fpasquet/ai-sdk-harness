@@ -90,22 +90,11 @@ export const declaredRequired = (
   }
 };
 
-/**
- * A `sandbox-command` reads only the variables its input schema sets, and no `${PLUGIN_ROOT}`: the
- * shell would expand either to nothing.
- */
+/** A `sandbox-command` reads only the variables its input schema sets: the shell would expand others to nothing. */
 export const declaredVariables = (
   tool: { command: string; inputSchema?: unknown },
   context: z.core.$RefinementCtx,
 ): void => {
-  if (tool.command.match(PLUGIN_ROOT) !== null) {
-    context.addIssue({
-      code: 'custom',
-      path: ['command'],
-      message:
-        'must not cite ${PLUGIN_ROOT}: a sandbox-command runs in the default working directory of the sandbox, where it points at nothing',
-    });
-  }
   const input = inputPropertiesOf(tool.inputSchema);
   if (input === undefined) return;
   const set = new Set(input.properties.map(inputVariable));
@@ -115,6 +104,20 @@ export const declaredVariables = (
     code: 'custom',
     path: ['command'],
     message: `reads ${missing.map((name) => `$${name}`).join(', ')}, which no property of the input schema sets: the model fills only what the schema shows`,
+  });
+};
+
+/**
+ * A `sandbox-command` on its own cites no `${PLUGIN_ROOT}`: it has no files for it to point at.
+ * In a plugin, it points at the plugin's files.
+ */
+export const noPluginRoot = (tool: { command: string }, context: z.core.$RefinementCtx): void => {
+  if (tool.command.match(PLUGIN_ROOT) === null) return;
+  context.addIssue({
+    code: 'custom',
+    path: ['command'],
+    message:
+      'must not cite ${PLUGIN_ROOT}: a tool on its own has no files for it to point at; put the tool and its files in a plugin',
   });
 };
 

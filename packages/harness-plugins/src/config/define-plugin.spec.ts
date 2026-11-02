@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
-import { definePlugin } from './define.js';
+import { defineItem, definePlugin } from './define.js';
 
 describe('definePlugin', () => {
   it('checks a tool: an AI SDK tool, or a definition', () => {
@@ -96,14 +96,31 @@ describe('definePlugin', () => {
     ).not.toThrow();
   });
 
-  it('refuses a sandbox-command that cites ${PLUGIN_ROOT}, which it never replaces', () => {
-    expect(() =>
-      definePlugin({
-        name: 'kit',
-        description: '',
-        tools: { t: { type: 'sandbox-command', description: 'd', command: '${PLUGIN_ROOT}/a.sh' } },
+  it('takes a sandbox-command that cites ${PLUGIN_ROOT} in a plugin with files, and refuses one without', () => {
+    const tools = {
+      t: { type: 'sandbox-command', description: 'd', command: '"${PLUGIN_ROOT}/a.sh"' },
+    };
+    const files = [{ path: 'a.sh', content: 'echo a', executable: true }];
+    expect(() => definePlugin({ name: 'kit', description: '', tools, files })).not.toThrow();
+    expect(() => definePlugin({ name: 'kit', description: '', tools })).toThrow(
+      'Plugin "kit": its tool "t" cites ${PLUGIN_ROOT}, and the plugin has no files for it to point at.',
+    );
+  });
+
+  it('refuses a sandbox-command on its own that cites ${PLUGIN_ROOT}: it has no files', () => {
+    const item = { kind: 'tool', name: 't', type: 'sandbox-command', description: 'd' };
+    expect(() => defineItem({ ...item, command: '"${CLAUDE_PLUGIN_ROOT}/a.sh"' })).toThrow(
+      expect.objectContaining({
+        issues: [
+          {
+            path: ['command'],
+            message:
+              'must not cite ${PLUGIN_ROOT}: a tool on its own has no files for it to point at; put the tool and its files in a plugin',
+          },
+        ],
       }),
-    ).toThrow('tools.t.command: must not cite ${PLUGIN_ROOT}');
+    );
+    expect(() => defineItem({ ...item, command: 'wc -l' })).not.toThrow();
   });
 
   it('refuses an input schema that requires a property it does not declare', () => {
