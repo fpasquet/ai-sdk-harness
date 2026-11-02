@@ -21,7 +21,7 @@ import { expandCommand, pluginHarnessSettings, resolvePlugins, withPlugins } fro
  * removed at the end; the template image, shared with the example, is kept.
  *
  * The plugins come from stored manifests, as a back office would keep them: a sandbox-command
- * tool, a command, a hook, rules — for every file, and for some —, an MCP server run by the
+ * tool that runs a script of its plugin, a command, a hook, rules — for every file, and for some —, an MCP server run by the
  * runtime in the sandbox, and one run on this host, whose tools the runtime calls over the bridge.
  */
 const SERVER = readFileSync(join(import.meta.dirname, 'fixtures/mcp-server.mjs'), 'utf8');
@@ -40,7 +40,10 @@ const manifests = [
   {
     name: 'vault',
     description: 'Two MCP servers with a secret word each.',
-    files: [{ path: 'server.mjs', content: SERVER }],
+    files: [
+      { path: 'server.mjs', content: SERVER },
+      { path: 'bin/kernel.sh', content: '#!/bin/sh\nuname -s\n', executable: true },
+    ],
     mcpServers: {
       boxvault: {
         type: 'stdio',
@@ -70,7 +73,8 @@ const manifests = [
       kernel: {
         type: 'sandbox-command',
         description: 'Gives the name of the kernel of the sandbox.',
-        command: 'uname -s',
+        // A script of the plugin, through ${PLUGIN_ROOT}: the tool runs it wherever it starts.
+        command: '"${PLUGIN_ROOT}/bin/kernel.sh"',
       },
     },
   },

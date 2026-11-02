@@ -117,8 +117,24 @@ export interface PluginRule {
   requires?: string[];
 }
 
-/** A skill, as `HarnessAgent` takes it, and what it needs to work. */
-export type PluginSkill = HarnessAgentSkill & { requires?: string[] };
+/**
+ * A skill, as `HarnessAgent` takes it, what it needs to work, and what the head of its `SKILL.md`
+ * says of it besides its name and description ([Agent Skills](https://agentskills.io/specification)):
+ * for your application to show, never sent to the runtime.
+ */
+export type PluginSkill = HarnessAgentSkill & {
+  requires?: string[];
+  /** Its version: `version`, or `metadata.version` as the specification writes it. */
+  version?: string;
+  /** Its license: a license's name, or the name of a file of the skill that holds it. */
+  license?: string;
+  /** What it needs of its environment: a product, system packages, network access. */
+  compatibility?: string;
+  /** The tools it may use without asking (`allowed-tools`): `Read`, `Bash(git:*)`. */
+  allowedTools?: string[];
+  /** Any other property its authors give it, a string for each key (`author`). */
+  metadata?: Record<string, string>;
+};
 
 /**
  * A value written as it is, or a reference to a secret your application holds — a token, a key —,
@@ -189,7 +205,10 @@ export type ToolDefinition = Requiring &
          * A shell command, run in the sandbox in its default working directory. The input reaches
          * it as environment variables, never spliced into the command: `INPUT` holds it as JSON,
          * and `INPUT_<KEY>` each top-level property (`INPUT_PATH` for `path`), strings as they
-         * are, anything else as JSON.
+         * are, anything else as JSON. `${PLUGIN_ROOT}` is replaced by the absolute directory, under
+         * the sandbox's `$HOME`, where the plugin's {@link Plugin.files} are written for its tools
+         * — `"${PLUGIN_ROOT}/count.sh"` runs a script of the plugin. It is shell text
+         * (`$HOME/…`): quote it with double quotes, never single ones.
          */
         command: string;
         /** @defaultValue `30` */
@@ -244,7 +263,11 @@ export type ResolvedMcpServer =
 
 /** A file the plugin needs in the sandbox, such as the script of a hook. */
 export interface PluginFile {
-  /** Relative to the plugin's directory in the sandbox (`${PLUGIN_ROOT}`). */
+  /**
+   * Relative to the plugin's directory in the sandbox (`${PLUGIN_ROOT}`): in the session's working
+   * directory for its hooks and MCP servers, and under the sandbox's `$HOME` for its
+   * `sandbox-command` tools, when one cites `${PLUGIN_ROOT}`.
+   */
   path: string;
   content: string;
   /** Written with the executable bit. */
@@ -341,6 +364,21 @@ export function checkPlugin(plugin: Plugin): void {
   for (const [index, hook] of (plugin.hooks ?? []).entries()) {
     if ((hook.command === undefined) === (hook.prompt === undefined)) {
       fail(`hook #${index + 1} (${hook.event}) needs exactly one of command and prompt.`);
+    }
+  }
+  checkPluginRoot(plugin, fail);
+}
+
+/** A `sandbox-command` cites `${PLUGIN_ROOT}` only in a plugin with files for it to point at. */
+function checkPluginRoot(plugin: Plugin, fail: (message: string) => never): void {
+  if ((plugin.files ?? []).length > 0) return;
+  for (const [name, tool] of Object.entries(plugin.tools ?? {})) {
+    const { type, command } = tool as { type?: unknown; command?: unknown };
+    if (type !== 'sandbox-command' || typeof command !== 'string') continue;
+    if (command.match(PLUGIN_ROOT) !== null) {
+      fail(
+        `its tool "${name}" cites \${PLUGIN_ROOT}, and the plugin has no files for it to point at.`,
+      );
     }
   }
 }

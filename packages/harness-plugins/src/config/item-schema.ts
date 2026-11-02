@@ -23,6 +23,7 @@ import {
   mcpServerFields,
   network,
   NO_SECRET_IN_SANDBOX,
+  noPluginRoot,
   noSecretInSandbox,
   ONE_HANDLER,
   oneHandler,
@@ -75,7 +76,8 @@ export const itemSchemas = {
     z
       .strictObject({ ...kind('tool'), name: toolName, ...toolFields['sandbox-command'], network })
       .superRefine(declaredRequired)
-      .superRefine(declaredVariables),
+      .superRefine(declaredVariables)
+      .superRefine(noPluginRoot),
     z
       .strictObject({ ...kind('tool'), name: toolName, ...toolFields.http, network })
       .superRefine(declaredPlaceholders)

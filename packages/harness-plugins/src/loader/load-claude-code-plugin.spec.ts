@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { definePlugin } from '../config/define.js';
 import { PluginLoadError } from '../errors/plugin-load-error.js';
 import { loadClaudeCodePlugin } from './load-claude-code-plugin.js';
 
@@ -53,6 +54,11 @@ describe('loadClaudeCodePlugin', () => {
           description: 'How to write release notes for this project.',
           content: '# Release notes\n\nGroup the changes by kind. See template.md.',
           files: [{ path: 'template.md', content: '## Features\n' }],
+          version: '2.1',
+          license: 'Apache-2.0',
+          compatibility: 'Requires git',
+          allowedTools: ['Read', 'Bash(git log:*)'],
+          metadata: { author: 'release-team', version: '2.1' },
         },
       ],
       hooks: [
@@ -119,6 +125,28 @@ describe('loadClaudeCodePlugin', () => {
       'more/two.md',
       'people/helper.md',
     ]);
+  });
+
+  it('keeps the head of a SKILL.md, as definePlugin takes it back', async () => {
+    const skill = (head: string) => `---\ndescription: d\n${head}\n---\n\nBody.\n`;
+    const root = await pluginDir({
+      '.claude-plugin/plugin.json': '{"name":"skills"}',
+      'skills/a/SKILL.md': skill(
+        'version: 1.0.0\nmetadata:\n  version: "0.9"\nallowed-tools: Read, Grep',
+      ),
+      'skills/b/SKILL.md': skill('allowed-tools:\n  - Read\n  - Bash(git status:*)\nlicense: ""'),
+      'skills/c/SKILL.md': skill('allowed-tools: Bash(npm run *) mcp__docs__search'),
+    });
+    const plugin = await loadClaudeCodePlugin(root);
+    const heads = plugin.skills?.map(({ name: _n, description: _d, content: _c, ...head }) => head);
+    expect(heads).toEqual([
+      // `version` wins over `metadata.version`.
+      { version: '1.0.0', allowedTools: ['Read', 'Grep'], metadata: { version: '0.9' } },
+      { allowedTools: ['Read', 'Bash(git status:*)'] },
+      { allowedTools: ['Bash(npm run *)', 'mcp__docs__search'] },
+    ]);
+    expect(() => definePlugin(plugin)).not.toThrow();
+    expect(() => definePlugin(JSON.parse(JSON.stringify(plugin)) as unknown)).not.toThrow();
   });
 
   it('leaves out what a minimal plugin does not have', async () => {

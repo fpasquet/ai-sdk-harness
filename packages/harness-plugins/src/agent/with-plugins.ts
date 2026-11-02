@@ -5,13 +5,16 @@ import { posix } from 'node:path';
 
 import type { Plugin } from '../definitions/plugin.js';
 import type { PluginFeature, PluginRuntime, SessionLayout } from '../runtimes/plugin-runtime.js';
+import type { ToolFiles } from '../session/sync-tool-files.js';
 
 import { readyTool } from '../config/resolve-plugins.js';
+import { toolFilesOf } from '../config/sandbox-command-tool.js';
 import { checkPlugin } from '../definitions/plugin.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
 import { rulesAsInstructions } from '../runtimes/rules.js';
 import { runtimeFor } from '../runtimes/runtime-for.js';
 import { STATE_DIR, syncSessionFiles } from '../session/sync-session-files.js';
+import { syncToolFiles } from '../session/sync-tool-files.js';
 
 /** The settings of a `HarnessAgent` the plugins take part in. */
 export interface PluginAgentSettings {
@@ -69,7 +72,10 @@ const SKILL_TOOL = 'Skill';
  *   runtimes that have none;
  * - their **hooks**, **subagents** and **files** are written in each session's working directory
  *   by `sandboxConfig.onSession`, after your own, at creation and at every resume — so a resumed
- *   session runs with the plugins the agent has now.
+ *   session runs with the plugins the agent has now;
+ * - the **files** of a plugin whose `sandbox-command` tool cites `${PLUGIN_ROOT}` are written
+ *   under the sandbox's `$HOME` too, in a directory named after their content: a tool runs in
+ *   the sandbox's default working directory, and never learns the session's.
  *
  * Commands are expanded by {@link expandCommand} before the prompt reaches the agent, and MCP
  * servers belong to the harness adapter: see {@link pluginHarnessSettings}.
@@ -91,6 +97,7 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
     runtime.rules === 'instructions'
       ? withRules(settings.instructions, rulesAsInstructions(plugins))
       : undefined;
+  const toolFiles = toolFilesOfAll(tools);
   const onSession = settings.sandboxConfig?.onSession ?? settings.onSandboxSession;
   const { onSandboxSession: _deprecated, ...rest } = settings;
   // The settings as given, but for what is set below: a generic `Omit` TypeScript cannot follow.
@@ -110,6 +117,7 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
           ...input,
           layout: layoutOf(runtime, plugins, input.sessionWorkDir),
         });
+        await syncToolFiles({ ...input, tools: toolFiles });
       },
     },
   } as WithPlugins<SETTINGS>;
@@ -132,6 +140,11 @@ function layoutOf(
     })),
   );
   return { files: [...supported, ...files], hookGroups };
+}
+
+/** The files the `sandbox-command` tools reach through `${PLUGIN_ROOT}`. */
+function toolFilesOfAll(tools: ToolSet | undefined): ToolFiles[] {
+  return Object.values(tools ?? {}).flatMap((tool) => toolFilesOf(tool) ?? []);
 }
 
 function reportUnsupported(
@@ -193,7 +206,7 @@ function readyTools(plugin: Plugin): ToolSet {
   }
   const tools: ToolSet = {};
   for (const [name, written] of Object.entries(plugin.tools ?? {})) {
-    const tool = readyTool(written);
+    const tool = readyTool(written, plugin);
     if (tool === undefined) {
       throw new InvalidPluginError(
         `its tool "${name}" refers to a secret or a tool of your application: resolve the plugins with resolvePlugins() first.`,
@@ -221,9 +234,9 @@ function mergeSkills(
         );
       }
       owners.set(skill.name, `a skill of plugin "${plugin.name}"`);
-      // What a catalog reads of it, not the harness.
-      const { requires: _requires, ...harnessSkill } = skill;
-      skills.push(harnessSkill);
+      // The harness takes what the runtime loads; the rest is for a catalog and your application.
+      const { name, description, content, files } = skill;
+      skills.push({ name, description, content, ...(files !== undefined && { files }) });
     }
   }
   return settings.skills === undefined && skills.length === 0 ? undefined : skills;

@@ -172,7 +172,7 @@ const FAULTY_PLUGINS: Record<string, unknown> = {
     ],
     requires: ['tool:npm-latest', 'mcp-server:snyk'],
   },
-  'A plugin whose sandbox-command runs a script of its files (refused)': {
+  'A plugin whose sandbox-command runs a script it does not ship (refused)': {
     name: 'lint-kit',
     description: 'Lint a file with the project’s ESLint.',
     tools: {
@@ -187,7 +187,6 @@ const FAULTY_PLUGINS: Record<string, unknown> = {
         command: '"${PLUGIN_ROOT}/lint.sh" "$INPUT_PATH"',
       },
     },
-    files: [{ path: 'lint.sh', content: '#!/bin/sh\nnpx eslint "$1"\n', executable: true }],
   },
 };
 

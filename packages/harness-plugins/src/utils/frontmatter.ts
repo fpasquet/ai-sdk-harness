@@ -1,5 +1,5 @@
-/** A value of a frontmatter: a scalar, or a list of them. */
-export type FrontmatterValue = string | string[];
+/** A value of a frontmatter: a scalar, a list of them, or a map of them (`metadata`). */
+export type FrontmatterValue = Record<string, string> | string | string[];
 
 /** A Markdown document split into its frontmatter and its body. */
 export interface FrontmatterDocument {
@@ -10,11 +10,13 @@ export interface FrontmatterDocument {
 const FENCE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const KEY = /^([A-Za-z0-9_-]+):(?:[ \t]+(.*))?$/;
 const ITEM = /^[ \t]+-[ \t]+(.*)$/;
+const NESTED = /^[ \t]+([A-Za-z0-9_.-]+):(?:[ \t]+(.*))?$/;
 
 /**
  * Splits `text` into its YAML frontmatter and its body. Only what the Markdown files of Claude
- * Code plugins use is read: `key: value`, quoted or not, inline lists (`[a, b]`) and block lists
- * (`- a`). A document without frontmatter has empty data.
+ * Code plugins and skills use is read: `key: value`, quoted or not, inline lists (`[a, b]`), block
+ * lists (`- a`) and maps of scalars one level deep (`metadata:` then `  version: "1.0"`). A
+ * document without frontmatter has empty data.
  */
 export function parseFrontmatter(text: string): FrontmatterDocument {
   const fence = FENCE.exec(text);
@@ -24,19 +26,36 @@ export function parseFrontmatter(text: string): FrontmatterDocument {
 
 function parseData(yaml: string): Record<string, FrontmatterValue> {
   const data: Record<string, FrontmatterValue> = {};
-  let list: string[] | undefined;
+  // The key whose value is the block below it: a list, or a map.
+  let open: string | undefined;
   for (const line of yaml.split(/\r?\n/)) {
-    const item = ITEM.exec(line);
     const entry = KEY.exec(line);
-    if (item !== null && list !== undefined) {
-      list.push(unquote(item[1] ?? ''));
-    } else if (entry !== null) {
+    if (entry !== null) {
       const [, key = '', raw = ''] = entry;
-      list = raw.trim() === '' ? [] : undefined;
-      data[key] = list ?? valueOf(raw.trim());
+      open = raw.trim() === '' ? key : undefined;
+      data[key] = open === undefined ? valueOf(raw.trim()) : [];
+    } else if (open !== undefined) {
+      data[open] = blockLine(data[open] ?? [], line);
     }
   }
   return data;
+}
+
+/** `block` with `line` added: an item to a list, a `key: value` to a map, as the block began. */
+function blockLine(block: FrontmatterValue, line: string): FrontmatterValue {
+  const item = ITEM.exec(line);
+  if (item !== null) return Array.isArray(block) ? [...block, unquote(item[1] ?? '')] : block;
+  const nested = NESTED.exec(line);
+  const map = mapOf(block);
+  if (nested === null || map === undefined) return block;
+  const [, key = '', raw = ''] = nested;
+  return { ...map, [key]: unquote(raw.trim()) };
+}
+
+/** The map a block is, or begins as when it is still empty. */
+function mapOf(block: FrontmatterValue): Record<string, string> | undefined {
+  if (isMap(block)) return block;
+  return Array.isArray(block) && block.length === 0 ? {} : undefined;
 }
 
 /**
@@ -44,7 +63,7 @@ function parseData(yaml: string): Record<string, FrontmatterValue> {
  * which YAML reads back as the same string whatever it holds.
  */
 export function stringifyFrontmatter(
-  data: Record<string, FrontmatterValue | undefined>,
+  data: Record<string, string | string[] | undefined>,
   body: string,
 ): string {
   const lines = Object.entries(data).flatMap(([key, value]) => {
@@ -59,10 +78,14 @@ export function stringifyFrontmatter(
 
 /** The text of a frontmatter value as a list: `[a, b]`, or `a, b`. */
 export function listOf(value: FrontmatterValue | undefined): string[] | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined || isMap(value)) return undefined;
   const items = Array.isArray(value) ? value : value.split(',');
   return items.map((item) => item.trim()).filter((item) => item !== '');
 }
+
+/** Whether `value` is a map, rather than a scalar or a list. */
+export const isMap = (value: FrontmatterValue | undefined): value is Record<string, string> =>
+  typeof value === 'object' && !Array.isArray(value);
 
 function valueOf(raw: string): FrontmatterValue {
   if (raw.startsWith('[') && raw.endsWith(']')) {

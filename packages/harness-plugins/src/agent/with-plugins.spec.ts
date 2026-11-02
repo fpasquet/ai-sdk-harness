@@ -3,7 +3,7 @@ import { createCodex } from '@ai-sdk/harness-codex';
 import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { tool } from '@ai-sdk/provider-utils';
 import { execFileSync } from 'node:child_process';
-import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -78,6 +78,27 @@ describe('withPlugins', () => {
     expect(settings.instructions).toBe('Be helpful.');
     expect(Object.keys(settings.tools)).toEqual(['own', 'echo']);
     expect(settings.skills.map(({ name }) => name)).toEqual(['own-skill', 'review-style']);
+    // What the head of a skill says besides is for the application, not the runtime.
+    const licensed = withPlugins({ harness: claudeCode }, [
+      {
+        name: 'licensed',
+        description: '',
+        skills: [
+          {
+            name: 'style',
+            description: 'd',
+            content: 'c',
+            license: 'MIT',
+            version: '1.0',
+            allowedTools: ['Read'],
+            requires: ['tool:echo'],
+          },
+        ],
+      },
+    ]);
+    expect((licensed as { skills?: unknown }).skills).toEqual([
+      { name: 'style', description: 'd', content: 'c' },
+    ]);
     expect(settings).not.toHaveProperty('activeTools');
     expect(typeof settings.sandboxConfig?.onSession).toBe('function');
   });
@@ -367,6 +388,60 @@ describe('the session files', () => {
       createdSettings: false,
       hookGroups: [],
     });
+  });
+
+  it('runs a script of the plugin from a sandbox-command, through ${PLUGIN_ROOT}', async () => {
+    sandbox = await createHostSandbox({ home: true });
+    const counter: Plugin = {
+      name: 'counter',
+      description: '',
+      tools: {
+        count: {
+          type: 'sandbox-command',
+          description: 'Count the words',
+          inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+          // Wherever the command goes first, the path stays absolute.
+          command: 'cd / && "${PLUGIN_ROOT}/bin/count.sh"',
+        },
+      },
+      files: [
+        {
+          path: 'bin/count.sh',
+          content: '#!/bin/sh\nprintf "%s" "$INPUT_TEXT" | wc -w | tr -d " "\n',
+          executable: true,
+        },
+      ],
+    };
+    // Resolved first, as an application does, or built by withPlugins on its own.
+    for (const plugins of [(await resolvePlugins([counter])).plugins, [counter]]) {
+      const settings = withPlugins({ harness: claudeCode }, plugins);
+      // A session of its own, in a directory of the sandbox's default one: not where tools run.
+      const sessionWorkDir = join(sandbox.directory, 'claude-code-1');
+      await mkdir(sessionWorkDir, { recursive: true });
+      await settings.sandboxConfig.onSession?.({ session: sandbox.session, sessionWorkDir });
+      const count = settings.tools?.count as {
+        execute: (input: unknown, options: object) => Promise<unknown>;
+      };
+      expect(
+        await count.execute(
+          { text: 'one two three' },
+          { toolCallId: '1', messages: [], experimental_sandbox: sandbox.session },
+        ),
+      ).toEqual({ exitCode: 0, stdout: '3\n', stderr: '' });
+    }
+    const roots = await readdir(join(sandbox.directory, 'home/.ai-sdk-harness/plugin-files'));
+    expect(roots).toEqual([expect.stringMatching(/^counter-[0-9a-f]{16}$/)]);
+
+    // Another session of the sandbox finds them written: nothing is written twice.
+    const before = sandbox.commands.length;
+    await mkdir(join(sandbox.directory, 'claude-code-2'));
+    await withPlugins({ harness: claudeCode }, [counter]).sandboxConfig.onSession?.({
+      session: sandbox.session,
+      sessionWorkDir: join(sandbox.directory, 'claude-code-2'),
+    });
+    expect(
+      sandbox.commands.slice(before).filter((command) => command.includes('plugin-files')),
+    ).toEqual([]);
   });
 
   it('refuses a settings file that is not JSON, and reports a failing command', async () => {

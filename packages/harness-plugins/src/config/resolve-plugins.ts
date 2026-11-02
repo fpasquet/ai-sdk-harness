@@ -138,7 +138,7 @@ async function resolvePlugin(
   const secret = secretsOf(plugin.name, options);
   const tools: ToolSet = {};
   for (const [name, tool] of Object.entries(written)) {
-    tools[name] = await toolOf(plugin.name, tool, { tools: options.tools, secret });
+    tools[name] = await toolOf(plugin, tool, { tools: options.tools, secret });
   }
   const sandboxServers: Record<string, PluginMcpServer> = {};
   for (const [name, definition] of Object.entries(mcpServers)) {
@@ -160,30 +160,30 @@ async function resolvePlugin(
 type Secret = (value: SecretValue) => Promise<string>;
 
 async function toolOf(
-  plugin: string,
+  plugin: Plugin,
   tool: PluginTool,
   { tools = {}, secret }: { tools?: Record<string, Tool>; secret: Secret },
 ): Promise<Tool> {
   if (!isToolDefinition(tool)) return tool;
-  if (tool.type === 'sandbox-command') return sandboxCommandTool(tool);
+  if (tool.type === 'sandbox-command') return sandboxCommandTool(tool, plugin);
   if (tool.type === 'http') return httpTool(tool, await resolveRecord(tool.headers, secret));
   const found = tools[tool.ref];
   if (found === undefined) {
     throw new InvalidPluginError(
       `its tool "${tool.ref}" is not one your application registers.`,
-      plugin,
+      plugin.name,
     );
   }
   return found;
 }
 
 /**
- * The tool `tool` stands for, built at once: an AI SDK tool as it is, a `sandbox-command`, an
- * `http` one without secrets. `undefined` for one that needs resolving first.
+ * The tool `tool` of `plugin` stands for, built at once: an AI SDK tool as it is, a
+ * `sandbox-command`, an `http` one without secrets. `undefined` for one that needs resolving first.
  */
-export function readyTool(tool: PluginTool): Tool | undefined {
+export function readyTool(tool: PluginTool, plugin: Plugin): Tool | undefined {
   if (!isToolDefinition(tool)) return tool;
-  if (tool.type === 'sandbox-command') return sandboxCommandTool(tool);
+  if (tool.type === 'sandbox-command') return sandboxCommandTool(tool, plugin);
   if (tool.type === 'http' && plainRecord(tool.headers)) {
     return httpTool(tool, (tool.headers ?? {}) as Record<string, string>);
   }
