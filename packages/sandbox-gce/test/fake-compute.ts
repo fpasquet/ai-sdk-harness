@@ -349,7 +349,8 @@ export class FakeCompute {
     instance.agent = undefined;
     instance.port = undefined;
     instance.status = 'TERMINATED';
-    if (agent?.exitCode === null) {
+    // A signal ends a process without an exit code: one a test killed has exited all the same.
+    if (agent?.exitCode === null && agent.signalCode === null) {
       const exited = new Promise((resolve) => agent.once('exit', resolve));
       agent.kill('SIGTERM');
       await exited;

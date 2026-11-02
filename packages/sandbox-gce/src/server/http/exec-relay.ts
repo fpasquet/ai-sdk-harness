@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { pipeline } from 'node:stream/promises';
+
 import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
 import { readCommandLine } from '../../common/command-line.js';
@@ -51,8 +53,8 @@ export async function execRelay(
   });
   // At once: the caller waits for the process's id, and a quiet command writes nothing for long.
   response.flushHeaders();
-  answer.pipe(response);
-  // The caller gone, the agent's stream is let go: the process runs on, its exit kept by id.
-  response.once('close', () => answer.destroy());
-  await new Promise<void>((resolve) => answer.once('close', resolve));
+  // Either side gone, the other is let go. The agent stopping mid-command (restarted, its machine
+  // stopping), the answer is cut rather than ended: the caller, its exit frame never coming, then
+  // waits for the process by id. The caller gone, the process runs on, its exit kept by id.
+  await pipeline(answer, response).catch(() => undefined);
 }
