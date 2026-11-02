@@ -295,6 +295,23 @@ describe('a Compute Engine sandbox', () => {
     expect(await spawned.wait()).toEqual({ exitCode: 7 });
   });
 
+  it('fails a process whose machine’s agent stopped mid-command, rather than wait on', async () => {
+    const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    const spawned = await session.spawn({ command: 'echo $$; exec sleep 30' });
+    const reader = spawned.stdout.getReader();
+    const pid = Number(new TextDecoder().decode((await reader.read()).value));
+    reader.releaseLock();
+
+    // Killed outright, as a stopping machine would: no exit frame, and no process to wait for.
+    fake.compute.instance('sbx-box')?.agent?.kill('SIGKILL');
+    try {
+      expect(await spawned.wait()).toEqual({ exitCode: 137 });
+    } finally {
+      // Out of a machine, the command outlives its agent.
+      process.kill(pid);
+    }
+  });
+
   it('describes itself to the agent, and gives tools a restricted view', async () => {
     const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
