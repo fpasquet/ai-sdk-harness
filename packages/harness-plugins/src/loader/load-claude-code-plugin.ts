@@ -1,5 +1,3 @@
-import type { HarnessAgentSkill } from '@ai-sdk/harness/agent';
-
 import { join, resolve } from 'node:path';
 
 import type {
@@ -7,13 +5,15 @@ import type {
   PluginCommand,
   PluginFile,
   PluginMcpServer,
+  PluginSkill,
   PluginSubagent,
 } from '../definitions/plugin.js';
+import type { FrontmatterValue } from '../utils/frontmatter.js';
 import type { DirectoryFile } from './plugin-directory.js';
 
 import { checkPlugin } from '../definitions/plugin.js';
 import { PluginLoadError } from '../errors/plugin-load-error.js';
-import { listOf, parseFrontmatter } from '../utils/frontmatter.js';
+import { isMap, listOf, parseFrontmatter } from '../utils/frontmatter.js';
 import { readHooks, readMcpServers } from './plugin-config.js';
 import { listFiles, readJsonFile, readTextFile } from './plugin-directory.js';
 
@@ -38,7 +38,8 @@ const CONSUMED = /^(?:\.claude-plugin|commands|agents|skills)\/|^\.mcp\.json$|^h
  * - `.claude-plugin/plugin.json` gives its name, version and description;
  * - `commands/*.md` become commands (`description`, `argument-hint`; a subdirectory makes a
  *   `dir:name` namespace), `agents/*.md` subagents, `skills/<name>/SKILL.md` skills with their
- *   other files;
+ *   other files, and the rest of their head: `version` (or `metadata.version`), `license`,
+ *   `compatibility`, `allowed-tools` and `metadata`;
  * - `hooks/hooks.json` and `.mcp.json` (or the paths and objects `plugin.json` gives instead) become
  *   hooks and MCP servers;
  * - every other text file — the scripts of its hooks — ships to the sandbox, where
@@ -136,7 +137,7 @@ async function readSubagents(root: string, extra: unknown): Promise<PluginSubage
   });
 }
 
-async function readSkills(root: string): Promise<HarnessAgentSkill[]> {
+async function readSkills(root: string): Promise<PluginSkill[]> {
   const files = await listFiles(join(root, 'skills'));
   return files
     .filter(({ path }) => /^[^/]+\/SKILL\.md$/.test(path))
@@ -151,8 +152,35 @@ async function readSkills(root: string): Promise<HarnessAgentSkill[]> {
         description: typeof data.description === 'string' ? data.description : '',
         content: body,
         ...(others.length > 0 && { files: others }),
+        ...skillHead(data),
       };
     });
+}
+
+/** What the head of a `SKILL.md` says besides its name and description, as far as it says it. */
+function skillHead(data: Record<string, FrontmatterValue>): Partial<PluginSkill> {
+  const text = (value: FrontmatterValue | undefined): string | undefined =>
+    typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  const metadata = isMap(data.metadata) ? data.metadata : undefined;
+  const allowedTools = toolsOf(data['allowed-tools']);
+  const head: Partial<PluginSkill> = {
+    version: text(data.version) ?? text(metadata?.version),
+    license: text(data.license),
+    compatibility: text(data.compatibility),
+    allowedTools: allowedTools?.length === 0 ? undefined : allowedTools,
+    metadata: metadata !== undefined && Object.keys(metadata).length > 0 ? metadata : undefined,
+  };
+  return Object.fromEntries(Object.entries(head).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * The tools of `allowed-tools`: a list, or a string the specification separates with spaces and
+ * Claude Code with commas — neither within the parentheses of `Bash(git status:*)`.
+ */
+function toolsOf(value: FrontmatterValue | undefined): string[] | undefined {
+  if (value === undefined || isMap(value)) return undefined;
+  if (Array.isArray(value)) return value.map((tool) => tool.trim()).filter((tool) => tool !== '');
+  return value.match(/[^\s,(]+(?:\([^)]*\))?/g) ?? [];
 }
 
 const firstLine = (body: string): string =>

@@ -34,6 +34,16 @@ describe('parseFrontmatter', () => {
     expect(body).toBe('The body.');
   });
 
+  it('reads a map of scalars one level deep, as a skill writes its metadata', () => {
+    const { data } = parseFrontmatter(
+      ['---', 'metadata:', '  author: acme', '  version: "1.0"', 'license: MIT', '---', ''].join(
+        '\n',
+      ),
+    );
+    expect(data).toEqual({ metadata: { author: 'acme', version: '1.0' }, license: 'MIT' });
+    expect(listOf(data.metadata)).toBeUndefined();
+  });
+
   it('gives a document without frontmatter empty data', () => {
     expect(parseFrontmatter('\nJust text.\n')).toEqual({ data: {}, body: 'Just text.' });
   });

@@ -117,8 +117,24 @@ export interface PluginRule {
   requires?: string[];
 }
 
-/** A skill, as `HarnessAgent` takes it, and what it needs to work. */
-export type PluginSkill = HarnessAgentSkill & { requires?: string[] };
+/**
+ * A skill, as `HarnessAgent` takes it, what it needs to work, and what the head of its `SKILL.md`
+ * says of it besides its name and description ([Agent Skills](https://agentskills.io/specification)):
+ * for your application to show, never sent to the runtime.
+ */
+export type PluginSkill = HarnessAgentSkill & {
+  requires?: string[];
+  /** Its version: `version`, or `metadata.version` as the specification writes it. */
+  version?: string;
+  /** Its license: a license's name, or the name of a file of the skill that holds it. */
+  license?: string;
+  /** What it needs of its environment: a product, system packages, network access. */
+  compatibility?: string;
+  /** The tools it may use without asking (`allowed-tools`): `Read`, `Bash(git:*)`. */
+  allowedTools?: string[];
+  /** Any other property its authors give it, a string for each key (`author`). */
+  metadata?: Record<string, string>;
+};
 
 /**
  * A value written as it is, or a reference to a secret your application holds — a token, a key —,

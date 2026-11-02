@@ -221,6 +221,11 @@ export const skillFields = {
   description: z.string(),
   content: z.string(),
   files: z.array(z.strictObject({ path: text, content: z.string() })).optional(),
+  version: text.optional(),
+  license: text.optional(),
+  compatibility: text.max(500).optional(),
+  allowedTools: z.array(text).optional(),
+  metadata: z.record(z.string(), z.string()).optional(),
   requires,
 };
 

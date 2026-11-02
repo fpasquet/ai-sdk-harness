@@ -234,9 +234,9 @@ function mergeSkills(
         );
       }
       owners.set(skill.name, `a skill of plugin "${plugin.name}"`);
-      // What a catalog reads of it, not the harness.
-      const { requires: _requires, ...harnessSkill } = skill;
-      skills.push(harnessSkill);
+      // The harness takes what the runtime loads; the rest is for a catalog and your application.
+      const { name, description, content, files } = skill;
+      skills.push({ name, description, content, ...(files !== undefined && { files }) });
     }
   }
   return settings.skills === undefined && skills.length === 0 ? undefined : skills;

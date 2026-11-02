@@ -189,7 +189,7 @@ The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examp
 
 ### Claude Code plugins
 
-`loadClaudeCodePlugin('./plugins/commit-helper')` reads a Claude Code plugin directory — `commands/`, `agents/`, `skills/`, `hooks/hooks.json`, `.mcp.json` and its other files — into a plugin. A command's `allowed-tools` and `model` are not applied.
+`loadClaudeCodePlugin('./plugins/commit-helper')` reads a Claude Code plugin directory — `commands/`, `agents/`, `skills/`, `hooks/hooks.json`, `.mcp.json` and its other files — into a plugin. A command's `allowed-tools` and `model` are not applied. A skill keeps the rest of the head of its `SKILL.md`, as the [Agent Skills specification](https://agentskills.io/specification) writes it: `version` (or `metadata.version`), `license`, `compatibility`, `allowed-tools` as `allowedTools`, a list, and `metadata`. They are your application's to show — the license of a skill, the version it imports —, and never reach the runtime.
 
 ## Using items
 

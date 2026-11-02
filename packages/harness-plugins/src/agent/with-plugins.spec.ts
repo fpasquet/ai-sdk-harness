@@ -78,6 +78,27 @@ describe('withPlugins', () => {
     expect(settings.instructions).toBe('Be helpful.');
     expect(Object.keys(settings.tools)).toEqual(['own', 'echo']);
     expect(settings.skills.map(({ name }) => name)).toEqual(['own-skill', 'review-style']);
+    // What the head of a skill says besides is for the application, not the runtime.
+    const licensed = withPlugins({ harness: claudeCode }, [
+      {
+        name: 'licensed',
+        description: '',
+        skills: [
+          {
+            name: 'style',
+            description: 'd',
+            content: 'c',
+            license: 'MIT',
+            version: '1.0',
+            allowedTools: ['Read'],
+            requires: ['tool:echo'],
+          },
+        ],
+      },
+    ]);
+    expect((licensed as { skills?: unknown }).skills).toEqual([
+      { name: 'style', description: 'd', content: 'c' },
+    ]);
     expect(settings).not.toHaveProperty('activeTools');
     expect(typeof settings.sandboxConfig?.onSession).toBe('function');
   });
