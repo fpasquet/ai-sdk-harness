@@ -1,4 +1,4 @@
-import type { Plugin, ResolvedMcpServer } from '../definitions/plugin.js';
+import type { Plugin, PluginHook, ResolvedMcpServer } from '../definitions/plugin.js';
 
 /** What a plugin can hold that not every runtime can take. */
 export type PluginFeature = 'hooks' | 'mcpServers' | 'subagents';
@@ -15,6 +15,12 @@ export interface SessionLayout {
   files: SessionFile[];
   /** Claude Code hook groups by event, merged into `.claude/settings.local.json`. */
   hookGroups: Record<string, unknown[]>;
+}
+
+/** What the plugins set on a runtime's harness adapter, besides their MCP servers. */
+export interface RuntimeAdapterSettings {
+  /** Codex configuration, for the `codexConfig` of `createCodex()`. */
+  codexConfig?: Record<string, unknown>;
 }
 
 /**
@@ -39,7 +45,26 @@ export interface PluginRuntime {
     plugins: readonly Plugin[],
     pluginRoot: (plugin: string) => string,
   ) => SessionLayout;
+  /**
+   * Whether the runtime takes `hook`, when it takes hooks: some have events, or forms, it has not.
+   * Every hook when absent.
+   */
+  readonly takesHook?: (hook: PluginHook) => boolean;
+  /**
+   * What the plugins set on the harness adapter, besides their MCP servers: what the runtime reads
+   * from its configuration rather than from the session's working directory. `pluginRoot` is the
+   * directory of a plugin's files, relative to the session's working directory. Nothing when
+   * absent.
+   */
+  readonly adapterSettings?: (
+    plugins: readonly Plugin[],
+    pluginRoot: (plugin: string) => string,
+  ) => RuntimeAdapterSettings;
 }
+
+/** Whether `runtime` takes `hook`. */
+export const takesHook = (runtime: PluginRuntime, hook: PluginHook): boolean =>
+  runtime.supports.hooks && (runtime.takesHook?.(hook) ?? true);
 
 /** A layout with nothing in it. */
 export const EMPTY_LAYOUT: SessionLayout = { files: [], hookGroups: {} };

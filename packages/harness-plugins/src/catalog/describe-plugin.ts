@@ -9,6 +9,7 @@ import { listSlashCommands } from '../commands/expand-command.js';
 import { toolInputSchema } from '../config/input-schema.js';
 import { isToolDefinition } from '../config/plugin-schema.js';
 import { hookNameOf } from '../definitions/plugin.js';
+import { takesHook } from '../runtimes/plugin-runtime.js';
 import { KNOWN_RUNTIMES } from '../runtimes/runtime-for.js';
 
 /** A JSON Schema, as the AI SDK gives a tool's input schema. */
@@ -96,7 +97,11 @@ function unsupportedOf(plugin: Plugin): Record<string, PluginFeature[]> {
   return Object.fromEntries(
     KNOWN_RUNTIMES.map((runtime) => [
       runtime.harnessId,
-      present.filter((feature) => !runtime.supports[feature]),
+      present.filter((feature) =>
+        feature === 'hooks'
+          ? (plugin.hooks ?? []).some((hook) => !takesHook(runtime, hook))
+          : !runtime.supports[feature],
+      ),
     ]),
   );
 }

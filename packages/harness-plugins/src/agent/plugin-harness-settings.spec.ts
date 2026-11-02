@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import type { Plugin } from '../definitions/plugin.js';
@@ -56,6 +57,75 @@ describe('pluginHarnessSettings', () => {
         open: { url: 'https://open.example.com' },
       },
     });
+  });
+
+  it('gives Codex the hooks it takes, each trusted by the hash Codex computes', () => {
+    const guard: Plugin = {
+      name: 'guard',
+      description: '',
+      hooks: [
+        { event: 'PreToolUse', matcher: 'Bash', command: '"${PLUGIN_ROOT}/guard.sh"', timeout: 5 },
+        { event: 'PreToolUse', command: 'audit' },
+        { event: 'Stop', matcher: 'ignored', command: 'check' },
+        { event: 'SessionEnd', command: 'bye', timeout: 30 },
+        { event: 'Stop', prompt: 'Is the work done?' },
+        { event: 'Notification', command: 'notify' },
+      ],
+    };
+    const sha = (identity: string): string =>
+      `sha256:${createHash('sha256').update(identity).digest('hex')}`;
+    expect(pluginHarnessSettings('codex', [guard])).toEqual({
+      codexConfig: {
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: '".ai-sdk-harness/plugins/guard/guard.sh"',
+                  timeout: 5,
+                  async: false,
+                },
+              ],
+            },
+            { hooks: [{ type: 'command', command: 'audit', timeout: 600, async: false }] },
+          ],
+          // Codex reads no matcher for Stop, and gives SessionEnd 3 seconds at most.
+          Stop: [{ hooks: [{ type: 'command', command: 'check', timeout: 600, async: false }] }],
+          SessionEnd: [{ hooks: [{ type: 'command', command: 'bye', timeout: 3, async: false }] }],
+          state: {
+            '/<session-flags>/config.toml:pre_tool_use:0:0': {
+              enabled: true,
+              trusted_hash: sha(
+                '{"event_name":"pre_tool_use","hooks":[{"async":false,"command":"\\".ai-sdk-harness/plugins/guard/guard.sh\\"","timeout":5,"type":"command"}],"matcher":"Bash"}',
+              ),
+            },
+            '/<session-flags>/config.toml:pre_tool_use:1:0': {
+              enabled: true,
+              trusted_hash: sha(
+                '{"event_name":"pre_tool_use","hooks":[{"async":false,"command":"audit","timeout":600,"type":"command"}]}',
+              ),
+            },
+            '/<session-flags>/config.toml:stop:0:0': {
+              enabled: true,
+              trusted_hash: sha(
+                '{"event_name":"stop","hooks":[{"async":false,"command":"check","timeout":600,"type":"command"}]}',
+              ),
+            },
+            '/<session-flags>/config.toml:session_end:0:0': {
+              enabled: true,
+              trusted_hash: sha(
+                '{"event_name":"session_end","hooks":[{"async":false,"command":"bye","timeout":3,"type":"command"}]}',
+              ),
+            },
+          },
+        },
+      },
+    });
+    // Claude Code reads its hooks from the session's files.
+    expect(pluginHarnessSettings('claude-code', [guard])).toEqual({});
+    expect(pluginHarnessSettings('codex', [{ ...guard, hooks: [guard.hooks![4]!] }])).toEqual({});
   });
 
   it('is empty without servers, and for a runtime it does not know', () => {

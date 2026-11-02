@@ -387,6 +387,10 @@ describe('createCatalog', () => {
       event: 'PreToolUse',
       matcher: 'Bash',
       requires: [],
+      unsupportedOn: [],
+    });
+    // A prompt hook: Codex skips them.
+    expect(described.find(({ id }) => id === 'safety/hook:stop-2')).toMatchObject({
       unsupportedOn: ['codex'],
     });
     expect(described.find(({ id }) => id === 'tool:npm-latest')).toMatchObject({
