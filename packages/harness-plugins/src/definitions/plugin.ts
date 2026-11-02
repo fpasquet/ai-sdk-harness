@@ -85,9 +85,15 @@ export interface PluginSubagent {
   description: string;
   /** Its system prompt. */
   instructions: string;
-  /** The runtime tools it may use. All of the main agent's when absent. */
+  /**
+   * The runtime tools it may use. All of the main agent's when absent. Claude Code only: a Codex
+   * subagent has no list of its own, and has all of the main agent's tools.
+   */
   tools?: string[];
-  /** Its model, in the runtime's own terms (`sonnet`, `haiku`, `inherit`…). */
+  /**
+   * Its model, in the runtime's own terms (`sonnet`, `haiku`, `inherit`…). Codex leaves out
+   * `inherit` and the Claude Code aliases, and runs the subagent on its default model.
+   */
   model?: string;
   /**
    * What it needs to work, by catalog id (`tool:search`, `mcp-server:context7`, or

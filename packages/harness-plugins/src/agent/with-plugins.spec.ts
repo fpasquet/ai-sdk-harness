@@ -155,7 +155,6 @@ describe('withPlugins', () => {
     withPlugins({ harness: codex }, [guard, reviewer, servers], { onUnsupported });
     expect(onUnsupported.mock.calls).toEqual([
       [{ plugin: 'guard', feature: 'hooks', harnessId: 'codex' }],
-      [{ plugin: 'reviewer', feature: 'subagents', harnessId: 'codex' }],
     ]);
     const unknown = { harnessId: 'opencode', builtinTools: {} };
     withPlugins({ harness: unknown }, [servers], { onUnsupported });
@@ -357,6 +356,35 @@ describe('the session files', () => {
     await onSession([guard, reviewer], codex);
     expect(await exists(join(sandbox.directory, '.claude'))).toBe(false);
     expect(await read('.ai-sdk-harness/plugins/guard/guard.sh')).toBe('#!/bin/sh\nexit 0\n');
+  });
+
+  it('writes the subagents where Codex reads them, as its agent files', async () => {
+    const planner: Plugin = {
+      name: 'planner',
+      description: '',
+      subagents: [
+        {
+          name: 'planner',
+          description: 'Plans "big" changes.',
+          instructions: 'Write the plan.\nThen stop.',
+          model: 'gpt-5.5',
+        },
+      ],
+    };
+    await onSession([reviewer, planner], codex);
+    // No list of tools, and no Claude Code model alias: Codex has neither.
+    expect(await read('.codex/agents/critic.toml')).toBe(
+      'name = "critic"\ndescription = "Criticises."\ndeveloper_instructions = "Find the flaws."\n',
+    );
+    expect(await read('.codex/agents/planner.toml')).toBe(
+      'name = "planner"\ndescription = "Plans \\"big\\" changes."\n' +
+        'developer_instructions = "Write the plan.\\nThen stop."\nmodel = "gpt-5.5"\n',
+    );
+
+    // Resumed without the planner: its file goes, the critic's stays.
+    await onSession([reviewer], codex);
+    expect(await exists(join(sandbox.directory, '.codex/agents/planner.toml'))).toBe(false);
+    expect(await exists(join(sandbox.directory, '.codex/agents/critic.toml'))).toBe(true);
   });
 
   it('keeps what it wrote out of Git', async () => {
