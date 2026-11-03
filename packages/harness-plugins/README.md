@@ -94,13 +94,14 @@ export const acme = definePlugin({
 | **skills**      | in the sandbox               |     ✅      |  ✅   |
 | **rules**       | read by the agent            |     ✅      | ✅ ¹  |
 | **commands**    | expanded on your server      |     ✅      |  ✅   |
-| **hooks**       | in the sandbox               |     ✅      |  ❌   |
+| **hooks**       | in the sandbox               |     ✅      | ✅ ³  |
 | **subagents**   | in the sandbox               |     ✅      | ✅ ²  |
 | **MCP servers** | connected by your server     |     ✅      |  ✅   |
 | **files**       | in the sandbox               |     ✅      |  ✅   |
 
 ¹ As instructions: only Claude Code loads a rule with `paths` once the agent works on a matching file.
 ² Without the subagent's `tools`: [Subagents on Codex](#subagents-on-codex).
+³ Commands only, given to the adapter by `pluginHarnessSettings('codex', plugins)`: [Hooks on Codex](#hooks-on-codex).
 
 **Secrets never appear in a plugin.** It holds a reference, `{ "secret": "LINEAR_TOKEN" }`, which your server resolves with `resolveSecret`: the value never reaches the configuration, a database or the sandbox.
 
@@ -138,7 +139,7 @@ await close(); // closes the MCP clients, once the agent is done
 ```
 
 - `resolvePlugins()` builds the tools written as configuration, resolves the secrets and connects the MCP servers. A plugin with none of these can go straight to `withPlugins()`. Its `hosts` are those the plugins reach, from the sandbox and from your server: see [Network](#network).
-- `withPlugins()` adds the tools and skills to the agent, and writes the rules, hooks, subagents and files in each session. What the runtime cannot take — hooks on Codex — is left out with a warning (`onUnsupported` to change that).
+- `withPlugins()` adds the tools and skills to the agent, and writes the rules, hooks, subagents and files in each session. What the runtime cannot take — a prompt hook on Codex — is left out with a warning (`onUnsupported` to change that).
 - `/<skill>` calls a skill as `/<command>` calls a command; `listSlashCommands(plugins)` lists both, for a prompt's completion.
 
 ### A plugin in JSON
@@ -469,6 +470,25 @@ Codex reads its subagents from agent files, `.codex/agents/<name>.toml` in the s
 - A Codex subagent has the main agent's tools: Codex has no list of tools per agent, and `tools` is left out. Its MCP servers and its sandbox are the main agent's too.
 - Trusting the project, Codex also reads the rest of the session's `.codex/` — the repository's own configuration, if it has one —, as it would for a developer who trusted it.
 
+### Hooks on Codex
+
+Codex runs no hook it has not trusted, by a hash of the hook. Its hooks go to the adapter, each with that hash, rather than in the session: `pluginHarnessSettings('codex', plugins)` returns a `codexConfig` with the plugins' hooks (`hooks.<event>`) and the state that trusts each one (`hooks.state`), which the adapter hands Codex as the configuration of its threads.
+
+```ts
+const settings = pluginHarnessSettings('codex', plugins);
+const harness = createCodex({
+  ...settings,
+  // Your own configuration, merged into the plugins' rather than replacing it.
+  codexConfig: { ...settings.codexConfig, model_reasoning_effort: 'high' },
+});
+const agent = new HarnessAgent(withPlugins({ harness }, plugins));
+```
+
+- Codex takes `command` hooks on `PreToolUse`, `PostToolUse`, `PreCompact`, `SessionStart`, `SessionEnd`, `Stop`, `SubagentStart`, `SubagentStop` and `UserPromptSubmit`. A `prompt` hook, or a hook on `Notification` or `PostToolUseFailure`, is left out and reported to `onUnsupported`, with its name in `hook`.
+- A matcher matches Codex's tool names: its shell is `Bash`, as Claude Code's, and its file edits `apply_patch`. Codex reads no matcher on `Stop` and `UserPromptSubmit`, and gives a `SessionEnd` hook 3 seconds at most.
+- `${PLUGIN_ROOT}` is relative to the session's working directory, where Codex runs its hooks, since the adapter serves every session.
+- A hook of your own in `codexConfig.hooks` goes after the plugins' under its event: their trust is kept by position.
+
 ### Rules, commands, hooks, files
 
 - A rule without `paths` is always followed. With `paths`, globs from the session's working directory, Claude Code loads it once the agent reads or edits a matching file; other runtimes read every rule in the agent's instructions, each saying which files it is for.
@@ -520,7 +540,7 @@ const sandbox = await createSbxNetworkSandboxSession({
 
 ## Limitations
 
-- Codex takes no hooks yet: its hooks must be trusted by hash, which the harness does not expose.
+- A Codex hook is trusted by the key and the hash Codex gives it, which the package computes as Codex 0.160.1 does: a Codex that changed either would skip the hook.
 - A tool working in the sandbox runs in its default working directory: the harness does not hand tools the session's own.
 
 ## Development

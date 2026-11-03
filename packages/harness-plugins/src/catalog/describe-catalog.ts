@@ -6,6 +6,8 @@ import type { PluginFeature } from '../runtimes/plugin-runtime.js';
 import type { CatalogEntry } from './catalog.js';
 import type { JsonSchema, PluginDescription } from './describe-plugin.js';
 
+import { hookNameOf } from '../definitions/plugin.js';
+import { takesHook } from '../runtimes/plugin-runtime.js';
 import { KNOWN_RUNTIMES } from '../runtimes/runtime-for.js';
 import { describePlugin } from './describe-plugin.js';
 
@@ -133,7 +135,10 @@ function itemDescriptions(source: DescribedSource, plugin: PluginDescription): P
       event,
       ...(matcher !== undefined && { matcher }),
       description: description ?? hooks.find((hook) => hook.name === name)?.description ?? '',
-      unsupportedOn: unsupportedOn('hooks'),
+      unsupportedOn: KNOWN_RUNTIMES.filter((runtime) => {
+        const hook = hooks.find((written, index) => hookNameOf(written, index) === name);
+        return hook === undefined ? !runtime.supports.hooks : !takesHook(runtime, hook);
+      }).map(({ harnessId }) => harnessId),
     })),
     ...plugin.subagents.map((subagent) => ({
       kind: 'subagent' as const,

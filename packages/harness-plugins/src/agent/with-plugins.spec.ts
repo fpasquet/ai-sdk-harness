@@ -153,8 +153,9 @@ describe('withPlugins', () => {
       mcpServers: { a: { type: 'stdio', command: 'a', runIn: 'sandbox' } },
     };
     withPlugins({ harness: codex }, [guard, reviewer, servers], { onUnsupported });
+    // Codex takes the guard's command hook, not its prompt hook.
     expect(onUnsupported.mock.calls).toEqual([
-      [{ plugin: 'guard', feature: 'hooks', harnessId: 'codex' }],
+      [{ plugin: 'guard', feature: 'hooks', harnessId: 'codex', hook: 'stop-2' }],
     ]);
     const unknown = { harnessId: 'opencode', builtinTools: {} };
     withPlugins({ harness: unknown }, [servers], { onUnsupported });
@@ -167,7 +168,12 @@ describe('withPlugins', () => {
     const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
     withPlugins({ harness: codex }, [guard]);
     expect(emitWarning).toHaveBeenCalledWith(
-      'Plugin "guard": codex does not support hooks; they are left out.',
+      'Plugin "guard": codex does not support its hook "stop-2"; it is left out.',
+      'AiSdkHarnessPluginsWarning',
+    );
+    withPlugins({ harness: unknown }, [guard]);
+    expect(emitWarning).toHaveBeenLastCalledWith(
+      'Plugin "guard": opencode does not support hooks; they are left out.',
       'AiSdkHarnessPluginsWarning',
     );
     emitWarning.mockRestore();

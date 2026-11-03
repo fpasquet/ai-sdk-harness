@@ -9,8 +9,9 @@ import type { ToolFiles } from '../session/sync-tool-files.js';
 
 import { readyTool } from '../config/resolve-plugins.js';
 import { toolFilesOf } from '../config/sandbox-command-tool.js';
-import { checkPlugin } from '../definitions/plugin.js';
+import { checkPlugin, hookNameOf } from '../definitions/plugin.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
+import { takesHook } from '../runtimes/plugin-runtime.js';
 import { rulesAsInstructions } from '../runtimes/rules.js';
 import { runtimeFor } from '../runtimes/runtime-for.js';
 import { STATE_DIR, syncSessionFiles } from '../session/sync-session-files.js';
@@ -48,12 +49,17 @@ export interface UnsupportedPluginFeature {
   plugin: string;
   feature: PluginFeature;
   harnessId: string;
+  /**
+   * The one hook left out, by name, when the runtime takes the plugin's other hooks: Codex has no
+   * `Notification` nor `PostToolUseFailure` event, and no prompt hook.
+   */
+  hook?: string;
 }
 
 export interface WithPluginsOptions {
   /**
-   * Called for each plugin feature the runtime cannot take (Codex and hooks, for instance), which
-   * is then left out. Throw from it to refuse such a plugin instead.
+   * Called for each plugin feature the runtime cannot take, or each hook (a prompt hook on Codex,
+   * for instance), which is then left out. Throw from it to refuse such a plugin instead.
    *
    * @defaultValue a Node.js process warning
    */
@@ -78,7 +84,7 @@ const SKILL_TOOL = 'Skill';
  *   the sandbox's default working directory, and never learns the session's.
  *
  * Commands are expanded by {@link expandCommand} before the prompt reaches the agent, and MCP
- * servers belong to the harness adapter: see {@link pluginHarnessSettings}.
+ * servers belong to the harness adapter, as hooks do on Codex: see {@link pluginHarnessSettings}.
  *
  * Throws {@link InvalidPluginError} when two plugins, or a plugin and `settings`, give one name
  * to two tools or two skills, or when a tool takes the name of one of the runtime's own.
@@ -163,6 +169,20 @@ function reportUnsupported(
         report({ plugin: plugin.name, feature, harnessId: runtime.harnessId });
       }
     }
+    if (runtime.supports.hooks) reportUnsupportedHooks(runtime, plugin, report);
+  }
+}
+
+/** Each hook of `plugin` a runtime that takes hooks leaves out. */
+function reportUnsupportedHooks(
+  runtime: PluginRuntime,
+  plugin: Plugin,
+  report: (unsupported: UnsupportedPluginFeature) => void,
+): void {
+  for (const [index, hook] of (plugin.hooks ?? []).entries()) {
+    if (takesHook(runtime, hook)) continue;
+    const name = hookNameOf(hook, index);
+    report({ plugin: plugin.name, feature: 'hooks', harnessId: runtime.harnessId, hook: name });
   }
 }
 
@@ -266,9 +286,11 @@ function withRules(
     : { ...own, content: `${own.content}\n\n${rules}` };
 }
 
-function emitWarning({ plugin, feature, harnessId }: UnsupportedPluginFeature): void {
+function emitWarning({ plugin, feature, harnessId, hook }: UnsupportedPluginFeature): void {
   process.emitWarning(
-    `Plugin "${plugin}": ${harnessId} does not support ${feature}; they are left out.`,
+    hook === undefined
+      ? `Plugin "${plugin}": ${harnessId} does not support ${feature}; they are left out.`
+      : `Plugin "${plugin}": ${harnessId} does not support its hook "${hook}"; it is left out.`,
     'AiSdkHarnessPluginsWarning',
   );
 }

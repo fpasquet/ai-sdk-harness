@@ -1,4 +1,5 @@
 import type { Plugin, PluginMcpServer, ResolvedMcpServer } from '../definitions/plugin.js';
+import type { PluginRuntime } from '../runtimes/plugin-runtime.js';
 
 import { PLUGIN_ROOT } from '../definitions/plugin.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
@@ -9,25 +10,45 @@ import { STATE_DIR } from '../session/sync-session-files.js';
 export interface PluginHarnessSettings {
   /** The plugins' MCP servers, by name, in the runtime's own format. */
   mcpServers?: Record<string, unknown>;
+  /**
+   * Codex only: its configuration for the plugins' hooks — `hooks.<event>`, and `hooks.state`,
+   * which trusts each by its hash. Merge your own `codexConfig` into it rather than replacing it.
+   */
+  codexConfig?: Record<string, unknown>;
 }
 
 /**
  * The settings `plugins` need on the harness adapter of `harnessId` — their MCP servers, in its
- * own format —, to spread into `createClaudeCode()` or `createCodex()`:
+ * own format, and on Codex their hooks, trusted —, to spread into `createClaudeCode()` or
+ * `createCodex()`:
  *
  * ```ts
  * const harness = createClaudeCode({ ...pluginHarnessSettings('claude-code', plugins) });
  * ```
  *
- * An adapter serves every agent built on it: give each set of plugins with MCP servers an adapter
- * of its own. Empty for a runtime without MCP support. Throws {@link InvalidPluginError} when two
- * plugins name an MCP server alike.
+ * An adapter serves every agent built on it: give each set of plugins with MCP servers, or with
+ * hooks on Codex, an adapter of its own. Empty for a runtime that needs none of it. Throws
+ * {@link InvalidPluginError} when two plugins name an MCP server alike.
  */
 export function pluginHarnessSettings(
   harnessId: string,
   plugins: readonly Plugin[],
 ): PluginHarnessSettings {
   const runtime = runtimeFor(harnessId);
+  return {
+    ...mcpServersOf(runtime, plugins),
+    ...runtime.adapterSettings?.(plugins, relativeRoot),
+  };
+}
+
+/**
+ * The directory of a plugin's files, relative to the session's working directory, where the
+ * runtime starts its servers and runs its hooks: an adapter serves every session.
+ */
+const relativeRoot = (plugin: string): string => `${STATE_DIR}/plugins/${plugin}`;
+
+/** The MCP servers the runtime starts in the sandbox, in its own format. */
+function mcpServersOf(runtime: PluginRuntime, plugins: readonly Plugin[]): PluginHarnessSettings {
   if (!runtime.supports.mcpServers) return {};
   const mcpServers: Record<string, unknown> = {};
   const owners = new Map<string, string>();
@@ -50,13 +71,10 @@ export function pluginHarnessSettings(
   return owners.size > 0 ? { mcpServers } : {};
 }
 
-/**
- * A stdio server with `${PLUGIN_ROOT}` pointing at the plugin's files: relative to the session's
- * working directory, where the runtime starts it, since an adapter serves every session.
- */
+/** A stdio server with `${PLUGIN_ROOT}` pointing at the plugin's files. */
 function withPluginRoot(server: ResolvedMcpServer, plugin: string): ResolvedMcpServer {
   if (server.type !== 'stdio') return server;
-  const root = `${STATE_DIR}/plugins/${plugin}`;
+  const root = relativeRoot(plugin);
   const resolve = (value: string): string => value.replace(PLUGIN_ROOT, root);
   return {
     ...server,

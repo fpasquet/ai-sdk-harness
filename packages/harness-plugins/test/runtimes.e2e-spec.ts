@@ -222,15 +222,18 @@ describe('plugins on real runtimes', () => {
     expect(inputs.filter((input) => input.includes('oracle.'))).toEqual([]);
   });
 
-  it('claude-code runs the hook of a plugin, which blocks a command', async () => {
-    const { outputs } = await turn(
-      'claude-code',
-      resolved.plugins,
-      'Run exactly this command with the Bash tool, once: echo FORBIDDEN-MARKER. Then report its output or error verbatim.',
-    );
+  it.each(['claude-code', 'codex'] as const)(
+    '%s runs the hook of a plugin, which blocks a command',
+    async (runtime) => {
+      const { text, outputs } = await turn(
+        runtime,
+        resolved.plugins,
+        'Run exactly this command with your shell tool, once: echo FORBIDDEN-MARKER. Then report its output or error verbatim.',
+      );
 
-    expect(outputs.some(({ output }) => output.includes('Blocked by the guard plugin.'))).toBe(
-      true,
-    );
-  });
+      // However the runtime reports the block: as the tool's result, or in the agent's answer.
+      const seen = [text, ...outputs.map(({ output }) => output)];
+      expect(seen.some((part) => part.includes('Blocked by the guard plugin.'))).toBe(true);
+    },
+  );
 });
