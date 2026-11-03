@@ -1,5 +1,44 @@
 # ai-sdk-harness-plugins
 
+## 0.3.0
+
+### Minor Changes
+
+- 677e7d2: Codex takes the plugins' hooks. Codex runs no hook it has not trusted by its hash, so they go to the adapter rather than to the session: `pluginHarnessSettings('codex', plugins)` now returns a `codexConfig` with the hooks, `${PLUGIN_ROOT}` relative to the session's working directory, and the state that trusts each one by the hash Codex computes. Codex takes command hooks on `PreToolUse`, `PostToolUse`, `PreCompact`, `SessionStart`, `SessionEnd`, `Stop`, `SubagentStart`, `SubagentStop` and `UserPromptSubmit`; a prompt hook, or one on `Notification` or `PostToolUseFailure`, is left out and reported to `onUnsupported`, whose report now names it in `hook`. The catalog's `unsupportedOn` follows, hook by hook.
+  
+  BREAKING: on Codex, spread `pluginHarnessSettings('codex', plugins)` into `createCodex()` for the hooks to run, and merge your own `codexConfig` into its `codexConfig` rather than replacing it; `onUnsupported` is called once per hook Codex leaves out, instead of once for all of a plugin's hooks.
+- 62ca1a9: Codex takes the plugins' subagents: `withPlugins()` writes each one as a Codex agent file, `.codex/agents/<name>.toml` in the session's working directory, with its `instructions` as `developer_instructions` and its `model` unless it is `inherit` or a Claude Code alias. A Codex subagent has the main agent's tools: Codex has no list of tools per agent, and the subagent's `tools` are left out.
+  
+  BREAKING: on Codex, a plugin's subagents are no longer left out, nor reported to `onUnsupported`, and the catalog no longer lists `codex` in their `unsupportedOn`.
+
+### Patch Changes
+
+- dfa6728: A `sandbox-command` tool of a plugin can run a script of the plugin: `${PLUGIN_ROOT}` (or `${CLAUDE_PLUGIN_ROOT}`) in its `command` points at the plugin's `files`, as it does in a hook's command and in a stdio MCP server run in the sandbox.
+  
+  ```ts
+  definePlugin({
+    name: 'counter',
+    description: 'Counts words.',
+    tools: {
+      count: {
+        type: 'sandbox-command',
+        description: 'Count the words',
+        command: '"${PLUGIN_ROOT}/count.sh"',
+      },
+    },
+    files: [
+      {
+        path: 'count.sh',
+        content: '#!/bin/sh\nprintf "%s" "$INPUT_TEXT" | wc -w\n',
+        executable: true,
+      },
+    ],
+  });
+  ```
+  
+  A tool runs in the sandbox's default working directory and never learns which session it serves, so `withPlugins()` writes these files for it under the sandbox's `$HOME`, in `.ai-sdk-harness/plugin-files/<plugin>-<hash>/`, a directory named after their content: sessions sharing a sandbox, each with its own version of the plugin, never overwrite each other's, and a directory already written is not written again. `${PLUGIN_ROOT}` becomes `$HOME/…`, which the shell expands: quote it with double quotes. `definePlugin()` used to refuse `${PLUGIN_ROOT}` in a `sandbox-command`; it now refuses it only in a plugin without files, and `defineItem()` in a tool on its own, which has none.
+- dfa6728: `loadClaudeCodePlugin()` keeps the head of each `SKILL.md`, as the [Agent Skills specification](https://agentskills.io/specification) writes it, rather than its name and description alone: a skill now has `version` (its `version`, or `metadata.version`), `license`, `compatibility`, `allowedTools` (`allowed-tools`, as a list: separated by spaces or commas, never within `Bash(git status:*)`) and `metadata`, each when the file gives it. Your application can show a skill's license, or take its version when it imports it. `PluginSkill` declares them, `definePlugin()` and `defineItem()` accept them, and `withPlugins()` hands the runtime what it did before: the name, the description, the content and the files.
+
 ## 0.2.0
 
 ### Minor Changes
