@@ -21,19 +21,22 @@ import { expandCommand, pluginHarnessSettings, resolvePlugins, withPlugins } fro
  * removed at the end; the template image, shared with the example, is kept.
  *
  * The plugins come from stored manifests, as a back office would keep them: a sandbox-command
- * tool that runs a script of its plugin, a command, a hook, rules — for every file, and for some —, an MCP server run by the
- * runtime in the sandbox, and one run on this host, whose tools the runtime calls over the bridge.
+ * tool that runs a script of its plugin, a command, a hook, rules — for every file, and for some —,
+ * a subagent, an MCP server run by the runtime in the sandbox, and one run on this host, whose
+ * tools the runtime calls over the bridge.
  */
 const SERVER = readFileSync(join(import.meta.dirname, 'fixtures/mcp-server.mjs'), 'utf8');
 const RUNTIMES = {
   'claude-code': { create: createClaudeCode, model: 'claude-haiku-4-5' },
-  codex: { create: createCodex, model: 'gpt-5.5' },
+  // A ChatGPT login takes only some models: CODEX_E2E_MODEL picks another.
+  codex: { create: createCodex, model: process.env.CODEX_E2E_MODEL ?? 'gpt-5.5' },
 } as const;
 
 const hostWord = `host-${randomBytes(3).toString('hex')}`;
 const sandboxWord = `sandbox-${randomBytes(3).toString('hex')}`;
 const ruleWord = `rule-${randomBytes(3).toString('hex')}`;
 const notesWord = `notes-${randomBytes(3).toString('hex')}`;
+const oracleWord = `oracle-${randomBytes(3).toString('hex')}`;
 
 /** Plugins as they would come out of a database. */
 const manifests = [
@@ -90,6 +93,18 @@ const manifests = [
         name: 'notes',
         paths: ['notes/**'],
         content: `When you read a file in notes/, end your answer with a line of its own: \`NOTES=${notesWord}\`.`,
+      },
+    ],
+  },
+  {
+    name: 'team',
+    description: 'A subagent with a word of its own.',
+    subagents: [
+      {
+        name: 'oracle',
+        description:
+          'Knows the secret word of the team, which nobody else knows. Delegate to it any question about that word.',
+        instructions: `Whatever you are asked, answer with one line: \`ORACLE=${oracleWord}\`.`,
       },
     ],
   },
@@ -152,7 +167,12 @@ describe('plugins on real runtimes', () => {
             : [],
         ),
       );
-      return { text: result.text, outputs };
+      const inputs = result.steps.flatMap((step) =>
+        step.content.flatMap((part) =>
+          part.type === 'tool-call' ? [JSON.stringify(part.input)] : [],
+        ),
+      );
+      return { text: result.text, outputs, inputs };
     } finally {
       await session.destroy();
     }
@@ -188,6 +208,19 @@ describe('plugins on real runtimes', () => {
       expect(after.text).toContain(`NOTES=${notesWord}`);
     },
   );
+
+  // Codex only: Claude Code runs a subagent in the background, and its turn ends before the answer.
+  it.each(['codex'] as const)('%s delegates to the subagent of a plugin', async (runtime) => {
+    const { text, inputs } = await turn(
+      runtime,
+      resolved.plugins,
+      'Delegate to the oracle subagent: spawn it and ask it for the secret word of the team, then wait for its answer. Do not guess the word, and read no file. Reply with the exact line it gave you.',
+    );
+
+    // Only the subagent's instructions hold the word, and the agent did not read their file.
+    expect(text).toContain(`ORACLE=${oracleWord}`);
+    expect(inputs.filter((input) => input.includes('oracle.'))).toEqual([]);
+  });
 
   it('claude-code runs the hook of a plugin, which blocks a command', async () => {
     const { outputs } = await turn(

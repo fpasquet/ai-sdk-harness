@@ -95,11 +95,12 @@ export const acme = definePlugin({
 | **rules**       | read by the agent            |     ✅      | ✅ ¹  |
 | **commands**    | expanded on your server      |     ✅      |  ✅   |
 | **hooks**       | in the sandbox               |     ✅      |  ❌   |
-| **subagents**   | in the sandbox               |     ✅      |  ❌   |
+| **subagents**   | in the sandbox               |     ✅      | ✅ ²  |
 | **MCP servers** | connected by your server     |     ✅      |  ✅   |
 | **files**       | in the sandbox               |     ✅      |  ✅   |
 
 ¹ As instructions: only Claude Code loads a rule with `paths` once the agent works on a matching file.
+² Without the subagent's `tools`: [Subagents on Codex](#subagents-on-codex).
 
 **Secrets never appear in a plugin.** It holds a reference, `{ "secret": "LINEAR_TOKEN" }`, which your server resolves with `resolveSecret`: the value never reaches the configuration, a database or the sandbox.
 
@@ -137,7 +138,7 @@ await close(); // closes the MCP clients, once the agent is done
 ```
 
 - `resolvePlugins()` builds the tools written as configuration, resolves the secrets and connects the MCP servers. A plugin with none of these can go straight to `withPlugins()`. Its `hosts` are those the plugins reach, from the sandbox and from your server: see [Network](#network).
-- `withPlugins()` adds the tools and skills to the agent, and writes the rules, hooks, subagents and files in each session. What the runtime cannot take — hooks and subagents on Codex — is left out with a warning (`onUnsupported` to change that).
+- `withPlugins()` adds the tools and skills to the agent, and writes the rules, hooks, subagents and files in each session. What the runtime cannot take — hooks on Codex — is left out with a warning (`onUnsupported` to change that).
 - `/<skill>` calls a skill as `/<command>` calls a command; `listSlashCommands(plugins)` lists both, for a prompt's completion.
 
 ### A plugin in JSON
@@ -461,12 +462,19 @@ The package imports `@ai-sdk/mcp` itself, at run time, out of a bundler's sight:
 - `connectMcpServer` replaces the connection, for an authentication of your own such as OAuth: `resolvePlugins(plugins, { connectMcpServer: (server, { plugin, name }) => createMCPClient(…) })`.
 - `runIn: 'sandbox'` lets the runtime start the server in the sandbox instead, from the plugin's files, as a Claude Code plugin's stdio servers do. It may hold no secret, and goes to the harness adapter: `createClaudeCode({ ...pluginHarnessSettings('claude-code', plugins) })`.
 
+### Subagents on Codex
+
+Codex reads its subagents from agent files, `.codex/agents/<name>.toml` in the session's working directory, where `withPlugins()` writes them: `instructions` as `developer_instructions`, and `model` unless it is `inherit` or a Claude Code alias (`sonnet`, `opus`, `haiku`), which name no Codex model. Codex reads that directory in a project it trusts, and trusts the session's on its own: its app server does so when a thread has full access to the working directory, as the harness always asks.
+
+- A Codex subagent has the main agent's tools: Codex has no list of tools per agent, and `tools` is left out. Its MCP servers and its sandbox are the main agent's too.
+- Trusting the project, Codex also reads the rest of the session's `.codex/` — the repository's own configuration, if it has one —, as it would for a developer who trusted it.
+
 ### Rules, commands, hooks, files
 
 - A rule without `paths` is always followed. With `paths`, globs from the session's working directory, Claude Code loads it once the agent reads or edits a matching file; other runtimes read every rule in the agent's instructions, each saying which files it is for.
 - In a command's `prompt`, `$ARGUMENTS` is everything after the name, `$1` to `$9` each argument; a prompt with neither gets the arguments appended. `argumentHint` announces them, each `<…>` or `[…]`, the last one taking the rest when it ends with `...`.
 - A hook's `command` runs in the sandbox with the event as JSON on its standard input; for `PreToolUse`, exit status `2` blocks the call. It guards against mistakes, not against a hostile agent: the sandbox stays the security boundary.
-- Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; hooks, subagents and rules go to `.claude/`. All of it is kept out of Git.
+- Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; hooks, subagents and rules go to `.claude/`, Codex's subagents to `.codex/agents/`. All of it is kept out of Git.
 - `${PLUGIN_ROOT}` is not an environment variable: in a hook's `command`, or the `command`, `args` and `env` of an MCP server run in the sandbox, the package replaces it with that directory of the plugin, `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it included. In a `sandbox-command`'s `command`, it is replaced with the copy of the files under the sandbox's `$HOME` (see [Tools](#tools)).
 
 ### Network
@@ -512,7 +520,7 @@ const sandbox = await createSbxNetworkSandboxSession({
 
 ## Limitations
 
-- Codex takes no hooks nor subagents yet: its hooks must be trusted by hash, which the harness does not expose.
+- Codex takes no hooks yet: its hooks must be trusted by hash, which the harness does not expose.
 - A tool working in the sandbox runs in its default working directory: the harness does not hand tools the session's own.
 
 ## Development

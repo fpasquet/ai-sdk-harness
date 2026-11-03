@@ -417,7 +417,7 @@ describe('createCatalog', () => {
     expect(described.find(({ id }) => id === 'safety/subagent:auditor')).toMatchObject({
       tools: ['Read'],
       model: 'haiku',
-      unsupportedOn: ['codex'],
+      unsupportedOn: [],
     });
     expect(described).toHaveLength(14);
     expect(JSON.stringify({ plugins, described })).not.toMatch(
