@@ -101,8 +101,8 @@ describe('SbxSandboxSession', () => {
     });
 
     it('kills the process inside the sandbox, not only the sbx client', async () => {
-      const spawned = await session.spawn({ command: 'sleep 30' });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const spawned = await session.spawn({ command: 'echo started; sleep 30' });
+      await spawned.stdout.getReader().read();
 
       await spawned.kill();
       await spawned.kill();
@@ -112,8 +112,11 @@ describe('SbxSandboxSession', () => {
 
     it('rejects wait() with the abort reason when aborted', async () => {
       const controller = new AbortController();
-      const spawned = await session.spawn({ command: 'sleep 30', abortSignal: controller.signal });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const spawned = await session.spawn({
+        command: 'echo started; sleep 30',
+        abortSignal: controller.signal,
+      });
+      await spawned.stdout.getReader().read();
 
       controller.abort(new Error('stop it'));
 
@@ -122,8 +125,11 @@ describe('SbxSandboxSession', () => {
 
     it('rejects wait() with an AbortError when aborted without an Error reason', async () => {
       const controller = new AbortController();
-      const spawned = await session.spawn({ command: 'sleep 30', abortSignal: controller.signal });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const spawned = await session.spawn({
+        command: 'echo started; sleep 30',
+        abortSignal: controller.signal,
+      });
+      await spawned.stdout.getReader().read();
 
       controller.abort('no reason');
 
