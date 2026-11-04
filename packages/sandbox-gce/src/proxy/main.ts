@@ -67,7 +67,7 @@ export function main(env: Environment): void {
       'SANDBOX_ALLOW_PRIVATE_NETWORK=true: the sandboxes may reach the VPC and the metadata server. For tests only.',
     );
   }
-  const registry = new SandboxRegistry(config.allowPrivateNetwork, logger);
+  const registry = new SandboxRegistry(config.allowPrivateNetwork);
   const proxy = new EgressProxy((address) => registry.policyFor(address), logger, {
     maxConnections: config.maxConnections,
   });
@@ -90,7 +90,7 @@ export function main(env: Environment): void {
   if (idleExitMs !== undefined) {
     watchIdle({
       idleMs: idleExitMs,
-      sandboxes: () => registry.list().length,
+      sandboxes: () => registry.size,
       onIdle: () => {
         logger.info(`No sandbox for ${idleExitMs / 60_000} min: exiting for the machine to stop`);
         shutDown(IDLE_EXIT_CODE);

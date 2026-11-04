@@ -21,20 +21,10 @@ const SANDBOX = /^\/v1\/sandboxes\/([a-z0-9-]+)(\/[a-z]+)?$/;
 
 type Json = Record<string, unknown>;
 
-/** A request to one sandbox's route: its name, its body, and its query string. */
+/** A request to one sandbox's route: its name and its body. */
 interface SandboxCall {
   name: string;
   body: Json;
-  query: URLSearchParams;
-}
-
-/** `?serial=`, the registration a removal is meant for. */
-function serialOf(query: URLSearchParams): number | undefined {
-  const raw = query.get('serial');
-  if (raw === null) return undefined;
-  const serial = Number(raw);
-  if (!Number.isSafeInteger(serial)) throw new HttpError(400, '`serial` must be an integer.');
-  return serial;
 }
 
 /** What each route does to the registry. */
@@ -47,8 +37,8 @@ const ROUTES: Record<string, (registry: SandboxRegistry, call: SandboxCall) => R
     });
     return NO_CONTENT;
   },
-  'DELETE ': (registry, { name, query }) => {
-    registry.remove(name, serialOf(query));
+  'DELETE ': (registry, { name }) => {
+    registry.remove(name);
     return NO_CONTENT;
   },
   'PUT /network': (registry, { name, body }) => {
@@ -75,15 +65,12 @@ async function handle(
   url: URL,
 ): Promise<Reply> {
   const path = url.pathname;
-  if (request.method === 'GET' && path === '/v1/sandboxes') {
-    return { status: 200, body: { sandboxes: registry.list() } };
-  }
   const [, name, action = ''] = SANDBOX.exec(path) ?? [];
   const route = ROUTES[`${request.method} ${action}`];
   if (name === undefined || route === undefined) {
     throw new HttpError(404, `No route for ${request.method} ${path}.`);
   }
-  return route(registry, { name, body: await readJson(request), query: url.searchParams });
+  return route(registry, { name, body: await readJson(request) });
 }
 
 /**

@@ -81,12 +81,6 @@ export interface SandboxesOptions {
    */
   maxRunning?: number;
   /**
-   * How often, at most, the service makes the proxy forget the sandboxes whose machine no longer
-   * runs, see {@link Sandboxes.reconcile}: in the background of a creation or a resume, the first
-   * one at once. Never without it.
-   */
-  reconcileEveryMs?: number;
-  /**
    * How many machines are kept booted from each template in use, for the next creations from it to
    * take at once rather than boot one: billed while they run, all the time, and deleted once they
    * waited a day. Created in the request of a creation, never waited for. None without it.
@@ -129,9 +123,6 @@ const NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 /** Statuses of a machine that runs, or is about to: what {@link SandboxesOptions.maxRunning} counts. */
 const RUNNING = new Set(['PROVISIONING', 'REPAIRING', 'RUNNING', 'STAGING']);
 
-/** Statuses of a machine whose guest is off, or on its way: its agent will read its token anew. */
-const STOPPED = new Set(['STOPPING', 'TERMINATED']);
-
 /** Statuses a machine moves on from by itself. */
 const TRANSIENT = new Set(['PROVISIONING', 'REPAIRING', 'STAGING', 'STOPPING', 'SUSPENDING']);
 
@@ -153,10 +144,10 @@ const IMAGE_KEPT_MS = 5 * 60_000;
 /** The image a sandbox gets when its caller names none. */
 export const DEFAULT_IMAGE = 'default';
 
-/** The instance metadata key of the run the agent's token was drawn for, see {@link agentToken}. */
+/** The instance metadata key of the run of a machine of an earlier version, see {@link agentToken}. */
 const AGENT_RUN_METADATA_KEY = 'ai-sdk-sandbox-agent-run';
 
-/** The run the machine's agent token was drawn for: none on a machine made before runs were. */
+/** The run the machine's agent token covers: none but on a machine of an earlier version. */
 const runOf = (instance: Instance): string | undefined =>
   instance.metadata?.items?.find(({ key }) => key === AGENT_RUN_METADATA_KEY)?.value;
 
@@ -216,7 +207,6 @@ export class Sandboxes {
   private readonly endpoints = new Map<string, { endpoint: AgentEndpoint; until: number }>();
   private readonly machines = new Map<string, { instance: string; until: number }>();
   private readonly bases = new Map<string, { namespace: string; until: number }>();
-  private nextReconcile = 0;
 
   constructor(private readonly options: SandboxesOptions) {
     if (options.machine.images[DEFAULT_IMAGE] === undefined) {
@@ -314,9 +304,8 @@ export class Sandboxes {
   }
 
   /**
-   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first, and the
-   * agent gets a new token for its next run. Nothing runs, nothing is billed but the disk, until a
-   * resume. Returns once the machine left `RUNNING`, the guest off within seconds, not when Compute
+   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first. Nothing
+   * runs, nothing is billed but the disk, until a resume. Returns once the machine left `RUNNING`, the guest off within seconds, not when Compute
    * Engine is done some 50 s later: a resume meanwhile waits for it. Idempotent.
    */
   async suspend(name: string): Promise<void> {
@@ -330,7 +319,7 @@ export class Sandboxes {
       stopped = await this.leftRunning(instance.name);
       this.options.logger.info(`${name} stopping`);
     }
-    await this.drawRun(stopped);
+    await this.dropPowerOff(stopped);
     await this.proxyDownWhenIdle();
   }
 
@@ -342,39 +331,6 @@ export class Sandboxes {
   async delete(name: string): Promise<void> {
     this.assertSandboxName(name);
     await this.removeMachine(name, (await this.instanceOf(name))?.name);
-  }
-
-  /**
-   * Makes the proxy forget the sandboxes whose machine no longer runs, and their credentials: a
-   * machine stopped or deleted outside the service (a Spot machine taken back, one stopped at its
-   * run limit or from the console) leaves them in the proxy until then. A sandbox is kept while a
-   * running machine of the zone holds its address, unless it is another sandbox of this service:
-   * the sandboxes of another service sharing the proxy in the zone are left alone. A sandbox
-   * registered again meanwhile is kept too. Answers the names forgotten.
-   */
-  async reconcile(): Promise<string[]> {
-    const { proxy, compute, logger } = this.options;
-    const registered = await proxy.list();
-    if (registered === undefined) return [];
-    const machines = await compute.listInstances(LABEL, 'sandbox');
-    const holders = new Map(
-      machines
-        .filter(({ status }) => RUNNING.has(status))
-        .map((machine) => [machine.networkInterfaces?.[0]?.networkIP, machine]),
-    );
-    const stale = registered.filter(({ name, address }) => {
-      const holder = holders.get(address);
-      if (holder === undefined) return true;
-      return holder.name.startsWith(this.options.instancePrefix) && this.sandboxOf(holder) !== name;
-    });
-    await Promise.all(stale.map(({ name, serial }) => proxy.remove(name, serial)));
-    const names = stale.map(({ name }) => name);
-    if (names.length > 0) {
-      const runs =
-        names.length === 1 ? 'its machine no longer runs' : 'their machines no longer run';
-      logger.info(`The proxy forgot ${names.join(', ')}: ${runs}`);
-    }
-    return names;
   }
 
   /** Replaces the hosts the running sandbox `name` may reach, the service's own aside. */
@@ -724,16 +680,6 @@ export class Sandboxes {
     }
   }
 
-  /** Starts a {@link reconcile} without waiting for it, once per period at most. */
-  private reconcileInBackground(): void {
-    const { reconcileEveryMs, logger } = this.options;
-    if (reconcileEveryMs === undefined || Date.now() < this.nextReconcile) return;
-    this.nextReconcile = Date.now() + reconcileEveryMs;
-    this.reconcile().catch((error: unknown) => {
-      logger.warn(`The proxy could not be reconciled with the machines: ${String(error)}`);
-    });
-  }
-
   /**
    * Stops the proxy's machine, when the service drives it and does not keep it running, once no
    * sandbox runs, nor a prepared machine waits for one: a sandbox is about to take it, which would
@@ -772,39 +718,24 @@ export class Sandboxes {
   }
 
   /**
-   * Draws a new run for the machine `instance`, on its way down or off, and the agent token that
-   * goes with it: the agent reads it as the machine boots again, and a token read before no longer
-   * opens it. A running agent, or a suspended one, keeps the token it read: theirs is left as it
-   * is. A stop racing this one that changed the metadata first has drawn one already. Failing, the
-   * machine keeps its token, as it did before runs were drawn: the stop goes on.
+   * Stopped, a machine prepared ahead of a sandbox is the sandbox's, which no longer waits for one:
+   * its power-off goes. A stop racing this one that changed the metadata first has done so already.
+   * Failing, the stop goes on.
    */
-  private async drawRun(instance: Instance | undefined): Promise<void> {
-    if (instance === undefined || !STOPPED.has(instance.status)) return;
-    // Its power-off goes too: stopped, the machine is a sandbox's, which no longer waits for one.
-    const items = (instance.metadata?.items ?? []).filter(
-      ({ key }) =>
-        key !== AGENT_TOKEN_METADATA_KEY &&
-        key !== AGENT_RUN_METADATA_KEY &&
-        key !== IDLE_POWER_OFF_METADATA_KEY,
-    );
+  private async dropPowerOff(instance: Instance | undefined): Promise<void> {
+    const items = instance?.metadata?.items ?? [];
+    if (instance === undefined || !items.some(({ key }) => key === IDLE_POWER_OFF_METADATA_KEY)) {
+      return;
+    }
     try {
       await this.options.compute.setMetadata(instance.name, {
         fingerprint: instance.metadata?.fingerprint,
-        items: [...items, ...this.agentItems(instance.name)],
+        items: items.filter(({ key }) => key !== IDLE_POWER_OFF_METADATA_KEY),
       });
     } catch (error) {
       if (error instanceof ComputeError && error.status === 412) return;
-      this.options.logger.warn(`${instance.name} keeps its agent token: ${String(error)}`);
+      this.options.logger.warn(`${instance.name} keeps its power-off: ${String(error)}`);
     }
-  }
-
-  /** The metadata the agent of the machine `instance` reads its token from, for a new run. */
-  private agentItems(instance: string): { key: string; value: string }[] {
-    const run = randomBytes(8).toString('hex');
-    return [
-      { key: AGENT_TOKEN_METADATA_KEY, value: agentToken(this.options.agentSecret, instance, run) },
-      { key: AGENT_RUN_METADATA_KEY, value: run },
-    ];
   }
 
   /**
@@ -1075,8 +1006,6 @@ export class Sandboxes {
       proxy: this.options.proxyUrl,
       baseUrls,
     });
-    // The proxy answers by now: a good time to make it forget the machines gone meanwhile.
-    this.reconcileInBackground();
     return { name, home, workingDirectory };
   }
 
@@ -1220,7 +1149,7 @@ export class Sandboxes {
       ],
       metadata: {
         items: [
-          ...this.agentItems(name),
+          { key: AGENT_TOKEN_METADATA_KEY, value: agentToken(this.options.agentSecret, name) },
           { key: 'block-project-ssh-keys', value: 'true' },
           { key: 'serial-port-enable', value: 'false' },
           ...metadata,

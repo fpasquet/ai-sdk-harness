@@ -12,9 +12,8 @@ import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
 /**
  * The token of the agent of the machine `instance`: derived from the service's secret, so that
  * any instance of the service finds it again without keeping it, and a machine only ever learns
- * its own. `run`, drawn anew when the machine is made and each time it is stopped, makes it
- * another at each run: a token read once serves until the next stop. Without it, the token of a
- * machine made before runs were drawn.
+ * its own. `run` is what the token of a machine made by versions 0.3.0 to 0.3.6 also covers, read
+ * from its metadata: the agent of such a machine goes on reading the token it was given.
  */
 export function agentToken(secret: string, instance: string, run?: string): string {
   const subject = run === undefined ? instance : `${instance}:${run}`;
