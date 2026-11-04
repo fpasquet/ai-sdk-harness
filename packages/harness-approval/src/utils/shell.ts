@@ -6,7 +6,7 @@ export interface CommandSegment {
   writes: boolean;
   /** The files its redirections write to, as the script names them. */
   files: string[];
-  /** What it runs cannot be read from the script: `command` is then its text, for a reason. */
+  /** What it runs cannot be read: `command` is then its text, which matches no rule. */
   opaque?: true;
 }
 
@@ -127,8 +127,9 @@ function substitutionsOf(body: string): CommandSegment[] {
  * Reads a shell script into the simple commands it runs, so that `cd app && rm -rf /` is not
  * taken for `cd`. Command substitutions, `$(…)` and backquotes, count as commands of their own;
  * the body of a here-document is input, not script.
- * Approximate on purpose: what it cannot read yields an opaque segment, which no rule allows, and
- * never less to decide. So does a command whose name the shell only knows as it runs.
+ * Approximate on purpose: what it cannot read yields an opaque segment, which matches no rule, so
+ * that the default decides, and never less to decide. So does a command the shell only names as it
+ * runs.
  */
 export function commandSegments(script: string): CommandSegment[] {
   return new ShellScanner(script).scan();
@@ -210,7 +211,7 @@ class ShellScanner {
     this.expanded.add(this.words.length);
   }
 
-  /** What cannot be read: never allowed, whatever it turns out to run. */
+  /** What cannot be read: the default decides it, whatever it turns out to run. */
   private opaque(command: string): void {
     this.nested.push({ command, writes: false, files: [], opaque: true });
   }

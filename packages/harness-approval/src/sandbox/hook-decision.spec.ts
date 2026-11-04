@@ -81,6 +81,24 @@ describe('hookDecision', () => {
     }
   });
 
+  it('leaves what it cannot read to the default', () => {
+    const developer: ApprovalPolicySettings = {
+      commands: { deny: ['git push'], default: 'allow' },
+      edits: { deny: ['.git/**'], default: 'allow' },
+      default: 'allow',
+    };
+    const decision = (command: string) =>
+      hookDecision(developer, { tool_name: 'Bash', tool_input: { command } })?.decision;
+
+    expect(decision('"$PYTHON" script.py')).toBe('allow');
+    expect(decision('$HOME/.local/bin/uv run pytest')).toBe('allow');
+    expect(decision('$(npm bin)/vitest run')).toBe('allow');
+    expect(decision('ls # <<EOF\ngit push origin main')).toBe('deny');
+    expect(decision("cat <<$'EOF'\nhi\nEOF\ngit push origin main")).toBe('deny');
+    expect(decision('ls > "a\\"" ; git push origin main ; echo "b"')).toBe('deny');
+    expect(decision('ls; > .git/config')).toBe('deny');
+  });
+
   it('denies an edit the policy denies', () => {
     expect(call('Edit', { file_path: '/home/agent/workspace/src/a.ts' })).toEqual({
       decision: 'deny',

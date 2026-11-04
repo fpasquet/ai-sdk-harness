@@ -90,7 +90,7 @@ function evaluateCommand(
   grants: readonly ApprovalGrant[],
 ): ApprovalEvaluation {
   const segments = commandSegments(commandOf(toolName, input) ?? '');
-  const evaluations = segments.map(({ command, writes, files, opaque }): ApprovalEvaluation => {
+  const evaluations = segments.map(({ command, writes, files }): ApprovalEvaluation => {
     // A redirection alone, `> .env`, runs no command: only what it writes is decided.
     if (command === '') return evaluateWrites(policy, { command: '>', files }, grants);
     const evaluation = decide(
@@ -99,7 +99,6 @@ function evaluateCommand(
       matchesCommand,
     );
     if (evaluation.decision === 'deny') return evaluation;
-    if (opaque) return { decision: 'ask', reason: `What \`${command}\` runs cannot be read.` };
     const grant =
       evaluation.decision === 'ask'
         ? grantFor(grants, { kind: 'command', value: command })
