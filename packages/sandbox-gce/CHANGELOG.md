@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-gce
 
+## 0.4.1
+
+### Patch Changes
+
+- cb9b124: A process that outlives a template no longer fails every creation from it with a 404 until it restarts: the template is forgotten, built again, and the sandbox created. A template goes with a new version of the service, a new base image on Compute Engine, or a deletion.
+
 ## 0.4.0
 
 ### Minor Changes
