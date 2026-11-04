@@ -66,6 +66,21 @@ describe('hookDecision', () => {
     });
   });
 
+  it('denies what it cannot read, and what a construct would hide', () => {
+    for (const command of [
+      'ls # <<EOF\nrm -rf /',
+      "cat <<$'EOF'\nhi\nEOF\nrm -rf /",
+      'ls > "a\\"" ; rm -rf / ; echo "b"',
+      'ls; > .env',
+      'ls >&.env',
+      'echo $((rm -rf /) ; true)',
+      '$(echo rm -rf /)',
+      "echo $'\\'' ; rm -rf / ; echo ''",
+    ]) {
+      expect(call('Bash', { command })?.decision, command).toBe('deny');
+    }
+  });
+
   it('denies an edit the policy denies', () => {
     expect(call('Edit', { file_path: '/home/agent/workspace/src/a.ts' })).toEqual({
       decision: 'deny',

@@ -59,7 +59,11 @@ export function suggestGrant({ toolName, input }: ToolRequest): GrantSuggestion 
   if (kind === 'edit') return { grants: [{ kind: 'edit' }], label: 'Always allow file edits' };
   const command = kind === 'command' ? commandOf(toolName, input) : undefined;
   const prefixes = [
-    ...new Set(commandSegments(command ?? '').map(({ command: part }) => commandPrefix(part))),
+    ...new Set(
+      commandSegments(command ?? '')
+        .filter(({ command: part, opaque }) => part !== '' && opaque !== true)
+        .map(({ command: part }) => commandPrefix(part)),
+    ),
   ];
   if (prefixes.length === 0) {
     return { grants: [{ kind: 'tool', toolName }], label: `Always allow ${toolName}` };
