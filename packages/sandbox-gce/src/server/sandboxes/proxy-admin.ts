@@ -1,6 +1,6 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import type { ProxyRegistration, ProxySandbox } from '../../protocol/proxy.js';
+import type { ProxyRegistration } from '../../protocol/proxy.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
@@ -56,28 +56,12 @@ export class ProxyAdmin {
     }
   }
 
-  /**
-   * The sandboxes the proxy holds: `undefined` from a proxy of a version that cannot list them.
-   */
-  async list(): Promise<ProxySandbox[] | undefined> {
-    try {
-      const response = await this.call('GET', '');
-      return ((await response.json()) as { sandboxes: ProxySandbox[] }).sandboxes;
-    } catch (error) {
-      if (error instanceof HttpError && error.status === 404) return undefined;
-      throw error;
-    }
+  /** Forgets the sandbox `name` and its credentials. Idempotent. */
+  async remove(name: string): Promise<void> {
+    await this.call('DELETE', name);
   }
 
-  /**
-   * Forgets the sandbox `name` and its credentials, or with `serial` only the registration that
-   * {@link list} gave it. Idempotent.
-   */
-  async remove(name: string, serial?: number): Promise<void> {
-    await this.call('DELETE', serial === undefined ? name : `${name}?serial=${serial}`);
-  }
-
-  /** Calls `/v1/sandboxes/<path>`, `/v1/sandboxes` itself for an empty `path`. */
+  /** Calls `/v1/sandboxes/<path>`. */
   private async call(
     method: string,
     path: string,
@@ -85,8 +69,7 @@ export class ProxyAdmin {
   ): Promise<Response> {
     let response: Response;
     try {
-      const resource = path === '' ? 'v1/sandboxes' : `v1/sandboxes/${path}`;
-      response = await fetch(new URL(resource, `${this.url.replace(/\/$/, '')}/`), {
+      response = await fetch(new URL(`v1/sandboxes/${path}`, `${this.url.replace(/\/$/, '')}/`), {
         method,
         headers: {
           authorization: `Bearer ${this.token}`,

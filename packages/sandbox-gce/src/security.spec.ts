@@ -4,12 +4,12 @@ import type { AddressInfo } from 'node:net';
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { createServer } from 'node:http';
 import { connect, createServer as createTcpServer } from 'node:net';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { FakeService } from '../test/fake-service.js';
 
 import { startFakeService } from '../test/fake-service.js';
-import { createGceNetworkSandboxSession, resumeGceNetworkSandboxSession } from './index.js';
+import { createGceNetworkSandboxSession } from './index.js';
 import { agentToken } from './server/sandboxes/agent-client.js';
 
 /** A credential as a harness hands it over: the placeholder the sandbox sees, the real value. */
@@ -77,11 +77,9 @@ describe('a sandbox machine', () => {
       'ai-sdk-sandbox-image': 'default',
     });
     const metadata = JSON.stringify(body['metadata']);
-    const { items } = body['metadata'] as { items: { key: string; value: string }[] };
-    const run = items.find(({ key }) => key === 'ai-sdk-sandbox-agent-run')?.value;
     expect(metadata).not.toContain(SECRET);
     expect(metadata).not.toContain('a-secret-of-thirty-two-characters!');
-    expect(metadata).toContain(agentToken('a-secret-of-thirty-two-characters!', 'sbx-box', run));
+    expect(metadata).toContain(agentToken('a-secret-of-thirty-two-characters!', 'sbx-box'));
   });
 
   it('has an agent that only answers the token derived for its machine', async () => {
@@ -129,9 +127,6 @@ describe('a sandbox machine', () => {
       sandboxId: 'box',
       template,
     });
-    const run = fake.compute
-      .instance(machine)
-      ?.metadata.items.find(({ key }) => key === 'ai-sdk-sandbox-agent-run')?.value;
     const exec = (token: string): Promise<Response> =>
       fetch(`http://127.0.0.1:${fake.compute.agentPort(machine)}/v1/exec`, {
         method: 'POST',
@@ -141,34 +136,10 @@ describe('a sandbox machine', () => {
 
     expect(fake.compute.instance(machine)?.labels['ai-sdk-sandbox-name']).toBe('box');
     // Neither the token of a machine named after the sandbox, nor that of another sandbox.
-    expect((await exec(agentToken(secret, 'sbx-box', run))).status).toBe(401);
-    expect((await exec(agentToken(secret, 'sbx-one', run))).status).toBe(401);
-    expect((await exec(agentToken(secret, machine, run))).status).not.toBe(401);
+    expect((await exec(agentToken(secret, 'sbx-box'))).status).toBe(401);
+    expect((await exec(agentToken(secret, 'sbx-one'))).status).toBe(401);
+    expect((await exec(agentToken(secret, machine))).status).not.toBe(401);
     expect((await session.run({ command: 'echo ok' })).stdout).toBe('ok\n');
-  });
-
-  it('gives its agent a new token at each stop: one read before no longer opens it', async () => {
-    fake = await startFakeService();
-    const options = { url: fake.url, auth: 'none', sandboxId: 'box' } as const;
-    const session = await createGceNetworkSandboxSession(options);
-    // What anyone who may read the machines of the project finds in its metadata.
-    const metadataToken = (): string | undefined =>
-      fake.compute
-        .instance('sbx-box')
-        ?.metadata.items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value;
-    const read = metadataToken();
-
-    await session.stop();
-    const resumed = await resumeGceNetworkSandboxSession(options);
-    const exec = await fetch(`http://127.0.0.1:${fake.compute.agentPort('sbx-box')}/v1/exec`, {
-      method: 'POST',
-      headers: { 'x-ai-sdk-sandbox-agent-token': read ?? '' },
-      body: '{"command":"echo pwned"}\n',
-    });
-
-    expect(metadataToken()).not.toBe(read);
-    expect(exec.status).toBe(401);
-    expect((await resumed.run({ command: 'echo ok' })).stdout).toBe('ok\n');
   });
 });
 
@@ -217,27 +188,6 @@ describe('credentials', () => {
     await session.stop();
     expect(fake.registry.holdsSecret('box', [SECRET])).toBe(false);
     expect(fake.registry.policyFor('127.0.0.1')).toBeUndefined();
-  });
-
-  it('are dropped from the proxy once the service sees the machine stopped without it', async () => {
-    fake = await startFakeService({ reconcileEveryMs: 0 });
-    const session = await createGceNetworkSandboxSession({
-      url: fake.url,
-      auth: 'none',
-      sandboxId: 'box',
-    });
-    await session.addRequestTransformations([credential]);
-    // Compute Engine takes a Spot machine back, or stops it at its run limit: no one tells the service.
-    const { endpoint, project, zone } = fake.compute;
-    await fetch(`${endpoint}/projects/${project}/zones/${zone}/instances/sbx-box/stop`, {
-      method: 'POST',
-    });
-    expect(fake.registry.holdsSecret('box', [SECRET])).toBe(true);
-
-    await createGceNetworkSandboxSession({ url: fake.url, auth: 'none', sandboxId: 'next' });
-
-    await vi.waitFor(() => expect(fake.registry.holdsSecret('box', [SECRET])).toBe(false));
-    expect(fake.registry.list().map(({ name }) => name)).toEqual(['next']);
   });
 });
 

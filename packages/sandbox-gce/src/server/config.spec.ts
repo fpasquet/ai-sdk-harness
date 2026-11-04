@@ -42,7 +42,6 @@ describe('the service configuration', () => {
     expect(config.instancePrefix).toBe('sbx-');
     expect(config.agentPort).toBe(8100);
     expect(config.startTimeoutMs).toBe(300_000);
-    expect(config.reconcileEveryMs).toBe(600_000);
     expect(config.network.baseUrls).toEqual({
       ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
       OPENAI_BASE_URL: 'https://api.openai.com/v1',
@@ -60,7 +59,6 @@ describe('the service configuration', () => {
         SANDBOX_SPOT_FALLBACK: 'false',
         SANDBOX_MAX_RUNNING: '10',
         SANDBOX_MAX_RUN_HOURS: '1.5',
-        SANDBOX_RECONCILE_MINUTES: '0',
         SANDBOX_PROXY_INSTANCE: 'sandbox-proxy',
         SANDBOX_IMAGES: 'python=family/sandbox-python, go=projects/images-project/global/images/go',
       },
@@ -76,7 +74,6 @@ describe('the service configuration', () => {
     expect(config.maxRunning).toBe(10);
     expect(config.machine.maxRunSeconds).toBe(5400);
     expect(config.proxyInstance).toBe('sandbox-proxy');
-    expect(config.reconcileEveryMs).toBeUndefined();
     expect(config.network).toEqual({
       allowedHosts: ['registry.npmjs.org', '*.github.com'],
       baseUrls: { GATEWAY_URL: 'https://gateway.example.com' },
@@ -136,12 +133,6 @@ describe('the service configuration', () => {
     await expect(
       sandboxesConfig({ ...REQUIRED, SANDBOX_PROXY_ALWAYS_ON: 'yes' }, silentLogger),
     ).rejects.toThrow('SANDBOX_PROXY_ALWAYS_ON: `yes` is neither `true` nor `false`.');
-  });
-
-  it('refuses a reconciliation period that is no number of minutes', async () => {
-    await expect(
-      sandboxesConfig({ ...REQUIRED, SANDBOX_RECONCILE_MINUTES: 'often' }, silentLogger),
-    ).rejects.toThrow('SANDBOX_RECONCILE_MINUTES: `often` is not a number of minutes.');
   });
 
   it('refuses a run limit under 30 s', async () => {
