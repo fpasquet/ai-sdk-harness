@@ -529,6 +529,26 @@ describe('a template', () => {
   });
   afterEach(() => fake.dispose());
 
+  it('is built again, once, when the service lost it while this process remembered it', async () => {
+    const prepare = vi.fn<HarnessV1SandboxTemplate['prepare']>(async ({ session }) => {
+      await session.run({ command: 'printf baked > "$HOME/baked.txt"' });
+    });
+    const template: HarnessV1SandboxTemplate = { identity: 'lost@1', prepare };
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one', template });
+    const id = templateId({ template, setup: [] });
+    const removed = await fetch(`${fake.url}/v1/templates/${id}`, { method: 'DELETE' });
+    expect(removed.ok).toBe(true);
+
+    const [two, three] = await Promise.all([
+      createGceNetworkSandboxSession({ ...options(), sandboxId: 'two', template }),
+      createGceNetworkSandboxSession({ ...options(), sandboxId: 'three', template }),
+    ]);
+
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect((await two.run({ command: 'cat "$HOME/baked.txt"' })).stdout).toBe('baked');
+    expect((await three.run({ command: 'cat "$HOME/baked.txt"' })).stdout).toBe('baked');
+  });
+
   it('is prepared once, after the setup, and every later sandbox starts from it', async () => {
     const prepare = vi.fn<HarnessV1SandboxTemplate['prepare']>(async ({ session }) => {
       await session.run({ command: 'printf baked > "$HOME/baked.txt"' });

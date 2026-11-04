@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { SandboxNetwork } from '../../protocol/api.js';
 import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 
+import { CloudRunSandboxServiceError } from '../errors/cloud-run-sandbox-service-error.js';
 import { CloudRunNetworkSandboxSession } from '../session/cloud-run-network-sandbox-session.js';
 
 /** The prefix of the templates' ids, and of the sandboxes that build them. */
@@ -18,6 +19,10 @@ export interface TemplateSource {
 
 /** Templates being built by this process, by service and id: one build at a time. */
 const building = new Map<string, Promise<string>>();
+
+function keyOf(client: SandboxServiceClient, source: TemplateSource): string {
+  return `${client.baseUrl} ${templateId(source)}`;
+}
 
 /**
  * The template's id: `ai-sdk-harness-template-<digest>`, the digest covering the harness's recipe
@@ -56,7 +61,7 @@ export function ensureTemplate(
   abortSignal?: AbortSignal,
 ): Promise<string> {
   const id = templateId(source);
-  const key = `${client.baseUrl} ${id}`;
+  const key = keyOf(client, source);
   let ready = building.get(key);
   if (ready === undefined) {
     ready = client
@@ -67,6 +72,33 @@ export function ensureTemplate(
     ready.catch(() => building.delete(key));
   }
   return ready;
+}
+
+/**
+ * Calls `create` with the template ready. This process remembers a template for as long as it runs,
+ * and the service can lose it meanwhile: on
+ * its 404, the template is forgotten, built again if need be, and `create` called once more.
+ */
+export async function withTemplate<T>(
+  client: SandboxServiceClient,
+  {
+    abortSignal,
+    ...source
+  }: TemplateSource & { abortSignal?: AbortSignal } & { network: SandboxNetwork },
+  create: (template: string) => Promise<T>,
+): Promise<T> {
+  const remembered = ensureTemplate(client, source, abortSignal);
+  const template = await remembered;
+  try {
+    return await create(template);
+  } catch (error) {
+    if (!(error instanceof CloudRunSandboxServiceError) || error.status !== 404) throw error;
+    // Sandboxes that failed alongside this one share the build that comes after.
+    const key = keyOf(client, source);
+    if (building.get(key) === remembered) building.delete(key);
+    const rebuilt = await ensureTemplate(client, source, abortSignal);
+    return create(rebuilt);
+  }
 }
 
 async function build(
