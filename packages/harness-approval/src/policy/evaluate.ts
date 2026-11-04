@@ -91,6 +91,8 @@ function evaluateCommand(
 ): ApprovalEvaluation {
   const segments = commandSegments(commandOf(toolName, input) ?? '');
   const evaluations = segments.map(({ command, writes, files }): ApprovalEvaluation => {
+    // A redirection alone, `> .env`, runs no command: only what it writes is decided.
+    if (command === '') return evaluateWrites(policy, { command: '>', files }, grants);
     const evaluation = decide(
       policy.commands,
       { value: command, label: `the command \`${command}\`` },

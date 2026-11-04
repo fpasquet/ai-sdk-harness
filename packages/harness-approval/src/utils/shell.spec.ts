@@ -91,7 +91,6 @@ describe('commandSegments', () => {
     expect(commands('cat <<-EOF\n\trm -rf /\n\tEOF\nls')).toEqual(['cat', 'ls']);
     // Several here-documents on one line: their bodies follow it, one after the other.
     expect(commands('cat <<A; cat <<B\na > x\nA\nb > y\nB\nls')).toEqual(['cat', 'cat', 'ls']);
-    expect(commands('cat <<EOF\nnever closed > x')).toEqual(['cat']);
     // A here-string is a word, not a here-document.
     expect(commands('cat <<< hi\nls')).toEqual(['cat <<< hi', 'ls']);
   });
@@ -116,6 +115,69 @@ describe('commandSegments', () => {
     expect(commandSegments('cat <<EOF 2>/dev/null\nhi\nEOF')).toEqual([
       { command: 'cat', writes: false, files: [] },
     ]);
+  });
+
+  it('reads a script past what only looks like a here-document', () => {
+    expect(commands('ls # <<EOF\nrm -rf /')).toEqual(['ls', 'rm -rf /']);
+    expect(commands('ls\n((1<<2))\nrm -rf /')).toEqual(['ls', 'rm -rf /']);
+    expect(commands('echo ${x:-<<EOF}\nrm -rf /')).toContain('rm -rf /');
+    expect(commands('echo $[1<<2]\nrm -rf /')).toContain('rm -rf /');
+  });
+
+  it('never skips a body whose end it cannot read', () => {
+    const opaque = (script: string) => commandSegments(script).some((part) => part.opaque);
+    expect(opaque('cat <<EOF\nnever closed > x')).toBe(true);
+    expect(opaque("cat <<$'EOF'\nhi\nEOF\nrm -rf /")).toBe(true);
+    expect(commands("cat <<$'EOF'\nhi\nEOF\nrm -rf /")).toContain('rm -rf /');
+    expect(commands('cat <<EOF$(true)\nEOF$(true)\nrm -rf /')).toContain('rm -rf /');
+    expect(opaque('cat <<EOF\nEO\\\nF\nrm -rf /')).toBe(true);
+  });
+
+  it('keeps every command of a quoted redirection target', () => {
+    expect(commands('ls > "a\\"" ; rm -rf / ; echo "b"')).toEqual(['ls', 'rm -rf /', 'echo b']);
+    expect(commands('ls > "$(rm -rf /)"')).toEqual(['ls', 'rm -rf /']);
+  });
+
+  it('keeps a redirection with no command, and takes `>&file` for a file', () => {
+    expect(commandSegments('ls; > .env')[1]).toEqual({
+      command: '',
+      writes: true,
+      files: ['.env'],
+    });
+    expect(commandSegments('{ ls; } > .env')[1]?.files).toEqual(['.env']);
+    expect(commandSegments('(ls) > .env')[1]?.files).toEqual(['.env']);
+    expect(commandSegments('ls >&.env')[0]?.files).toEqual(['.env']);
+    expect(commandSegments('ls >& .env')[0]?.files).toEqual(['.env']);
+  });
+
+  it('finds the substitutions arithmetic, parentheses or quotes hide', () => {
+    expect(commands('echo $(( $(rm -rf /) + 1 ))')).toEqual(['echo', 'rm -rf /']);
+    expect(commands('echo $((rm -rf /) ; true)')).toContain('rm -rf /');
+    expect(commands('echo $(echo ")"; rm -rf /)')).toEqual(['echo', 'echo )', 'rm -rf /']);
+    expect(commands('cat <<EOF\n$(( $(rm -rf /) + 1 ))\nEOF')).toEqual(['cat', 'rm -rf /']);
+    expect(commands('cat <<EOF\n$(echo ")"; rm -rf /)\nEOF')).toContain('rm -rf /');
+  });
+
+  it('marks a command whose name the shell only knows as it runs', () => {
+    const script = (text: string) => commandSegments(text).find((part) => part.opaque)?.command;
+    expect(script('$(echo rm -rf /)')).toBe('$(echo rm -rf /)');
+    expect(script('`echo rm -rf /`')).toBe('`echo rm -rf /`');
+    expect(script('ls && rm${IFS}-rf${IFS}/')).toBe('rm${IFS}-rf${IFS}/');
+    expect(script('"$TOOL" run')).toBe('"$TOOL" run');
+    // Its arguments may expand, and an assignment is not a name.
+    expect(script('echo $HOME "$(date)"')).toBeUndefined();
+    expect(script('OUT=$(date) ls')).toBeUndefined();
+  });
+
+  it('reads ANSI-C quotes as one word, and drops comments and joined lines', () => {
+    expect(commands("echo $'\\'' ; rm -rf / ; echo ''")).toEqual([
+      String.raw`echo \'`,
+      'rm -rf /',
+      'echo',
+    ]);
+    expect(commands('ls # all of it\ngit status')).toEqual(['ls', 'git status']);
+    expect(commands('echo a#b')).toEqual(['echo a#b']);
+    expect(commands('rm \\\n-rf /')).toEqual(['rm -rf /']);
   });
 
   it('reads nothing in an empty script, and survives unclosed quotes', () => {
