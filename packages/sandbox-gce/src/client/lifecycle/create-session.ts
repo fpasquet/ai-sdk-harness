@@ -14,7 +14,7 @@ import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
 import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
-import { ensureTemplate, type ReadyTemplate, runSetup, templateId } from './sandbox-template.js';
+import { type ReadyTemplate, runSetup, templateId, withTemplate } from './sandbox-template.js';
 
 /**
  * What a Compute Engine instance name takes once the service's prefix is put before it, and a URL
@@ -90,19 +90,15 @@ export async function createGceNetworkSandboxSession(
   assertSandboxName(name);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls };
-  const ready = template
-    ? await ensureTemplate(
+  const create = (ready?: ReadyTemplate): Promise<SandboxDescription> =>
+    createFrom(client, name, { ...network, image, template: ready, abortSignal });
+  const description = await (template
+    ? withTemplate(
         client,
-        { template, setup, network, image, requiredCommands },
-        abortSignal,
+        { template, setup, network, image, requiredCommands, abortSignal },
+        create,
       )
-    : undefined;
-  const description = await createFrom(client, name, {
-    ...network,
-    image,
-    template: ready,
-    abortSignal,
-  });
+    : create());
   const session = sessionOf(client, description, options);
   try {
     // A template was checked and set up before it was saved.

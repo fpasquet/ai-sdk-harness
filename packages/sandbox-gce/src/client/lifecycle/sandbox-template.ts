@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { SandboxNetwork } from '../../protocol/api.js';
 import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 
+import { GceSandboxServiceError } from '../errors/gce-sandbox-service-error.js';
 import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session.js';
 import { assertRequiredCommands } from './required-commands.js';
 
@@ -39,6 +40,10 @@ export interface ReadyTemplate {
 
 /** Templates being built by this process, by service and id: one build at a time. */
 const building = new Map<string, Promise<ReadyTemplate>>();
+
+function keyOf(client: SandboxServiceClient, source: TemplateSource & { image?: string }): string {
+  return `${client.baseUrl} ${source.image ?? ''} ${templateId(source)}`;
+}
 
 /**
  * The template's id: `ai-sdk-harness-template-<digest>`, the digest covering the harness's recipe
@@ -78,7 +83,7 @@ export function ensureTemplate(
   abortSignal?: AbortSignal,
 ): Promise<ReadyTemplate> {
   const id = templateId(source);
-  const key = `${client.baseUrl} ${source.image ?? ''} ${id}`;
+  const key = keyOf(client, source);
   let ready = building.get(key);
   if (ready === undefined) {
     ready = client.templateExists(id, source.image, abortSignal).then(async (exists) => {
@@ -97,6 +102,30 @@ export function ensureTemplate(
     ready.catch(() => building.delete(key));
   }
   return ready;
+}
+
+/**
+ * Calls `create` with the template ready. This process remembers a template for as long as it runs,
+ * and the service can lose it meanwhile, to a new version or a new base image: on
+ * its 404, the template is forgotten, built again if need be, and `create` called once more.
+ */
+export async function withTemplate<T>(
+  client: SandboxServiceClient,
+  { abortSignal, ...source }: BuildSettings & TemplateSource & { abortSignal?: AbortSignal },
+  create: (template: ReadyTemplate) => Promise<T>,
+): Promise<T> {
+  const remembered = ensureTemplate(client, source, abortSignal);
+  const template = await remembered;
+  try {
+    return await create(template);
+  } catch (error) {
+    if (!(error instanceof GceSandboxServiceError) || error.status !== 404) throw error;
+    // Sandboxes that failed alongside this one share the build that comes after.
+    const key = keyOf(client, source);
+    if (building.get(key) === remembered) building.delete(key);
+    const rebuilt = await ensureTemplate(client, source, abortSignal);
+    return create(rebuilt);
+  }
 }
 
 async function build(

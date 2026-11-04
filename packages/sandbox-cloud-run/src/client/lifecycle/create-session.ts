@@ -12,7 +12,7 @@ import { CloudRunNetworkSandboxSession } from '../session/cloud-run-network-sand
 import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
-import { ensureTemplate, runSetup } from './sandbox-template.js';
+import { runSetup, withTemplate } from './sandbox-template.js';
 
 /** What the sandbox CLI of Cloud Run and a URL path both take as a name. */
 const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -67,10 +67,11 @@ export async function createCloudRunNetworkSandboxSession(
   assertSandboxName(name);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls };
-  const templateId = template
-    ? await ensureTemplate(client, { template, setup, network }, abortSignal)
-    : undefined;
-  const description = await client.create(name, { ...network, template: templateId, abortSignal });
+  const create = (templateId?: string): Promise<SandboxDescription> =>
+    client.create(name, { ...network, template: templateId, abortSignal });
+  const description = await (template
+    ? withTemplate(client, { template, setup, network, abortSignal }, create)
+    : create());
   const session = sessionOf(client, description, options);
   try {
     // A template already ran them, before it was saved.
