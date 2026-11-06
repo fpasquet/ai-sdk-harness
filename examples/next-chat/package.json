@@ -36,7 +36,7 @@
     "@tiptap/extension-hard-break": "^3.31.4",
     "@tiptap/extension-mention": "^3.32.0",
     "@tiptap/extension-paragraph": "^3.32.0",
-    "@tiptap/extension-text": "^3.31.4",
+    "@tiptap/extension-text": "^3.32.1",
     "@tiptap/extensions": "^3.31.4",
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.32.0",
