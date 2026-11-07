@@ -64,70 +64,12 @@ updates:
       - dependency-name: '*'
         update-types:
           - 'version-update:semver-major'
+    # One pull request a week for every minor and patch update: fewer to review, and no two of them
+    # rewriting pnpm-lock.yaml side by side, which auto-merge would merge one after the other.
     groups:
-      ai-sdk:
+      npm:
         patterns:
-          - 'ai'
-          - '@ai-sdk/*'
-        update-types:
-          - 'minor'
-          - 'patch'
-
-      testing:
-        patterns:
-          - 'vitest'
-          - '@vitest/*'
-        update-types:
-          - 'minor'
-          - 'patch'
-
-      next:
-        patterns:
-          - 'next'
-          - 'react'
-          - 'react-dom'
-          - 'fumadocs-*'
-          - 'lucide-react'
-          - '@tailwindcss/*'
-          - 'tailwindcss'
-          - 'postcss'
-        update-types:
-          - 'minor'
-          - 'patch'
-
-      eslint:
-        patterns:
-          - 'eslint'
-          - 'eslint-*'
-          - '@eslint/*'
-          - 'typescript-eslint'
-          - 'eslint-plugin-*'
-          - '@next/eslint-plugin-next'
-          - 'globals'
-        update-types:
-          - 'minor'
-          - 'patch'
-
-      typescript-types:
-        patterns:
-          - '@types/*'
-        update-types:
-          - 'minor'
-          - 'patch'
-
-      tooling:
-        patterns:
-          - 'turbo'
-          - 'typescript'
-          - 'tsx'
-          - '@changesets/*'
-          - '@commitlint/*'
-          - 'prettier'
-          - 'publint'
-          - '@arethetypeswrong/*'
-          - 'husky'
-          - 'lint-staged'
-          - 'wrangler'
+          - '*'
         update-types:
           - 'minor'
           - 'patch'
