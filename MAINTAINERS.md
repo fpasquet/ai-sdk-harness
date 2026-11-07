@@ -121,7 +121,9 @@ Edit `.github/labels.yml` and open a PR. On merge to `main`, `repo-config.yml` s
 
 ### Dependabot
 
-`dependabot.yml` groups npm and GitHub Actions updates; `dependabot-auto-merge.yml` auto-approves and squash-merges patch/minor bumps. `@ai-sdk/*` packages are grouped together: the harness and its adapters move in lockstep.
+`dependabot.yml` opens one pull request a week per ecosystem: every minor and patch npm update in one, the minor and patch GitHub Actions updates in another, the Node.js base image of both service images in a third. Majors of npm packages are ignored; security updates still come one by one. `dependabot-auto-merge.yml` auto-approves and squash-merges patch/minor bumps.
+
+The main ruleset does not require a branch to be up to date before it merges: two pull requests that both rewrite `pnpm-lock.yaml` can each pass, and merge into a broken lockfile. One npm pull request a week keeps Dependabot from opening two side by side; when you merge one of yours meanwhile, check that the other is still green.
 
 ## Docs deployment
 
