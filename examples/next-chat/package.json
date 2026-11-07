@@ -18,7 +18,6 @@
   "dependencies": {
     "@ai-sdk/harness": "^1.0.168",
     "@ai-sdk/harness-claude-code": "^1.0.172",
-    "@ai-sdk/harness-cline": "1.0.96",
     "@ai-sdk/harness-codex": "^1.0.170",
     "@ai-sdk/harness-cursor": "1.0.82",
     "@ai-sdk/harness-deepagents": "1.0.168",

@@ -69,20 +69,6 @@ export const HARNESSES = {
       { id: 'openrouter/z-ai/glm-5.3', label: 'GLM 5.3' },
     ],
   },
-  cline: {
-    label: 'Cline',
-    description: 'The Cline agent runtime, run by this server, its tools working in the sandbox.',
-    route: 'OpenRouter',
-    credentials: 'OPENROUTER_API_KEY',
-    runsIn: 'server',
-    asksFirst: true,
-    openRouter: { prefix: '' },
-    models: [
-      { id: 'deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
-      { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
-      { id: 'z-ai/glm-5.3', label: 'GLM 5.3' },
-    ],
-  },
   deepagents: {
     label: 'Deep Agents',
     description: "LangChain's LangGraph agent, run through a bridge in the sandbox.",
@@ -161,7 +147,7 @@ export const HARNESS_IDS = Object.keys(HARNESSES) as HarnessId[];
 /**
  * The harnesses installed in the template every sandbox starts from: Claude Code and Codex. The
  * others install themselves in the sandbox the first time a conversation runs them, or run in the
- * server (Pi, Cline, fx) and install nothing.
+ * server (Pi, fx) and install nothing.
  */
 export const TEMPLATE_HARNESSES: readonly HarnessId[] = ['claude-code', 'codex'];
 
