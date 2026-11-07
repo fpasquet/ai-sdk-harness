@@ -40,7 +40,7 @@
     "@tiptap/extensions": "^3.31.4",
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.32.0",
-    "@tiptap/suggestion": "^3.31.4",
+    "@tiptap/suggestion": "^3.32.2",
     "ai": "^7.0.157",
     "ai-sdk-harness-approval": "workspace:*",
     "ai-sdk-harness-network": "workspace:*",
