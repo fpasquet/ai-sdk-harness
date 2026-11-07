@@ -1,7 +1,6 @@
 import type { HarnessAgentAdapter } from '@ai-sdk/harness/agent';
 
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
-import { createCline } from '@ai-sdk/harness-cline';
 import { createCodex } from '@ai-sdk/harness-codex';
 import { createCursor } from '@ai-sdk/harness-cursor';
 import { createDeepAgents } from '@ai-sdk/harness-deepagents';
@@ -51,7 +50,6 @@ export function harnessAvailability(): HarnessAvailability {
     codex: isSet('OPENAI_API_KEY') || isSet('CODEX_API_KEY') || codexLogin(),
     opencode: openRouter,
     pi: openRouter,
-    cline: openRouter,
     deepagents: openRouter,
     'grok-build': openRouter,
     fx: codexLogin(),
@@ -82,8 +80,6 @@ const FACTORIES: Record<HarnessId, () => HarnessAgentAdapter> = {
   // Pi's own `openrouter` provider reads `OPENROUTER_API_KEY`; Pi runs here, the key never
   // reaches the sandbox.
   pi: () => createPi({ auth: { OPENROUTER_API_KEY: openRouterKey() } }),
-  // Cline's own `openrouter` provider; Cline runs here too.
-  cline: () => createCline({ auth: 'direct', providerId: 'openrouter', apiKey: openRouterKey() }),
   // Deep Agents drives an Anthropic client: OpenRouter's Anthropic-compatible API.
   deepagents: () =>
     createDeepAgents({

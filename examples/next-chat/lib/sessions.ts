@@ -32,7 +32,7 @@ import { createExampleWorkspace } from '@/lib/workspace';
  *
  * Claude Code, Codex and the other runtimes installed in the sandbox run behind a bridge, a
  * process the harness starts there, which listens on a port the server reaches over a WebSocket
- * (Pi, Cline and fx run in this server, and leave theirs unused). Two sessions cannot share a port: each
+ * (Pi and fx run in this server, and leave theirs unused). Two sessions cannot share a port: each
  * conversation works in a view of the sandbox (`fork()`) with a port of its own, the same microVM
  * and files, and a working directory of its own.
  *
