@@ -5,6 +5,7 @@
     "sandbox-microsandbox",
     "sandbox-cloud-run",
     "sandbox-gce",
+    "sandbox-gke",
     "sandbox-runtime",
     "harness-plugins",
     "harness-sessions",
