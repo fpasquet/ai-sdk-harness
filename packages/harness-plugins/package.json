@@ -73,21 +73,21 @@
     }
   },
   "devDependencies": {
-    "@ai-sdk/harness": "^1.0.168",
-    "@ai-sdk/harness-claude-code": "^1.0.172",
-    "@ai-sdk/harness-codex": "^1.0.170",
-    "@ai-sdk/mcp": "^2.0.87",
-    "@ai-sdk/provider-utils": "^5.0.71",
+    "@ai-sdk/harness": "^1.0.174",
+    "@ai-sdk/harness-claude-code": "^1.0.178",
+    "@ai-sdk/harness-codex": "^1.0.176",
+    "@ai-sdk/mcp": "^2.0.91",
+    "@ai-sdk/provider-utils": "^5.0.75",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
     "@repo/prettier-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
     "@types/node": "^24.19.2",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "ai-sdk-sandbox-sbx": "workspace:*",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.5",
+    "vitest": "^5.1.0",
     "zod": "^4.6.7"
   },
   "author": {
