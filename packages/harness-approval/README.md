@@ -57,7 +57,7 @@ const sessions = createSessionManager({
 pnpm add ai-sdk-harness-approval
 ```
 
-`@ai-sdk/harness` and `ai` are peer dependencies. It runs in the browser too: the components that show the requests use its helpers. [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions) answers within the turn; without it, see [Without a session manager](#without-a-session-manager).
+`@ai-sdk/harness` and `ai` are peer dependencies, optional for `ai-sdk-harness-approval/describe` alone (below). It runs in the browser too: the components that show the requests use its helpers. [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions) answers within the turn; without it, see [Without a session manager](#without-a-session-manager).
 
 ## Usage
 
@@ -171,7 +171,7 @@ Claude Code's `AskUserQuestion` reaches you as a call of the tool `askUserQuesti
 - `commandOf(toolName, input)` and `pathsOf(input)` are what it reads a call with: the command, a string or an argument list, and the files, `.` and `..` resolved.
 
 ```ts
-import { describeToolCall } from 'ai-sdk-harness-approval';
+import { describeToolCall } from 'ai-sdk-harness-approval/describe';
 
 describeToolCall(
   { toolName: 'Grep', input: { pattern: 'TODO', glob: '*.ts' } },
@@ -179,6 +179,8 @@ describeToolCall(
 );
 // { kind: 'other', action: 'search-files', title: 'Rechercher dans les fichiers', detail: 'TODO' }
 ```
+
+`ai-sdk-harness-approval/describe` exports what reads a call — `describeToolCall`, `commandOf`, `pathsOf`, `toolKindOf`, `commandSegments` — and needs neither `ai` nor `@ai-sdk/harness`, not even for its types: for an interface that only shows approval requests, its approvals decided elsewhere.
 
 ### The components
 
