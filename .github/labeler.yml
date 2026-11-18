@@ -50,6 +50,11 @@
       - any-glob-to-any-file:
           - 'packages/sandbox-runtime/**'
 
+'package: sandbox-docker-engine':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/sandbox-docker-engine/**'
+
 'package: harness-plugins':
   - changed-files:
       - any-glob-to-any-file:
