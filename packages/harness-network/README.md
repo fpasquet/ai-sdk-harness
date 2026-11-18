@@ -52,53 +52,54 @@ No dependency, peer or runtime: it is lists of hosts and the functions that chec
 
 `trustedHosts(...names)` gives the hosts of the services named, or of the groups of them, every service without any. `TRUSTED_HOSTS` holds them by service, `TRUSTED_GROUPS` the services of each group (— for a service in none):
 
-| Group            | Service        | Hosts                                                                                                            |
-| ---------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `forges`         | `github`       | `github.com`, `api.github.com`, `codeload.github.com`, `*.githubusercontent.com`                                 |
-|                  | `gitlab`       | `gitlab.com`, `registry.gitlab.com`, `cdn.registry.gitlab-static.net`                                            |
-|                  | `bitbucket`    | `bitbucket.org`, `api.bitbucket.org`                                                                             |
-|                  | `codeberg`     | `codeberg.org`                                                                                                   |
-| `javascript`     | `npm`          | `registry.npmjs.org`                                                                                             |
-|                  | `yarn`         | `registry.yarnpkg.com`, `repo.yarnpkg.com`                                                                       |
-|                  | `pnpm`         | `get.pnpm.io`                                                                                                    |
-|                  | `bun`          | `bun.sh`                                                                                                         |
-|                  | `jsr`          | `jsr.io`, `npm.jsr.io`                                                                                           |
-|                  | `deno`         | `deno.land`, `dl.deno.land`                                                                                      |
-|                  | `nodejs`       | `nodejs.org`, `unofficial-builds.nodejs.org`                                                                     |
-| `python`         | `pypi`         | `pypi.org`, `files.pythonhosted.org`                                                                             |
-|                  | `uv`           | `astral.sh`, `releases.astral.sh`                                                                                |
-|                  | `conda`        | `conda.anaconda.org`, `repo.anaconda.com`                                                                        |
-|                  | `cpython`      | `www.python.org`, `bootstrap.pypa.io`                                                                            |
-| `rust`           | `crates`       | `crates.io`, `index.crates.io`, `static.crates.io`                                                               |
-|                  | `rustup`       | `sh.rustup.rs`, `static.rust-lang.org`                                                                           |
-| —                | `go`           | `proxy.golang.org`, `storage.googleapis.com`, `sum.golang.org`, `go.dev`, `dl.google.com`                        |
-| `jvm`            | `maven`        | `repo.maven.apache.org`, `repo1.maven.org`                                                                       |
-|                  | `google-maven` | `maven.google.com`, `dl.google.com`                                                                              |
-|                  | `gradle`       | `services.gradle.org`, `downloads.gradle.org`, `plugins.gradle.org`, `plugins-artifacts.gradle.org`              |
-| —                | `rubygems`     | `rubygems.org`, `index.rubygems.org`                                                                             |
-| —                | `packagist`    | `packagist.org`, `repo.packagist.org`, `getcomposer.org`                                                         |
-| `dotnet`         | `nuget`        | `api.nuget.org`, `www.nuget.org`, `globalcdn.nuget.org`                                                          |
-|                  | `dotnet-sdk`   | `dot.net`, `builds.dotnet.microsoft.com`                                                                         |
-| —                | `pub`          | `pub.dev`, `storage.googleapis.com`                                                                              |
-| —                | `hex`          | `hex.pm`, `repo.hex.pm`, `builds.hex.pm`                                                                         |
-| —                | `cocoapods`    | `cdn.cocoapods.org`, `trunk.cocoapods.org`                                                                       |
-| —                | `swift`        | `download.swift.org`                                                                                             |
-| —                | `cran`         | `cloud.r-project.org`, `cran.r-project.org`                                                                      |
-| —                | `hackage`      | `hackage.haskell.org`, `downloads.haskell.org`, `get-ghcup.haskell.org`                                          |
-| —                | `cpan`         | `www.cpan.org`, `cpan.metacpan.org`, `fastapi.metacpan.org`                                                      |
-| —                | `zig`          | `ziglang.org`                                                                                                    |
-| `infrastructure` | `terraform`    | `registry.terraform.io`, `releases.hashicorp.com`                                                                |
-|                  | `opentofu`     | `registry.opentofu.org`                                                                                          |
-|                  | `helm`         | `get.helm.sh`                                                                                                    |
-|                  | `kubernetes`   | `dl.k8s.io`, `registry.k8s.io`, `*.pkg.dev`                                                                      |
-| `containers`     | `docker-hub`   | `registry-1.docker.io`, `auth.docker.io`, `production.cloudfront.docker.com`, `production.cloudflare.docker.com` |
-|                  | `ghcr`         | `ghcr.io`, `pkg-containers.githubusercontent.com`                                                                |
-|                  | `quay`         | `quay.io`, `*.quay.io`                                                                                           |
-|                  | `mcr`          | `mcr.microsoft.com`, `*.data.mcr.microsoft.com`                                                                  |
-|                  | `gcr`          | `gcr.io`, `*.pkg.dev`                                                                                            |
-| `linux`          | `debian`       | `deb.debian.org`, `security.debian.org`                                                                          |
-|                  | `ubuntu`       | `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                                  |
-|                  | `alpine`       | `dl-cdn.alpinelinux.org`                                                                                         |
+| Group            | Service         | Hosts                                                                                                            |
+| ---------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `forges`         | `github`        | `github.com`, `api.github.com`, `codeload.github.com`, `*.githubusercontent.com`                                 |
+|                  | `gitlab`        | `gitlab.com`, `registry.gitlab.com`, `cdn.registry.gitlab-static.net`                                            |
+|                  | `bitbucket`     | `bitbucket.org`, `api.bitbucket.org`                                                                             |
+|                  | `codeberg`      | `codeberg.org`                                                                                                   |
+| `javascript`     | `npm`           | `registry.npmjs.org`                                                                                             |
+|                  | `yarn`          | `registry.yarnpkg.com`, `repo.yarnpkg.com`                                                                       |
+|                  | `pnpm`          | `get.pnpm.io`                                                                                                    |
+|                  | `bun`           | `bun.sh`                                                                                                         |
+|                  | `jsr`           | `jsr.io`, `npm.jsr.io`                                                                                           |
+|                  | `deno`          | `deno.land`, `dl.deno.land`                                                                                      |
+|                  | `nodejs`        | `nodejs.org`, `unofficial-builds.nodejs.org`                                                                     |
+| —                | `yarn-registry` | `registry.yarnpkg.com`: Yarn's registry alone, without the releases of Yarn (`yarn` holds both)                  |
+| `python`         | `pypi`          | `pypi.org`, `files.pythonhosted.org`                                                                             |
+|                  | `uv`            | `astral.sh`, `releases.astral.sh`                                                                                |
+|                  | `conda`         | `conda.anaconda.org`, `repo.anaconda.com`                                                                        |
+|                  | `cpython`       | `www.python.org`, `bootstrap.pypa.io`                                                                            |
+| `rust`           | `crates`        | `crates.io`, `index.crates.io`, `static.crates.io`                                                               |
+|                  | `rustup`        | `sh.rustup.rs`, `static.rust-lang.org`                                                                           |
+| —                | `go`            | `proxy.golang.org`, `storage.googleapis.com`, `sum.golang.org`, `go.dev`, `dl.google.com`                        |
+| `jvm`            | `maven`         | `repo.maven.apache.org`, `repo1.maven.org`                                                                       |
+|                  | `google-maven`  | `maven.google.com`, `dl.google.com`                                                                              |
+|                  | `gradle`        | `services.gradle.org`, `downloads.gradle.org`, `plugins.gradle.org`, `plugins-artifacts.gradle.org`              |
+| —                | `rubygems`      | `rubygems.org`, `index.rubygems.org`                                                                             |
+| —                | `packagist`     | `packagist.org`, `repo.packagist.org`, `getcomposer.org`                                                         |
+| `dotnet`         | `nuget`         | `api.nuget.org`, `www.nuget.org`, `globalcdn.nuget.org`                                                          |
+|                  | `dotnet-sdk`    | `dot.net`, `builds.dotnet.microsoft.com`                                                                         |
+| —                | `pub`           | `pub.dev`, `storage.googleapis.com`                                                                              |
+| —                | `hex`           | `hex.pm`, `repo.hex.pm`, `builds.hex.pm`                                                                         |
+| —                | `cocoapods`     | `cdn.cocoapods.org`, `trunk.cocoapods.org`                                                                       |
+| —                | `swift`         | `download.swift.org`                                                                                             |
+| —                | `cran`          | `cloud.r-project.org`, `cran.r-project.org`                                                                      |
+| —                | `hackage`       | `hackage.haskell.org`, `downloads.haskell.org`, `get-ghcup.haskell.org`                                          |
+| —                | `cpan`          | `www.cpan.org`, `cpan.metacpan.org`, `fastapi.metacpan.org`                                                      |
+| —                | `zig`           | `ziglang.org`                                                                                                    |
+| `infrastructure` | `terraform`     | `registry.terraform.io`, `releases.hashicorp.com`                                                                |
+|                  | `opentofu`      | `registry.opentofu.org`                                                                                          |
+|                  | `helm`          | `get.helm.sh`                                                                                                    |
+|                  | `kubernetes`    | `dl.k8s.io`, `registry.k8s.io`, `*.pkg.dev`                                                                      |
+| `containers`     | `docker-hub`    | `registry-1.docker.io`, `auth.docker.io`, `production.cloudfront.docker.com`, `production.cloudflare.docker.com` |
+|                  | `ghcr`          | `ghcr.io`, `pkg-containers.githubusercontent.com`                                                                |
+|                  | `quay`          | `quay.io`, `*.quay.io`                                                                                           |
+|                  | `mcr`           | `mcr.microsoft.com`, `*.data.mcr.microsoft.com`                                                                  |
+|                  | `gcr`           | `gcr.io`, `*.pkg.dev`                                                                                            |
+| `linux`          | `debian`        | `deb.debian.org`, `security.debian.org`                                                                          |
+|                  | `ubuntu`        | `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                                  |
+|                  | `alpine`        | `dl-cdn.alpinelinux.org`                                                                                         |
 
 Each list names the hosts its default tool reaches, redirects followed: Gradle's distributions, uv, pnpm, Bun and OpenTofu's providers download from GitHub's releases (`github`), Go's module proxy from Cloud Storage. And the domain beside its `*.` wildcard: whether `*.example.com` covers `example.com` itself differs from one sandbox to another (microsandbox's does, srt's does not). `test/presets.e2e-spec.ts` fetches from each service, a Docker Hub image included, in a Docker Sandbox closed to all but `trustedHosts()`, and checks the proxy refused nothing.
 
@@ -122,7 +123,8 @@ Some services rely on hosts shared with everyone: `storage.googleapis.com` (Go, 
 - `provider` takes another provider in place of the harness's own: `harnessHosts('claude-code', { provider: 'gateway' })` for the Vercel AI Gateway, `{ provider: 'amazon-bedrock', region: 'eu-west-3' }`, `{ provider: 'google-vertex', region: 'europe-west1' }`. OpenCode has no provider of its own: name it.
 - `optional: true` adds what a turn does without: refused, the runtime carries on. Most runtimes turn it off in their settings (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for Claude Code, `--disable-client-telemetry` for Copilot).
 - `install: false` leaves out where the runtime installs from, for a sandbox started from a template that holds it.
-- Codex calls `api.openai.com` with an API key and `chatgpt.com` with a ChatGPT sign-in; Claude Code and Codex refresh a subscription's token on your server, never in the sandbox.
+- `signIn: true` adds where the runtime signs in with a subscription and refreshes its token, for a runtime run with its own login in the sandbox rather than a token brokered from your server: `claude.ai` and `platform.claude.com` for Claude Code (`HARNESS_NETWORK['claude-code'].signIn`). The other runtimes list none yet.
+- Codex calls `api.openai.com` with an API key and `chatgpt.com` with a ChatGPT sign-in. Through their `@ai-sdk/harness-*` adapters, Claude Code and Codex refresh a subscription's token on your server, never in the sandbox: `signIn` is for a runtime run otherwise.
 - An ACP agent (`@ai-sdk/harness-acp`) has the id you give it and the hosts of the agent you install: list them, beside `registry.npmjs.org` where its bridge installs from. A harness the package does not know gives none.
 
 ### Model providers
@@ -171,6 +173,8 @@ The same list goes to every sandbox package, under the name it takes:
 - no scheme, path nor port: a network policy allows a host on every port;
 - never `*` alone nor `*.com`, which would open the whole network.
 
+`isAllowedHost(host, { publicDomain: true })` asks for a name of the public DNS on top of that: two labels at least, the last one letters (`com`, `dev`, or an internationalized `xn--` one). It refuses `localhost`, a name of one label, an IP address and a numeric extension: what a settings form checks when the sandbox should only reach the Internet, never the host's network.
+
 ```ts
 import {
   InvalidHostError,
@@ -181,6 +185,8 @@ import {
 
 isAllowedHost('*.example.dev'); // true
 isAllowedHost('https://example.dev'); // false
+isAllowedHost('10.0.0.1'); // true: a network policy takes an address
+isAllowedHost('10.0.0.1', { publicDomain: true }); // false
 
 try {
   networkPolicy(trustedHosts('javascript'), settings.extraHosts);
@@ -189,13 +195,77 @@ try {
 }
 ```
 
+### Layers, and where a host comes from
+
+An application often allows hosts at more than one level: those the harness cannot run without, a general list in its settings, and those of each repository or project a sandbox holds. `networkLayers({ locked, general, sources })` merges them as `networkPolicy()` does and remembers where each host comes from:
+
+```ts
+import { harnessHosts, networkLayers, trustedHosts } from 'ai-sdk-harness-network';
+
+const layers = networkLayers({
+  locked: harnessHosts('claude-code'), // never taken out by a settings form
+  general: [...trustedHosts('github', 'javascript'), ...settings.allowedHosts],
+  sources: {
+    'acme/widgets': ['pypi.org', 'files.pythonhosted.org'], // a repository's own hosts
+  },
+});
+
+const sandboxSession = await createSbxNetworkSandboxSession({
+  networkPolicy: { mode: 'custom', allowedHosts: layers.allowedHosts },
+});
+
+layers.originOf('registry.npmjs.org'); // [{ layer: 'locked' }, { layer: 'general' }]
+layers.originOf('raw.githubusercontent.com'); // [{ layer: 'general' }]: `*.githubusercontent.com`
+layers.originOf('pypi.org'); // [{ layer: 'source', source: 'acme/widgets' }]
+layers.originOf('example.com'); // []: refused
+```
+
+- `originOf(host)` lists every layer that allows the host, the locked hosts first, then the general list, then the sources in the order given: a settings page shows why a host is allowed, and whether taking it out of one list closes it.
+- `host` is a name the sandbox reached or an entry of a list, matched as `matchesHost()` matches it: a wildcard covers the subdomains only, unless `wildcardMatchesDomain: true` is passed with the layers.
+- Every layer is checked as `allowedHosts()` checks a list: one host it refuses throws an `InvalidHostError`.
+
+### Matching a host
+
+`matchesHost(hosts, host, options?)` says whether a host matches a list: a name listed as it is, or a subdomain of a `*.<domain>` entry. Case and a final dot are ignored. It is what a proxy of your own checks a name against, or a settings page a host a user types:
+
+```ts
+import { matchesHost } from 'ai-sdk-harness-network';
+
+const hosts = ['github.com', '*.githubusercontent.com'];
+
+matchesHost(hosts, 'raw.githubusercontent.com'); // true
+matchesHost(hosts, 'api.github.com'); // false: only github.com is listed
+matchesHost(hosts, 'githubusercontent.com'); // false
+matchesHost(hosts, 'githubusercontent.com', { wildcardMatchesDomain: true }); // true
+```
+
+Whether `*.example.com` covers `example.com` itself differs from one sandbox to another: microsandbox's does, srt's does not. `matchesHost` takes the narrowest reading by default, subdomains only, so that it never says a host is allowed that a sandbox refuses; `wildcardMatchesDomain: true` takes the other one, for a sandbox known to cover the domain.
+
+### Refused requests
+
+`BlockedRequest` is the shape of one request the network policy refused, for a sandbox package's proxy to log and an application to show: the `host` (a name or an IP address), the `port` when known, the time it was refused (`at`) and the `command` that sent it when the sandbox knows it. With `originOf()` returning none, it tells a user which host to add, and to which list.
+
+```ts
+import type { BlockedRequest } from 'ai-sdk-harness-network';
+
+const refused: BlockedRequest = {
+  host: 'example.com',
+  port: 443,
+  at: new Date(),
+  command: 'curl https://example.com',
+};
+```
+
 ## Reference
 
 | Export                       | What it is                                                                       |
 | ---------------------------- | -------------------------------------------------------------------------------- |
 | `networkPolicy(...)`         | `{ mode: 'custom', allowedHosts }` from lists of hosts, checked and merged       |
 | `allowedHosts(...)`          | The hosts of lists, checked, in lower case, unique and sorted                    |
-| `isAllowedHost(host)`        | Whether a network policy takes `host`                                            |
+| `networkLayers(options)`     | The hosts of the locked, general and per-source layers, and `originOf(host)`     |
+| `BlockedRequest`             | A request the network policy refused: host, port, time, command                  |
+| `isAllowedHost(host)`        | Whether a network policy takes `host`; `publicDomain` asks for a public name     |
+| `matchesHost(hosts, host)`   | Whether `host` matches a list, wildcards included (`MatchesHostOptions`)         |
 | `trustedHosts(...)`          | The hosts of services or groups (`TrustedService`, `TrustedGroup`), or of all    |
 | `TRUSTED_HOSTS`              | The trusted hosts, by service                                                    |
 | `TRUSTED_GROUPS`             | The services of each ecosystem                                                   |

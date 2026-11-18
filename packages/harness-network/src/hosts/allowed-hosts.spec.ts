@@ -33,6 +33,39 @@ describe('isAllowedHost', () => {
   });
 });
 
+describe('isAllowedHost with publicDomain', () => {
+  it.each([
+    'github.com',
+    'API.GitHub.com',
+    '*.githubusercontent.com',
+    'example.co.uk',
+    'xn--bcher-kva.example',
+    'example.xn--p1ai',
+  ])('takes %s', (host) => {
+    expect(isAllowedHost(host, { publicDomain: true })).toBe(true);
+  });
+
+  it.each([
+    'localhost',
+    'intranet',
+    '10.0.0.1',
+    '192.168.1.20',
+    '169.254.169.254',
+    'example.123',
+    'host.local1',
+    'example.c',
+    '*.com',
+    'https://github.com',
+  ])('refuses %j', (host) => {
+    expect(isAllowedHost(host, { publicDomain: true })).toBe(false);
+  });
+
+  it('takes them all without it', () => {
+    expect(isAllowedHost('localhost')).toBe(true);
+    expect(isAllowedHost('10.0.0.1')).toBe(true);
+  });
+});
+
 describe('allowedHosts', () => {
   it('merges lists in lower case, each host once, sorted', () => {
     expect(
