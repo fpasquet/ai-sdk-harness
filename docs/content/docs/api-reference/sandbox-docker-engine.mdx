@@ -1,0 +1,35 @@
+---
+title: ai-sdk-sandbox-docker-engine
+description: The options of createDockerNetworkSandboxSession and resumeDockerNetworkSandboxSession, generated from the source.
+---
+
+## `createDockerNetworkSandboxSession(options)`
+
+Creates a sandbox on this host's Docker Engine, its internal network and its egress proxy, and returns a `DockerNetworkSandboxSession` on it.
+
+<AutoTypeTable
+  path="packages/sandbox-docker-engine/src/docker-settings.ts"
+  name="DockerNetworkSandboxSessionCreateOptions"
+/>
+
+<AutoTypeTable path="packages/sandbox-docker-engine/src/docker-settings.ts" name="DockerMount" />
+
+<AutoTypeTable path="packages/sandbox-docker-engine/src/docker-settings.ts" name="DockerLimits" />
+
+## `resumeDockerNetworkSandboxSession(options)`
+
+Starts a sandbox created earlier again, by its name. Throws `DockerSandboxNotFoundError` when it is gone.
+
+<AutoTypeTable
+  path="packages/sandbox-docker-engine/src/docker-settings.ts"
+  name="DockerNetworkSandboxSessionResumeOptions"
+/>
+
+## `blockedRequests(options?)`
+
+What the egress proxy refused, the last refused first.
+
+<AutoTypeTable
+  path="packages/sandbox-docker-engine/src/network/blocked-requests.ts"
+  name="DockerBlockedRequest"
+/>

@@ -6,6 +6,7 @@
     "sandbox-cloud-run",
     "sandbox-gce",
     "sandbox-runtime",
+    "sandbox-docker-engine",
     "harness-plugins",
     "harness-sessions",
     "harness-workspace",
