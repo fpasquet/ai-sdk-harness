@@ -188,6 +188,27 @@ const api = session?.repository('api');
 await api?.changes();
 ```
 
+### A primary repository, the others at their paths
+
+An agent may work in one repository and read or change others beside it, at the paths they have elsewhere — on the developer's machine, say, so that the agent reads the paths its user knows, and a runtime that names its projects after their path finds them again. `primary` checks one repository out in the session's working directory itself, and `mountAt` each other one at an absolute path of the sandbox, in place of the directory of its key:
+
+```ts
+const workspace = createWorkspace({
+  repositories: {
+    api: { source: hostRepository({ path: '/home/ada/www/api' }), primary: true },
+    web: { source: hostRepository({ path: '/home/ada/www/web' }), mountAt: '/home/ada/www/web' },
+  },
+});
+
+const session = workspace.session(id);
+session?.additionalDirectories(); // ['/home/ada/www/web']: what the agent may work in besides
+```
+
+- `additionalDirectories()` lists the checkouts outside the working directory itself, those of every repository but the primary one: what the runtime is told it may work in besides, Claude Code's `--add-dir` or its `additionalDirectories` setting.
+- One repository at most is primary, and it takes no `mountAt`; with one, every other repository needs a `mountAt`, or it would be checked out within the primary's checkout. A `mountAt` is absolute and normalized, within no other.
+- A repository mounted elsewhere keeps its key as its name: its files are under it in the session's `changedFiles()` and `changes()` (`web/src/app.ts`), and `writeLocalFile('web/.env.local')` writes in its checkout.
+- A checkout is made at its `mountAt` in each session: two sessions in one sandbox would ask for the same path. Give each session its own sandbox (`sandboxPerSession()`), or its own paths through [repositories chosen per session](#repositories-chosen-per-session).
+
 ### Repositories chosen per session
 
 When sessions work on different repositories — each user on a project of their own, say — give `repositories` as a function of the session: one workspace, one session manager and one store then serve every project. It is called each time a session starts, resumes or is closed, before anything runs in its sandbox, and may look the repositories up in your database:
@@ -284,6 +305,24 @@ const tree = await Promise.all(
 );
 ```
 
+### Bringing a branch back to this host
+
+`deliver({ to })` brings the commit a checkout is at back into a repository on this host, on a branch, in place of a patch: the commits keep their authors, messages and history.
+
+```ts
+const delivery = await workspace.session(id)?.deliver({
+  to: '/home/ada/www/api', // the repository on this host: a working tree, or a bare repository
+  branch: 'agent/fix-login', // default: the session's branch, `session/<id>`
+  commitMessage: 'Work in progress', // commits what the agent left uncommitted first
+});
+// { branch: 'agent/fix-login', commit: '9f2c…' }
+```
+
+- The sandbox writes a Git bundle of the commit, leaving out what this host already has when it has the checkout's `base`; this host reads it and fetches it, with `git` and none of the hooks or file-system monitor of the repository: nothing the agent wrote runs here, and the sandbox reaches nothing of this host.
+- The branch is taken when it is free, or when the delivery only moves it forward. Never the branch checked out in a working tree of the repository, nor one that went its own way: the delivery takes the first free of `<branch>-2`, `<branch>-3`… and says which in `branch`. The working tree on this host is never touched.
+- Without `commitMessage`, only the commits are delivered: what the agent left uncommitted stays in the sandbox. With it, the agent's work is committed in its checkout first, as the workspace's `committer`.
+- With several repositories, `session.deliver({ repository, to })` names the one to deliver; by default, the one in the working directory itself, the primary one. `session.repository(name)?.deliver({ to })` does the same.
+
 ### Tools that work in the checkout
 
 A tool of your server receives the session's sandbox as `experimental_sandbox`. `workspace.fromSandbox()` finds the checkout from it, to run a command where the agent works:
@@ -341,7 +380,7 @@ In the sandbox, for a workspace whose source is named `widgets`:
 | Its branch                 | `session/<sessionId>` (`branch` to choose another), from the commit fetched for it    |
 | The commit it started from | The ref `refs/ai-sdk-harness/base/<sessionId>` of the repository                      |
 
-With several repositories, each has its bare repository, named after its source, and its checkout in `<working directory>/<key>`; closing the session removes the working directory with them.
+With several repositories, each has its bare repository, named after its source, and its checkout in `<working directory>/<key>`, the working directory itself for the primary one, or its `mountAt`; closing the session removes the working directory with them, and the checkouts at their `mountAt`.
 
 Everything about a session's checkout derives from its id, so a resume finds it again with nothing stored on your side. The workspace runs git in the sandbox with the repository's hooks and file-system monitor turned off, whatever an agent wrote in its configuration, and every input as an argument of a script, never spliced into it. Git commits need an author: the workspace gives the agents `Harness agent <agent@ai-sdk-harness.invalid>` (`committer` to choose another) unless git in the sandbox already has one.
 
@@ -350,6 +389,7 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 - **Credentials.** `gitRepository()` keeps a token out of the sandbox, but while a fetch runs its placeholder is in the environment of git, which another process of the sandbox could read, and use with the sandbox's proxy for as long as the session's sandbox holds the credential. Give a token that can read the repository and nothing else, short-lived — a GitHub App's installation token. `hostRepository()` and `sandboxRepository()` involve no credential at all.
 - **Sessions of one sandbox trust each other.** They share the repository: an agent can reach the objects, branches and configuration of the others. Give sessions that must not see each other a sandbox each (`sandboxPerSession()`).
 - **A patch is what the agent made it.** Read it before you apply it on your server, and apply it with `git apply`, which refuses paths outside the repository.
+- **A delivered branch too.** `deliver()` runs no hook and touches no working tree, but the branch holds what the agent committed: review it before you merge it or push it.
 
 ## Reference
 
@@ -361,7 +401,7 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 | `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
 | `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
-A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
+A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories`, `repository(name)`, `additionalDirectories()` and `deliver({ to, branch, commitMessage, repository })` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base`, `deliver({ to, branch, commitMessage })` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
 
 ### Errors
 
@@ -377,6 +417,7 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 - **Closing a suspended session needs its sandbox** for a moment, to remove the checkout: with `sharedSandbox()`, a slot. When none is free, the checkout stays in the sandbox.
 - **Worktrees share the repository's configuration and `info/exclude`**: a local file of one session is ignored in the others too.
 - **Only HTTPS for `gitRepository()`'s credentials**: SSH URLs are refused.
+- **`deliver()` reads the bundle in memory**, from the sandbox to this host: a delivery of a whole large history, to a repository without the checkout's `base`, takes that much memory.
 
 ## Development
 
