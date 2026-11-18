@@ -82,7 +82,7 @@ What a strategy of your own implements.
 
 ## `subscriptionQuota(event)`
 
-The use of a Claude subscription, read from a `rate_limit_event` of Claude Code or an `SDKRateLimitInfo` of the Claude Agent SDK; `undefined` for any other event. Read it from the raw events of a turn: in `onTurn` once it is over.
+The use of a Claude subscription, read from a `rate_limit_event` of Claude Code or an `SDKRateLimitInfo` of the Claude Agent SDK; `undefined` for any other event. Read it in `onRawEvent` to stop a turn past a threshold, or in `onTurn` once it is over.
 
 <AutoTypeTable
   path="packages/harness-sessions/src/quota/subscription-quota.ts"

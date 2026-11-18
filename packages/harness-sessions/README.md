@@ -468,6 +468,26 @@ The harness names its tools in lower case: `bash`, not `Bash`.
 
 The steps and the raw events come from the agent's result, `steps` and `fullStream`: a `HarnessAgent` gives both; an agent of your own that gives neither reports its tokens only. What `onTurn` throws goes to `onError`; the turn is settled either way.
 
+### While a turn runs
+
+`onRawEvent` gets each raw event of the harness as it comes, while the turn runs, with the session and `interrupt(reason?)`, which cuts the turn short as `interrupt()` does, the reason its failure. Stop a turn before it eats the rest of a subscription:
+
+```ts
+import { createSessionManager, subscriptionQuota } from 'ai-sdk-harness-sessions';
+
+const sessions = createSessionManager<Metadata>({
+  // …
+  onRawEvent: (event, { session, interrupt }) => {
+    const fiveHours = subscriptionQuota(event)?.windows.five_hour;
+    if (fiveHours && fiveHours.percent >= 80) {
+      interrupt(`The subscription's five-hour window is ${fiveHours.percent}% used.`);
+    }
+  },
+});
+```
+
+The turn ends as an interrupted one: the session goes back to `idle` with the reason as its `error`, and the next message starts the harness session again. `onRawEvent` is not awaited, so it never holds the turn back: what it throws, or its promise rejects with, goes to `onError`, and the turn goes on. A turn stops at the first `rate_limit_event` past the threshold, not at the very token past it: when Claude Code sends one is up to Claude Code.
+
 ### Several instances
 
 An application that runs on several instances — behind a load balancer, scaled out, or a new version deployed beside the old one — shares one store between their managers. The store tells them apart with four more methods on a small table of its own, who holds each session: each is one plain read or write of a row, what any ORM does, and the manager does the rest.
@@ -659,6 +679,7 @@ The same with `em.upsert()`, `em.findOne()`, `em.find(…, { fields: ['summary']
 | `generateId`            | `crypto.randomUUID`      | The ids of new sessions and of the messages of their turns                                          |
 | `errorMessage`          | `getHarnessErrorMessage` | What a client is told of an error in a turn; the session's `error` keeps the full message           |
 | `onTurn`                | none                     | Called once each turn is over, with its `TurnReport`: tokens in detail, steps, raw harness events   |
+| `onRawEvent`            | none                     | Called with each raw harness event as the turn runs, with `interrupt(reason?)` to cut it short      |
 | `onError`               | `console.error`          | Called with what fails in the background: a start, a suspension, a write to the store               |
 
 | Method                     | What it does                                                                                               |
