@@ -54,7 +54,8 @@ export interface SingleRepositoryWorkspaceOptions extends WorkspaceCommonOptions
 
 /**
  * Several repositories — an API, a web app, services —, each checked out in a directory of the
- * session's working directory named after its key: `{ api: …, 'services/billing': … }`.
+ * session's working directory named after its key: `{ api: …, 'services/billing': … }`; or one of
+ * them, `primary`, in the working directory itself, and the others where `mountAt` says.
  */
 export interface MultiRepositoryWorkspaceOptions extends WorkspaceCommonOptions {
   /**
@@ -94,6 +95,22 @@ export interface WorkspaceRepositoryOptions {
    * @defaultValue `$HOME/.ai-sdk-harness/repositories/<source name>.git`
    */
   repositoryPath?: string;
+  /**
+   * The repository the agent works in: checked out in the session's working directory itself,
+   * the others beside it, each at its `mountAt`. One repository at most; it takes no `mountAt`.
+   *
+   * @defaultValue `false`
+   */
+  primary?: boolean;
+  /**
+   * Where this repository is checked out in the sandbox, an absolute path, in place of the
+   * directory of its key in the session's working directory: the path of the same repository on
+   * the host, for instance, so that the agent reads the paths the host has. Its key still names
+   * it, and prefixes its files in the session's {@link CheckoutOperations.changes}. Required of
+   * every repository but the primary one when there is one. Two sessions in one sandbox cannot
+   * check a repository out at the same path: give each its own sandbox, or its own path.
+   */
+  mountAt?: string;
 }
 
 /**
@@ -218,6 +235,12 @@ export interface WorkspaceSession extends CheckoutOperations {
   readonly repositories: readonly WorkspaceCheckout[];
   /** The checkout of repository `name`. */
   repository(name: string): undefined | WorkspaceCheckout;
+  /**
+   * The checkouts outside the working directory itself, in the order of the repositories: those of
+   * every repository but the primary one. What the agent is told it may work in besides, such as
+   * Claude Code's `--add-dir` or `additionalDirectories`.
+   */
+  additionalDirectories(): string[];
 }
 
 /** The session of a workspace of one repository, whose working directory is its checkout. */

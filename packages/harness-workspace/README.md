@@ -188,6 +188,27 @@ const api = session?.repository('api');
 await api?.changes();
 ```
 
+### A primary repository, the others at their paths
+
+An agent may work in one repository and read or change others beside it, at the paths they have elsewhere — on the developer's machine, say, so that the agent reads the paths its user knows, and a runtime that names its projects after their path finds them again. `primary` checks one repository out in the session's working directory itself, and `mountAt` each other one at an absolute path of the sandbox, in place of the directory of its key:
+
+```ts
+const workspace = createWorkspace({
+  repositories: {
+    api: { source: hostRepository({ path: '/home/ada/www/api' }), primary: true },
+    web: { source: hostRepository({ path: '/home/ada/www/web' }), mountAt: '/home/ada/www/web' },
+  },
+});
+
+const session = workspace.session(id);
+session?.additionalDirectories(); // ['/home/ada/www/web']: what the agent may work in besides
+```
+
+- `additionalDirectories()` lists the checkouts outside the working directory itself, those of every repository but the primary one: what the runtime is told it may work in besides, Claude Code's `--add-dir` or its `additionalDirectories` setting.
+- One repository at most is primary, and it takes no `mountAt`; with one, every other repository needs a `mountAt`, or it would be checked out within the primary's checkout. A `mountAt` is absolute and normalized, within no other.
+- A repository mounted elsewhere keeps its key as its name: its files are under it in the session's `changedFiles()` and `changes()` (`web/src/app.ts`), and `writeLocalFile('web/.env.local')` writes in its checkout.
+- A checkout is made at its `mountAt` in each session: two sessions in one sandbox would ask for the same path. Give each session its own sandbox (`sandboxPerSession()`), or its own paths through [repositories chosen per session](#repositories-chosen-per-session).
+
 ### Repositories chosen per session
 
 When sessions work on different repositories — each user on a project of their own, say — give `repositories` as a function of the session: one workspace, one session manager and one store then serve every project. It is called each time a session starts, resumes or is closed, before anything runs in its sandbox, and may look the repositories up in your database:
@@ -341,7 +362,7 @@ In the sandbox, for a workspace whose source is named `widgets`:
 | Its branch                 | `session/<sessionId>` (`branch` to choose another), from the commit fetched for it    |
 | The commit it started from | The ref `refs/ai-sdk-harness/base/<sessionId>` of the repository                      |
 
-With several repositories, each has its bare repository, named after its source, and its checkout in `<working directory>/<key>`; closing the session removes the working directory with them.
+With several repositories, each has its bare repository, named after its source, and its checkout in `<working directory>/<key>`, the working directory itself for the primary one, or its `mountAt`; closing the session removes the working directory with them, and the checkouts at their `mountAt`.
 
 Everything about a session's checkout derives from its id, so a resume finds it again with nothing stored on your side. The workspace runs git in the sandbox with the repository's hooks and file-system monitor turned off, whatever an agent wrote in its configuration, and every input as an argument of a script, never spliced into it. Git commits need an author: the workspace gives the agents `Harness agent <agent@ai-sdk-harness.invalid>` (`committer` to choose another) unless git in the sandbox already has one.
 
@@ -361,7 +382,7 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 | `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
 | `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
-A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
+A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories`, `repository(name)` and `additionalDirectories()` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
 
 ### Errors
 

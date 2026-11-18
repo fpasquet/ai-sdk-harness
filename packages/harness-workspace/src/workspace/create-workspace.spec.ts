@@ -605,6 +605,112 @@ describe('createWorkspace', () => {
     });
   });
 
+  describe('with a primary repository and mounted ones', () => {
+    let web: string;
+    let mounted: Workspace;
+    let webPath: string;
+
+    beforeEach(async () => {
+      web = await createSourceRepository();
+      // Where the host keeps the web app: the agent finds it at the same path.
+      webPath = join(host.directory, 'host/www/web');
+      mounted = createWorkspace({
+        repositories: {
+          api: { source: sandboxRepository({ path: source }), primary: true },
+          web: { source: sandboxRepository({ path: web }), mountAt: webPath },
+        },
+      });
+    });
+
+    it('checks the primary repository out in the working directory, the others where they are mounted', async () => {
+      const { directory } = await start('a', { workspace: mounted });
+      const session = mounted.session('a')!;
+
+      expect(session.repositories.map(({ name, directory: at }) => ({ name, at }))).toEqual([
+        { name: 'api', at: directory },
+        { name: 'web', at: webPath },
+      ]);
+      expect(session.additionalDirectories()).toEqual([webPath]);
+      expect(await git(directory, 'branch', '--show-current')).toBe('session/a');
+      expect(await git(webPath, 'branch', '--show-current')).toBe('session/a');
+      expect(await git(directory, 'status', '--porcelain')).toBe('');
+    });
+
+    it('reads the changes of a mounted repository under its key, and writes its local files there', async () => {
+      const { directory } = await start('a', { workspace: mounted });
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+      await writeFile(join(webPath, 'new.txt'), 'new\n');
+      const session = mounted.session('a')!;
+      await session.writeLocalFile('web/.env.local', 'SECRET=1\n');
+
+      const files = await session.changedFiles();
+
+      expect(files.map(({ path, repository }) => ({ path, repository }))).toEqual([
+        { path: 'index.js', repository: 'api' },
+        { path: 'web/new.txt', repository: 'web' },
+      ]);
+      expect(await readFile(join(webPath, '.env.local'), 'utf8')).toBe('SECRET=1\n');
+    });
+
+    it('finds the mounted checkouts again when the session resumes, and removes them when it is closed', async () => {
+      const { lease } = await start('a', { workspace: mounted });
+      await lease.suspend();
+      const resumed = await start('a', { workspace: mounted, resume: true });
+      expect(mounted.session('a')!.repository('web')!.directory).toBe(webPath);
+
+      await resumed.lease.close();
+
+      expect(await exists(webPath)).toBe(false);
+    });
+
+    it('lists every checkout as an additional directory without a primary repository', async () => {
+      const elsewhere = createWorkspace({
+        repositories: {
+          api: sandboxRepository({ path: source }),
+          web: { source: sandboxRepository({ path: web }), mountAt: webPath },
+        },
+      });
+      const { directory } = await start('a', { workspace: elsewhere });
+
+      expect(elsewhere.session('a')!.additionalDirectories()).toEqual([
+        join(directory, 'api'),
+        webPath,
+      ]);
+    });
+
+    it('refuses a primary repository and mounts that cannot go together', () => {
+      const from = sandboxRepository({ path: source });
+      const other = sandboxRepository({ path: web });
+      const refused = (repositories: WorkspaceRepositories) => () =>
+        createWorkspace({ repositories });
+
+      expect(
+        refused({ api: { source: from, primary: true }, web: { source: other, primary: true } }),
+      ).toThrow(/Only one repository may be primary/);
+      expect(refused({ api: { source: from, primary: true }, web: other })).toThrow(
+        /"web" needs a `mountAt`/,
+      );
+      expect(refused({ api: { source: from, primary: true, mountAt: '/srv/api' } })).toThrow(
+        /takes no `mountAt`/,
+      );
+      for (const mountAt of ['srv/web', '/', '/srv/../web', '/srv/web/']) {
+        expect(refused({ web: { source: other, mountAt } })).toThrow(/absolute, normalized/);
+      }
+      expect(
+        refused({
+          api: { source: from, mountAt: '/srv/app' },
+          web: { source: other, mountAt: '/srv/app/web' },
+        }),
+      ).toThrow(/one within the other/);
+      expect(
+        refused({
+          api: { source: from, primary: true },
+          web: { source: other, mountAt: '/srv/web' },
+        }),
+      ).not.toThrow();
+    });
+  });
+
   describe('with repositories chosen per session', () => {
     let web: string;
     let asked: string[];

@@ -29,8 +29,13 @@ import { baseRef, checkRelativePath, fetchedRef, sessionKey } from '../utils/nam
 /** One repository of a workspace. */
 export interface RepositorySettings {
   name: string;
-  /** Its checkout's directory in the session's working directory; `''` for that directory itself. */
+  /**
+   * Its checkout's directory in the session's working directory; `''` for that directory itself.
+   * With `mountAt`, where its files are in the session's changes.
+   */
   path: string;
+  /** Where it is checked out, an absolute path, in place of `path`. */
+  mountAt: string | undefined;
   source: WorkspaceSource;
   setup: readonly string[];
   setupEnv: Record<string, string> | undefined;
@@ -166,7 +171,7 @@ export class WorkspaceSlot {
     abortSignal?: AbortSignal,
   ): Promise<CheckedOut> {
     const located = await this.repositoryOf(repository, abortSignal);
-    const directory = repository.path === '' ? root : posix.join(root, repository.path);
+    const directory = directoryOf(repository, root);
     const base = baseRef(this.key);
     if (this.resume) {
       const commit = await reattach(this.sandbox, {
@@ -271,13 +276,12 @@ export class WorkspaceSlot {
       ...(checkouts.length === 1 && first?.repository.path === '' && { base: first.base }),
       repositories,
       repository: (name) => repositories.find((repository) => repository.name === name),
+      additionalDirectories: () => outside(repositories, directory),
       run: (command, options) => this.runIn(directory, command, options),
       writeLocalFile: async (path, content, { abortSignal } = {}) => {
         this.live();
         const relative = checkRelativePath(path);
-        const owner = parts.find(
-          ({ repository: { path: prefix } }) => prefix === '' || relative.startsWith(`${prefix}/`),
-        );
+        const owner = ownerOf(parts, relative);
         if (owner === undefined) {
           // Outside every checkout: in no repository's changes anyway.
           return this.write(posix.join(directory, relative), content, abortSignal);
@@ -405,6 +409,7 @@ function rootOf(
   removed: readonly { repository: RepositorySettings; directory: string | undefined }[],
 ): string | undefined {
   for (const { repository, directory } of removed) {
+    if (repository.mountAt !== undefined) continue;
     const suffix = `/${repository.path}`;
     if (directory?.endsWith(suffix) === true) {
       const root = directory.slice(0, -suffix.length);
@@ -412,6 +417,33 @@ function rootOf(
     }
   }
   return undefined;
+}
+
+/**
+ * The part whose checkout holds `relative`, a path of the session: the one under the longest
+ * prefix, the checkout in the working directory itself last.
+ */
+function ownerOf<PART extends { repository: RepositorySettings }>(
+  parts: readonly PART[],
+  relative: string,
+): PART | undefined {
+  return (
+    parts.find(({ repository: { path } }) => path !== '' && relative.startsWith(`${path}/`)) ??
+    parts.find(({ repository: { path } }) => path === '')
+  );
+}
+
+/** The directories of `repositories` but `directory`, the session's working directory. */
+function outside(repositories: readonly WorkspaceCheckout[], directory: string): string[] {
+  return repositories.flatMap((repository) =>
+    repository.directory === directory ? [] : [repository.directory],
+  );
+}
+
+/** Where `repository` is checked out, in the session's working directory `root` or out of it. */
+function directoryOf({ path, mountAt }: RepositorySettings, root: string): string {
+  if (mountAt !== undefined) return mountAt;
+  return path === '' ? root : posix.join(root, path);
 }
 
 function merged(
