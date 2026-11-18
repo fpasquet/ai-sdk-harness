@@ -235,6 +235,21 @@ matchesHost(hosts, 'githubusercontent.com', { wildcardMatchesDomain: true }); //
 
 Whether `*.example.com` covers `example.com` itself differs from one sandbox to another: microsandbox's does, srt's does not. `matchesHost` takes the narrowest reading by default, subdomains only, so that it never says a host is allowed that a sandbox refuses; `wildcardMatchesDomain: true` takes the other one, for a sandbox known to cover the domain.
 
+### Refused requests
+
+`BlockedRequest` is the shape of one request the network policy refused, for a sandbox package's proxy to log and an application to show: the `host` (a name or an IP address), the `port` when known, the time it was refused (`at`) and the `command` that sent it when the sandbox knows it. With `originOf()` returning none, it tells a user which host to add, and to which list.
+
+```ts
+import type { BlockedRequest } from 'ai-sdk-harness-network';
+
+const refused: BlockedRequest = {
+  host: 'example.com',
+  port: 443,
+  at: new Date(),
+  command: 'curl https://example.com',
+};
+```
+
 ## Reference
 
 | Export                       | What it is                                                                       |
@@ -242,6 +257,7 @@ Whether `*.example.com` covers `example.com` itself differs from one sandbox to 
 | `networkPolicy(...)`         | `{ mode: 'custom', allowedHosts }` from lists of hosts, checked and merged       |
 | `allowedHosts(...)`          | The hosts of lists, checked, in lower case, unique and sorted                    |
 | `networkLayers(options)`     | The hosts of the locked, general and per-source layers, and `originOf(host)`     |
+| `BlockedRequest`             | A request the network policy refused: host, port, time, command                  |
 | `isAllowedHost(host)`        | Whether a network policy takes `host`                                            |
 | `matchesHost(hosts, host)`   | Whether `host` matches a list, wildcards included (`MatchesHostOptions`)         |
 | `trustedHosts(...)`          | The hosts of services or groups (`TrustedService`, `TrustedGroup`), or of all    |
