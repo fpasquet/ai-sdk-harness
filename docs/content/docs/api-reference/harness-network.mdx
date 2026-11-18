@@ -12,6 +12,13 @@ Returns `{ mode: 'custom', allowedHosts }`, the hosts of `lists` checked, in low
   name="AllowedHostsPolicy"
 />
 
+`isAllowedHost(host, options?)` says whether a network policy takes a host, and with `publicDomain` whether it is a name of the public DNS.
+
+<AutoTypeTable
+  path="packages/harness-network/src/hosts/allowed-hosts.ts"
+  name="IsAllowedHostOptions"
+/>
+
 ## `trustedHosts(...names)`
 
 The hosts of `TRUSTED_HOSTS` for each service named (`TrustedService`), or for the services of each group of `TRUSTED_GROUPS` (`TrustedGroup`); every service without any.

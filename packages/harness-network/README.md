@@ -173,6 +173,8 @@ The same list goes to every sandbox package, under the name it takes:
 - no scheme, path nor port: a network policy allows a host on every port;
 - never `*` alone nor `*.com`, which would open the whole network.
 
+`isAllowedHost(host, { publicDomain: true })` asks for a name of the public DNS on top of that: two labels at least, the last one letters (`com`, `dev`, or an internationalized `xn--` one). It refuses `localhost`, a name of one label, an IP address and a numeric extension: what a settings form checks when the sandbox should only reach the Internet, never the host's network.
+
 ```ts
 import {
   InvalidHostError,
@@ -183,6 +185,8 @@ import {
 
 isAllowedHost('*.example.dev'); // true
 isAllowedHost('https://example.dev'); // false
+isAllowedHost('10.0.0.1'); // true: a network policy takes an address
+isAllowedHost('10.0.0.1', { publicDomain: true }); // false
 
 try {
   networkPolicy(trustedHosts('javascript'), settings.extraHosts);
@@ -260,7 +264,7 @@ const refused: BlockedRequest = {
 | `allowedHosts(...)`          | The hosts of lists, checked, in lower case, unique and sorted                    |
 | `networkLayers(options)`     | The hosts of the locked, general and per-source layers, and `originOf(host)`     |
 | `BlockedRequest`             | A request the network policy refused: host, port, time, command                  |
-| `isAllowedHost(host)`        | Whether a network policy takes `host`                                            |
+| `isAllowedHost(host)`        | Whether a network policy takes `host`; `publicDomain` asks for a public name     |
 | `matchesHost(hosts, host)`   | Whether `host` matches a list, wildcards included (`MatchesHostOptions`)         |
 | `trustedHosts(...)`          | The hosts of services or groups (`TrustedService`, `TrustedGroup`), or of all    |
 | `TRUSTED_HOSTS`              | The trusted hosts, by service                                                    |

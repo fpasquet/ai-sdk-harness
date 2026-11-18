@@ -1,6 +1,6 @@
 export { InvalidHostError } from './errors/invalid-host-error.js';
 export { allowedHosts, isAllowedHost, networkPolicy } from './hosts/allowed-hosts.js';
-export type { AllowedHostsPolicy } from './hosts/allowed-hosts.js';
+export type { AllowedHostsPolicy, IsAllowedHostOptions } from './hosts/allowed-hosts.js';
 export type { BlockedRequest } from './hosts/blocked-request.js';
 export { matchesHost } from './hosts/match-host.js';
 export type { MatchesHostOptions } from './hosts/match-host.js';
