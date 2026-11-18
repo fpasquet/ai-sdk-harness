@@ -62,10 +62,14 @@ export interface SessionManagerOptions<METADATA> {
    *
    * An approval asked again right after it was answered, with the same input, is left to a
    * person: a harness that does not take the answer (see the README) would ask forever.
+   *
+   * `abortSignal` aborts when the turn is cut short — `interrupt()`, `turnTimeoutMs`, a close or a
+   * shutdown —: an `approve` that waits, for a person answering elsewhere, settles then, or the
+   * turn waits for it.
    */
   approve?: (
     approval: PendingApproval,
-    context: { session: SessionSummary<METADATA> },
+    context: { session: SessionSummary<METADATA>; abortSignal: AbortSignal },
   ) => ApprovalVerdict | PromiseLike<ApprovalVerdict | undefined> | undefined;
   /** The ids of new sessions and of the messages of their turns. Default: `crypto.randomUUID`. */
   generateId?: () => string;
