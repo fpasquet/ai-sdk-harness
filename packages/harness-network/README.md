@@ -189,6 +189,23 @@ try {
 }
 ```
 
+### Matching a host
+
+`matchesHost(hosts, host, options?)` says whether a host matches a list: a name listed as it is, or a subdomain of a `*.<domain>` entry. Case and a final dot are ignored. It is what a proxy of your own checks a name against, or a settings page a host a user types:
+
+```ts
+import { matchesHost } from 'ai-sdk-harness-network';
+
+const hosts = ['github.com', '*.githubusercontent.com'];
+
+matchesHost(hosts, 'raw.githubusercontent.com'); // true
+matchesHost(hosts, 'api.github.com'); // false: only github.com is listed
+matchesHost(hosts, 'githubusercontent.com'); // false
+matchesHost(hosts, 'githubusercontent.com', { wildcardMatchesDomain: true }); // true
+```
+
+Whether `*.example.com` covers `example.com` itself differs from one sandbox to another: microsandbox's does, srt's does not. `matchesHost` takes the narrowest reading by default, subdomains only, so that it never says a host is allowed that a sandbox refuses; `wildcardMatchesDomain: true` takes the other one, for a sandbox known to cover the domain.
+
 ## Reference
 
 | Export                       | What it is                                                                       |
@@ -196,6 +213,7 @@ try {
 | `networkPolicy(...)`         | `{ mode: 'custom', allowedHosts }` from lists of hosts, checked and merged       |
 | `allowedHosts(...)`          | The hosts of lists, checked, in lower case, unique and sorted                    |
 | `isAllowedHost(host)`        | Whether a network policy takes `host`                                            |
+| `matchesHost(hosts, host)`   | Whether `host` matches a list, wildcards included (`MatchesHostOptions`)         |
 | `trustedHosts(...)`          | The hosts of services or groups (`TrustedService`, `TrustedGroup`), or of all    |
 | `TRUSTED_HOSTS`              | The trusted hosts, by service                                                    |
 | `TRUSTED_GROUPS`             | The services of each ecosystem                                                   |

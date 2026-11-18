@@ -1,6 +1,8 @@
 export { InvalidHostError } from './errors/invalid-host-error.js';
 export { allowedHosts, isAllowedHost, networkPolicy } from './hosts/allowed-hosts.js';
 export type { AllowedHostsPolicy } from './hosts/allowed-hosts.js';
+export { matchesHost } from './hosts/match-host.js';
+export type { MatchesHostOptions } from './hosts/match-host.js';
 export { HARNESS_NETWORK, harnessHosts } from './presets/harness-hosts.js';
 export type { HarnessHostsOptions, HarnessNetwork, KnownHarness } from './presets/harness-hosts.js';
 export { PROVIDER_HOSTS, providerHosts } from './presets/provider-hosts.js';
