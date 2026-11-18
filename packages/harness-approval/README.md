@@ -148,6 +148,38 @@ const agent = new HarnessAgent({ harness, model, ...inSandbox.agent });
 
 Claude Code's `AskUserQuestion` reaches you as a call of the tool `askUserQuestions` (`QUESTIONS_TOOL_NAME`): its input, `AgentQuestions`, holds the questions and their options, and the turn waits for its output, `AgentAnswers`. `answersOf(questions, selection)` builds the output from what a form picked — `answered`, `partially-answered` when the questions allow it, `declined` when nothing was —, `isComplete()` says whether it can be sent, and `describeAnswers()` says it in words.
 
+### Describing a tool call
+
+`describeToolCall(request, options?)` says what a tool call does, in a few words, for a person to approve or deny it: `{ kind, action, title, detail }`.
+
+| Tool                                                               | `action`                    | `title`            | `detail`                     |
+| ------------------------------------------------------------------ | --------------------------- | ------------------ | ---------------------------- |
+| `bash`, `Bash`, `Monitor`                                          | `run-command`               | "Run a command"    | The command                  |
+| `write`, `Write`                                                   | `write-file`, `write-files` | "Write a file"     | The files, `.` and `..` read |
+| `edit`, `Edit`, `MultiEdit`, `NotebookEdit`                        | `edit-file`, `edit-files`   | "Edit a file"      | The files (`notebook_path`…) |
+| `Read`                                                             | `read-file`                 | "Read a file"      | `file_path`                  |
+| `Glob`                                                             | `find-files`                | "Find files"       | `pattern`                    |
+| `Grep`                                                             | `search-files`              | "Search files"     | `pattern`                    |
+| `WebFetch`, `webFetch`                                             | `fetch-url`                 | "Fetch a web page" | `url`                        |
+| `WebSearch`, `webSearch`                                           | `search-web`                | "Search the web"   | `query`                      |
+| Any other tool whose input has a `command`: an MCP server's, yours | `run-command`               | "Run a command"    | The command                  |
+| Any other tool                                                     | `other`                     | The tool's name    | Its input, as JSON           |
+
+- The built-in tools are known by their name in any case. A tool whose input lacks the field it is read by is shown as any other tool.
+- `action` says what the call does with no text: the key of a translation. `titles` gives the titles in your language, an action left out keeping its English one (`TOOL_CALL_TITLES`).
+- `maxDetail` (400 by default) is the length the detail is cut at, an ellipsis included; `Infinity` keeps it whole.
+- `commandOf(toolName, input)` and `pathsOf(input)` are what it reads a call with: the command, a string or an argument list, and the files, `.` and `..` resolved.
+
+```ts
+import { describeToolCall } from 'ai-sdk-harness-approval';
+
+describeToolCall(
+  { toolName: 'Grep', input: { pattern: 'TODO', glob: '*.ts' } },
+  { titles: { 'search-files': 'Rechercher dans les fichiers' }, maxDetail: 120 },
+);
+// { kind: 'other', action: 'search-files', title: 'Rechercher dans les fichiers', detail: 'TODO' }
+```
+
 ### The components
 
 `ToolApproval` and `QuestionsForm` are [shadcn/ui](https://ui.shadcn.com) components, in the registry of this site:
@@ -197,7 +229,8 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 | `suggestGrant(request)`                            | `{ grants, label }`: what "Always allow" grants                    |
 | `withGrants(grants, added)`                        | The grants with `added`, each once                                 |
 | `describeGrant(grant)`                             | "\`npm test\` commands", "file edits"                              |
-| `describeToolCall(request)`                        | `{ kind, title, detail }`: "Run a command", the command            |
+| `describeToolCall(request, options?)`              | `{ kind, action, title, detail }`: "Run a command", the command    |
+| `commandOf(toolName, input)`, `pathsOf(input)`     | The command a call runs, the files it names                        |
 | `commandSegments(script)`, `toolKindOf()`          | How the policy reads a script, and a tool                          |
 | `answersOf()`, `isComplete()`, `describeAnswers()` | The answers to the agent's questions                               |
 
