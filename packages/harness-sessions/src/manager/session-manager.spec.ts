@@ -519,7 +519,10 @@ describe('createSessionManager', () => {
           toolName: 'Bash',
           input: { command: 'ls' },
         },
-        { session: expect.objectContaining({ id: 's1', metadata: { title: 'First' } }) as unknown },
+        {
+          session: expect.objectContaining({ id: 's1', metadata: { title: 'First' } }) as unknown,
+          abortSignal: expect.any(AbortSignal) as unknown,
+        },
       );
       expect(agent.continuations).toEqual([
         {
@@ -665,6 +668,28 @@ describe('createSessionManager', () => {
 
       expect(session.status).toBe('awaiting-input');
       expect(errors).toContainEqual({ action: 'approve', sessionId: 's1', error: failure });
+    });
+
+    it('aborts the signal of an approve that waits once the turn is interrupted', async () => {
+      let signal: AbortSignal | undefined;
+      sessions = manager({
+        approve: (_approval, { abortSignal }) => {
+          signal = abortSignal;
+          return new Promise((resolve) => {
+            abortSignal.addEventListener('abort', () => resolve(undefined));
+          });
+        },
+      });
+      await ready();
+      agent.script.push({ chunks: [...APPROVAL_CHUNKS], unfinished: true });
+      const started = await sessions.send('s1', { message: 'list the files' });
+      await until(() => signal !== undefined);
+
+      await sessions.interrupt('s1');
+
+      expect(signal?.aborted).toBe(true);
+      expect(await started.done).toMatchObject({ status: 'awaiting-input' });
+      expect(agent.continuations).toEqual([]);
     });
 
     it('ends the turn with an error when it cannot go on', async () => {

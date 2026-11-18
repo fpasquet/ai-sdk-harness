@@ -11,7 +11,8 @@ const ISOMORPHIC = {
 /**
  * The layers of the package, each importing only the ones below it: `definitions/` (types and
  * constants) is a leaf, then `utils/` (shell and path parsing) ← `policy/` ← `describe/`;
- * `questions/` stands beside them. `sandbox/`, on top, runs in Node.js only: what installs the
+ * `questions/` stands beside them; `remote/` (approvals answered from a remote interface) sits
+ * above `describe/`. `sandbox/`, on top, runs in Node.js only: what installs the
  * policies in a sandbox, and the hook that runs there; `ai-sdk-harness-approval/sandbox` exports it.
  */
 export default [
@@ -27,7 +28,7 @@ export default [
     files: ['src/utils/**/*.ts'],
     patterns: [
       notFrom(
-        ['policy', 'describe', 'questions', 'sandbox'],
+        ['policy', 'describe', 'questions', 'remote', 'sandbox'],
         'utils/ may only import definitions/.',
       ),
       ISOMORPHIC,
@@ -37,8 +38,8 @@ export default [
     files: ['src/policy/**/*.ts'],
     patterns: [
       notFrom(
-        ['describe', 'questions', 'sandbox'],
-        'policy/ may not import describe/, questions/ or sandbox/.',
+        ['describe', 'questions', 'remote', 'sandbox'],
+        'policy/ may not import describe/, questions/, remote/ or sandbox/.',
       ),
       ISOMORPHIC,
     ],
@@ -47,9 +48,16 @@ export default [
     files: ['src/describe/**/*.ts', 'src/questions/**/*.ts'],
     patterns: [
       notFrom(
-        ['describe', 'questions', 'sandbox'],
-        'describe/ and questions/ stand beside each other, below sandbox/.',
+        ['describe', 'questions', 'remote', 'sandbox'],
+        'describe/ and questions/ stand beside each other, below remote/ and sandbox/.',
       ),
+      ISOMORPHIC,
+    ],
+  }),
+  restrictImports({
+    files: ['src/remote/**/*.ts'],
+    patterns: [
+      notFrom(['questions', 'sandbox'], 'remote/ may not import questions/ or sandbox/.'),
       ISOMORPHIC,
     ],
   }),
