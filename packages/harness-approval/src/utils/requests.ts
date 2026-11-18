@@ -11,7 +11,7 @@ export function toolKindOf(toolName: string): ToolKind {
 }
 
 /** The input as an object: the stream gives it parsed, or as JSON. */
-function fieldsOf(input: unknown): Record<string, unknown> {
+export function fieldsOf(input: unknown): Record<string, unknown> {
   if (typeof input === 'string') {
     try {
       return fieldsOf(JSON.parse(input) as unknown);
@@ -22,7 +22,11 @@ function fieldsOf(input: unknown): Record<string, unknown> {
   return typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
 }
 
-/** The shell command a command tool runs, or `undefined` when its input carries none. */
+/**
+ * The shell command a command tool runs (`command` of `Bash`), or the `command` of any other tool's
+ * input, as a string or an argument list joined by spaces; `undefined` when its input carries none.
+ * The input may be an object or its JSON.
+ */
 export function commandOf(toolName: string, input: unknown): string | undefined {
   const value = fieldsOf(input)[COMMAND_TOOLS[toolName] ?? 'command'];
   if (typeof value === 'string') return value;
@@ -43,7 +47,10 @@ export function normalizePath(path: string): string {
   return `${absolute ? '/' : ''}${kept.join('/')}`;
 }
 
-/** The files an edit tool writes. */
+/**
+ * The files a tool call names — `file_path`, `notebook_path` and `path` of its input, in that
+ * order —, their `.` and `..` segments resolved: the files an edit tool writes.
+ */
 export function pathsOf(input: unknown): string[] {
   const fields = fieldsOf(input);
   return PATH_KEYS.flatMap((key) => {

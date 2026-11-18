@@ -27,6 +27,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./describe": {
+      "types": "./dist/describe.d.ts",
+      "import": "./dist/describe.js",
+      "default": "./dist/describe.js"
+    },
     "./sandbox": {
       "types": "./dist/sandbox.d.ts",
       "import": "./dist/sandbox.js",
@@ -60,6 +65,14 @@
   "peerDependencies": {
     "@ai-sdk/harness": "^1.0.0",
     "ai": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/harness": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@ai-sdk/harness": "^1.0.168",
