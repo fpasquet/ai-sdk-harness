@@ -4,11 +4,12 @@ import nodeConfig from '@repo/eslint-config/node';
 
 /**
  * The layers of the package, each importing only the ones below it: `errors/`, `utils/` and
- * `definitions/` (types) are leaves, then `git/` (what runs in the sandbox) ← `sources/` ←
- * `workspace/`.
+ * `definitions/` (types) are leaves, then `git/` (what runs in the sandbox) and `host/` (what runs
+ * on this host), beside each other ← `sources/` ← `workspace/`.
  */
 const LAYERS = [
-  ['git', ['sources', 'workspace']],
+  ['git', ['host', 'sources', 'workspace']],
+  ['host', ['git', 'sources', 'workspace']],
   ['sources', ['workspace']],
 ];
 
