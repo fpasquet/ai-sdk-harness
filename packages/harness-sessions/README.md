@@ -439,15 +439,32 @@ const sessions = createSessionManager<Metadata>({
       outputTokens: usage.outputTokens,
       models: [...new Set(steps.map(({ modelId }) => modelId))],
     });
-    const limits = rawEvents.filter(
-      (event) => (event as { type?: string }).type === 'rate_limit_event',
-    );
-    if (limits.length > 0) await db.rateLimits.insert(sessionId, limits.at(-1));
+    const quota = rawEvents.map(subscriptionQuota).findLast((read) => read !== undefined);
+    if (quota) await db.quotas.insert(sessionId, quota);
   },
 });
 ```
 
-A `rate_limit_event` of Claude Code (signed in with a subscription) gives every window in `rate_limit_info.unifiedWindows`, such as `five_hour` and `seven_day`, each with its `utilization` (a fraction) and its `resetsAt` (in seconds). The harness names its tools in lower case: `bash`, not `Bash`.
+A `rate_limit_event` of Claude Code (signed in with a subscription) gives every window in `rate_limit_info.unifiedWindows`, such as `five_hour` and `seven_day`, each with its `utilization` (a fraction) and its `resetsAt` (in seconds). `subscriptionQuota(event)` reads it, and `undefined` from any other event:
+
+```ts
+import { subscriptionQuota } from 'ai-sdk-harness-sessions';
+
+subscriptionQuota(event);
+// {
+//   status: 'allowed',
+//   windows: {
+//     five_hour: { utilization: 0.36, percent: 36, resetsAt: new Date('2026-11-18T15:00:00Z') },
+//     seven_day: { utilization: 0.14, percent: 14, resetsAt: new Date('2026-11-23T09:00:00Z') },
+//   },
+// }
+```
+
+- `windows` holds every window the event gives, by its name in Claude Code (`five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`…): `utilization` from 0 to 1, `percent` from 0 to 100, and `resetsAt`, when it starts again from zero, if the event says.
+- `status` is `allowed`, `allowed_warning` once a window nears its limit, or `rejected` once one is reached.
+- It also reads the `SDKRateLimitInfo` of the Claude Agent SDK, in its event or on its own, which may give one window (`rateLimitType`, `utilization`, `resetsAt`). A window without its utilization is left out.
+
+The harness names its tools in lower case: `bash`, not `Bash`.
 
 The steps and the raw events come from the agent's result, `steps` and `fullStream`: a `HarnessAgent` gives both; an agent of your own that gives neither reports its tokens only. What `onTurn` throws goes to `onError`; the turn is settled either way.
 
@@ -659,6 +676,14 @@ The same with `em.upsert()`, `em.findOne()`, `em.find(…, { fields: ['summary']
 | `shutdown()`               | Suspends every live session and shuts the sandboxes down                                                   |
 
 A `SessionTurn` has the turn as a UI message `stream`, `toUIMessageStreamResponse()` for a route, and `done`, the session once the turn is over and written.
+
+### The subscription quota
+
+| Export                     | What it does                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `subscriptionQuota(event)` | The `status` and `windows` of a `rate_limit_event` of Claude Code, or of an `SDKRateLimitInfo`; `undefined` otherwise |
+
+A `QuotaWindow` has its `utilization` (0 to 1), its `percent` (0 to 100) and, when the event says, its `resetsAt`.
 
 ### The task list
 

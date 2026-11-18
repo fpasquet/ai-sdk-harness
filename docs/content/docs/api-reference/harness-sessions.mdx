@@ -79,3 +79,17 @@ What a strategy of your own implements.
   path="packages/harness-sessions/src/definitions/sandboxes.ts"
   name="SessionSandboxLease"
 />
+
+## `subscriptionQuota(event)`
+
+The use of a Claude subscription, read from a `rate_limit_event` of Claude Code or an `SDKRateLimitInfo` of the Claude Agent SDK; `undefined` for any other event. Read it from the raw events of a turn: in `onTurn` once it is over.
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/quota/subscription-quota.ts"
+  name="SubscriptionQuota"
+/>
+
+<AutoTypeTable
+  path="packages/harness-sessions/src/quota/subscription-quota.ts"
+  name="QuotaWindow"
+/>
