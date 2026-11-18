@@ -711,6 +711,143 @@ describe('createWorkspace', () => {
     });
   });
 
+  describe('deliver', () => {
+    let target: string;
+
+    beforeEach(async () => {
+      // The repository on this host the work comes back to: a clone of the source.
+      target = await mkdtemp(join(tmpdir(), 'harness-workspace-target-'));
+      await git(target, 'clone', '--quiet', source, '.');
+    });
+
+    it("brings the checkout's commits back on a branch of the host's repository", async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+      const head = await git(directory, 'rev-parse', 'HEAD');
+
+      const delivery = await workspace.session('a')!.deliver({ to: target });
+
+      expect(delivery).toEqual({ branch: 'session/a', commit: head });
+      expect(await git(target, 'rev-parse', 'refs/heads/session/a')).toBe(head);
+      expect(await git(target, 'show', 'session/a:new.txt')).toBe('new');
+      // Neither the branch checked out on the host nor its working tree moved.
+      expect(await git(target, 'branch', '--show-current')).toBe('main');
+      expect(await git(target, 'status', '--porcelain')).toBe('');
+      expect(await git(target, 'for-each-ref', 'refs/ai-sdk-harness/')).toBe('');
+    });
+
+    it('commits what the agent left uncommitted first, when told to', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+
+      const delivery = await workspace.session('a')!.deliver({
+        to: target,
+        branch: 'agent/answer',
+        commitMessage: 'Work in progress',
+      });
+
+      expect(delivery.branch).toBe('agent/answer');
+      expect(await git(target, 'log', '-1', '--format=%s %an', 'agent/answer')).toBe(
+        'Work in progress Harness agent',
+      );
+      expect(await git(target, 'show', 'agent/answer:index.js')).toBe('export const answer = 42;');
+    });
+
+    it('delivers only the commits without being told to commit', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+
+      const delivery = await workspace.session('a')!.deliver({ to: target });
+
+      expect(delivery.commit).toBe(await git(source, 'rev-parse', 'HEAD'));
+      expect(await git(directory, 'status', '--porcelain')).toBe('M index.js');
+    });
+
+    it("never moves the host's checked-out branch, nor one that went its own way", async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+
+      // main is checked out on the host.
+      expect((await workspace.session('a')!.deliver({ to: target, branch: 'main' })).branch).toBe(
+        'main-2',
+      );
+      // Another branch whose tip the delivery does not hold.
+      await git(target, 'branch', 'feature', 'main');
+      await git(target, 'checkout', '--quiet', 'feature');
+      await writeFile(join(target, 'other.txt'), 'other\n');
+      await git(target, 'add', 'other.txt');
+      await git(target, 'commit', '--quiet', '-m', 'Host commit');
+      await git(target, 'checkout', '--quiet', 'main');
+      expect(
+        (await workspace.session('a')!.deliver({ to: target, branch: 'feature' })).branch,
+      ).toBe('feature-2');
+      // A branch the delivery only moves forward.
+      await git(target, 'branch', 'behind', 'main');
+      expect((await workspace.session('a')!.deliver({ to: target, branch: 'behind' })).branch).toBe(
+        'behind',
+      );
+    });
+
+    it('sends the whole history to a host repository without the base', async () => {
+      const empty = await mkdtemp(join(tmpdir(), 'harness-workspace-empty-'));
+      await git(empty, 'init', '--quiet', '--bare');
+      await start('a');
+
+      const delivery = await workspace.session('a')!.deliver({ to: empty });
+
+      expect(await git(empty, 'rev-parse', 'refs/heads/session/a')).toBe(delivery.commit);
+    });
+
+    it('runs no hook of the host repository', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+      const marker = join(target, 'hook-ran');
+      await writeFile(
+        join(target, '.git/hooks/reference-transaction'),
+        `#!/bin/sh\ntouch ${marker}\n`,
+        { mode: 0o755 },
+      );
+
+      await workspace.session('a')!.deliver({ to: target });
+
+      expect(await exists(marker)).toBe(false);
+    });
+
+    it('delivers the repository named, the one in the working directory by default', async () => {
+      const web = await createSourceRepository();
+      const several = createWorkspace({
+        repositories: {
+          api: sandboxRepository({ path: source }),
+          web: sandboxRepository({ path: web }),
+        },
+      });
+      await start('a', { workspace: several });
+      const session = several.session('a')!;
+
+      expect(() => session.deliver({ to: target })).toThrow(/name the one to deliver/);
+      expect(() => session.deliver({ to: target, repository: 'nope' })).toThrow(
+        /no repository "nope"/,
+      );
+      expect((await session.deliver({ to: target, repository: 'api' })).branch).toBe('session/a');
+    });
+
+    it('refuses a host path that is not absolute, and a branch name git would not take', async () => {
+      await start('a');
+      const session = workspace.session('a')!;
+
+      await expect(session.deliver({ to: 'relative/path' })).rejects.toThrow(/absolute path/);
+      await expect(session.deliver({ to: target, branch: 'bad..name' })).rejects.toThrow(
+        WorkspaceError,
+      );
+    });
+  });
+
   describe('with repositories chosen per session', () => {
     let web: string;
     let asked: string[];

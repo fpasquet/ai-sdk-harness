@@ -173,3 +173,27 @@ export const REMOVE_FILE = 'rm -f -- "$1"';
 
 /** Removes the directory `$1` and what it holds. */
 export const REMOVE_DIRECTORY = 'rm -rf -- "$1"';
+
+/**
+ * Commits what the checkout `$1` holds uncommitted, with the message `$2`, when it is set; then
+ * prints the commit its `HEAD` is at.
+ */
+export const DELIVERED_HEAD = [
+  'if [ -n "$2" ]; then',
+  '  git -C "$1" add --all',
+  '  git -C "$1" diff --cached --quiet || git -C "$1" commit --quiet -m "$2"',
+  'fi',
+  'git -C "$1" rev-parse --verify "HEAD^{commit}"',
+].join('\n');
+
+/**
+ * Writes a Git bundle of commit `$2` of the checkout `$1`, as ref `$3`, leaving out commit `$4` and
+ * its history when it is set: prints the bundle's path.
+ */
+export const DELIVERY_BUNDLE = [
+  'bundle=$(mktemp)',
+  'git -C "$1" update-ref "$3" "$2"',
+  'trap \'git -C "$1" update-ref -d "$3"\' EXIT',
+  'printf "%s\\n" "$3" ${4:+"^$4"} | git -C "$1" bundle create --quiet "$bundle" --stdin',
+  'printf "%s" "$bundle"',
+].join('\n');

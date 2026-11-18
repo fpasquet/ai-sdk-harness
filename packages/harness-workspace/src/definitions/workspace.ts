@@ -175,6 +175,37 @@ export interface ChangedFilesOptions {
   abortSignal?: AbortSignal;
 }
 
+/** How {@link WorkspaceCheckout.deliver} brings a checkout's work back to this host. */
+export interface DeliverOptions {
+  /**
+   * The repository on this host the work goes to: its working tree, or a bare repository. An
+   * absolute path.
+   */
+  to: string;
+  /**
+   * The branch it goes to on this host. Taken when it is free, or when the delivery only moves it
+   * forward; otherwise, and when it is the branch checked out there, the first free of
+   * `<branch>-2`, `<branch>-3`…
+   *
+   * @defaultValue the branch the checkout was made on
+   */
+  branch?: string;
+  /**
+   * Commits what the agent left uncommitted first, with this message, as the workspace's
+   * `committer` unless git in the sandbox knows who. Without it, only the commits are delivered.
+   */
+  commitMessage?: string;
+  abortSignal?: AbortSignal;
+}
+
+/** Where a delivery went. */
+export interface Delivery {
+  /** The branch of the repository on this host that now points at {@link commit}. */
+  branch: string;
+  /** The commit delivered: the one the checkout was at. */
+  commit: string;
+}
+
 /** What a session's checkout, or all of them at once, can be asked. */
 interface CheckoutOperations {
   /** Runs `command` in the sandbox, in {@link directory}: a test suite, a build, a host tool's command. */
@@ -218,6 +249,12 @@ export interface WorkspaceCheckout extends CheckoutOperations {
   readonly branch: string;
   /** The commit the checkout started from: what {@link changes} compares the checkout with. */
   readonly base: string;
+  /**
+   * Brings the commit the checkout is at back into a repository on this host, on a branch: a Git
+   * bundle written in the sandbox and fetched here, with no hook of either repository, in place of
+   * a patch. Needs `git` on this host.
+   */
+  deliver(options: DeliverOptions): Promise<Delivery>;
 }
 
 /**
@@ -241,6 +278,11 @@ export interface WorkspaceSession extends CheckoutOperations {
    * Claude Code's `--add-dir` or `additionalDirectories`.
    */
   additionalDirectories(): string[];
+  /**
+   * {@link WorkspaceCheckout.deliver} of the checkout of `repository`, by default the one in the
+   * working directory itself: the primary repository, or the only one.
+   */
+  deliver(options: DeliverOptions & { repository?: string }): Promise<Delivery>;
 }
 
 /** The session of a workspace of one repository, whose working directory is its checkout. */

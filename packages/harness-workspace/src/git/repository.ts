@@ -2,12 +2,15 @@ import type { Experimental_SandboxSession as SandboxSession } from 'ai';
 
 import type { ChangedFile, GitFileMode } from '../definitions/workspace.js';
 
+import { WorkspaceError } from '../errors/workspace-error.js';
 import { checkScript, runScript, scriptError } from './sandbox-script.js';
 import {
   BLOBS,
   CHANGED_FILES,
   CHANGES,
   CHECKOUT,
+  DELIVERED_HEAD,
+  DELIVERY_BUNDLE,
   FETCH,
   INIT,
   KEEP_LOCAL,
@@ -341,4 +344,49 @@ function countLines(files: Map<string, ListedFile>, entry: string): void {
   file.binary = added === '-';
   file.additions = file.binary ? 0 : Number(added);
   file.deletions = file.binary ? 0 : Number(deleted);
+}
+
+/**
+ * The commit the checkout in `directory` is at, what the agent left uncommitted committed first
+ * with `message` when it is given.
+ */
+export function deliveredHead(
+  sandbox: SandboxSession,
+  { directory, message, ...options }: Signal & { directory: string; message: string | undefined },
+): Promise<string> {
+  return checkScript(sandbox, 'deliver', {
+    script: DELIVERED_HEAD,
+    args: [directory, message ?? ''],
+    ...signal(options),
+  });
+}
+
+/**
+ * A Git bundle of `commit` of the checkout in `directory`, as `ref`, without `known` and its
+ * history when it is given: the bytes of the bundle.
+ */
+export async function readBundle(
+  sandbox: SandboxSession,
+  {
+    directory,
+    commit,
+    ref,
+    known,
+    ...options
+  }: Signal & { directory: string; commit: string; ref: string; known: string | undefined },
+): Promise<Uint8Array> {
+  const path = await checkScript(sandbox, 'deliver', {
+    script: DELIVERY_BUNDLE,
+    args: [directory, commit, ref, known ?? ''],
+    ...signal(options),
+  });
+  try {
+    const bundle = await sandbox.readBinaryFile({ path, ...signal(options) });
+    if (bundle === null) {
+      throw new WorkspaceError(`The bundle of the delivery is missing in the sandbox.`, 'deliver');
+    }
+    return bundle;
+  } finally {
+    await runScript(sandbox, { script: REMOVE_FILE, args: [path] });
+  }
 }

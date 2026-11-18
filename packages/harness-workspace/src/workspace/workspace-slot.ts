@@ -25,6 +25,7 @@ import {
   removeDirectory,
 } from '../git/repository.js';
 import { baseRef, checkRelativePath, fetchedRef, sessionKey } from '../utils/names.js';
+import { deliver } from './deliver.js';
 
 /** One repository of a workspace. */
 export interface RepositorySettings {
@@ -277,6 +278,8 @@ export class WorkspaceSlot {
       repositories,
       repository: (name) => repositories.find((repository) => repository.name === name),
       additionalDirectories: () => outside(repositories, directory),
+      deliver: ({ repository: name, ...options }) =>
+        checkoutToDeliver(repositories, directory, name).deliver(options),
       run: (command, options) => this.runIn(directory, command, options),
       writeLocalFile: async (path, content, { abortSignal } = {}) => {
         this.live();
@@ -338,6 +341,19 @@ export class WorkspaceSlot {
       changes: async ({ abortSignal } = {}) => {
         this.live();
         return readChanges(sandbox, { directory, base, abortSignal });
+      },
+      deliver: async ({ to, branch: target = branch, commitMessage, abortSignal }) => {
+        this.live();
+        return deliver({
+          sandbox,
+          directory,
+          base,
+          key: this.key,
+          to,
+          branch: target,
+          commitMessage,
+          abortSignal,
+        });
       },
       changedFiles: async ({ abortSignal, contents } = {}) => {
         this.live();
@@ -438,6 +454,29 @@ function outside(repositories: readonly WorkspaceCheckout[], directory: string):
   return repositories.flatMap((repository) =>
     repository.directory === directory ? [] : [repository.directory],
   );
+}
+
+/**
+ * The checkout a session delivers: that of repository `name`, or by default the one in the working
+ * directory itself.
+ */
+function checkoutToDeliver(
+  repositories: readonly WorkspaceCheckout[],
+  directory: string,
+  name: string | undefined,
+): WorkspaceCheckout {
+  const checkout =
+    name === undefined
+      ? repositories.find((repository) => repository.directory === directory)
+      : repositories.find((repository) => repository.name === name);
+  if (checkout === undefined) {
+    throw new TypeError(
+      name === undefined
+        ? 'No repository is checked out in the working directory itself: name the one to deliver, `repository`.'
+        : `The session has no repository ${JSON.stringify(name)}.`,
+    );
+  }
+  return checkout;
 }
 
 /** Where `repository` is checked out, in the session's working directory `root` or out of it. */
