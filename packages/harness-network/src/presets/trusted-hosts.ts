@@ -22,6 +22,11 @@ export const TRUSTED_HOSTS = {
   npm: ['registry.npmjs.org'],
   /** Yarn's registry, and the releases of Yarn that Corepack downloads. */
   yarn: ['registry.yarnpkg.com', 'repo.yarnpkg.com'],
+  /**
+   * Yarn's registry alone, a mirror of npm's: for a project installed with Yarn, without the
+   * releases of Yarn itself. In no group: `yarn` holds it.
+   */
+  'yarn-registry': ['registry.yarnpkg.com'],
   /** pnpm's installer; its binaries come from GitHub. */
   pnpm: ['get.pnpm.io'],
   /** Bun's installer; its binaries come from GitHub. */

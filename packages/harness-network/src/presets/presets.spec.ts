@@ -13,6 +13,11 @@ describe('trustedHosts', () => {
     ]);
   });
 
+  it('gives the registry of Yarn alone, or with its releases', () => {
+    expect(trustedHosts('yarn-registry')).toEqual(['registry.yarnpkg.com']);
+    expect(trustedHosts('yarn')).toEqual(['registry.yarnpkg.com', 'repo.yarnpkg.com']);
+  });
+
   it('gives the services of a group', () => {
     expect(trustedHosts('rust')).toEqual([
       'crates.io',
