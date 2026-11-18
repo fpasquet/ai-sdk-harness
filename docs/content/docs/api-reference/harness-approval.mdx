@@ -47,6 +47,22 @@ What `approver()` answers, the `approve` option of `createSessionManager()`; `un
 
 <AutoTypeTable path="packages/harness-approval/src/definitions/policy.ts" name="ApprovalVerdict" />
 
+## `remoteApprover(options)`
+
+Approvals answered from a remote interface: `approve`, `abandon(approvalId)`, `pending()` and `subscribe(listener)`.
+
+<AutoTypeTable
+  path="packages/harness-approval/src/remote/remote-approver.ts"
+  name="RemoteApproverOptions"
+/>
+
+<AutoTypeTable
+  path="packages/harness-approval/src/remote/remote-approver.ts"
+  name="RemoteApprover"
+/>
+
+A `RemoteApprovalEvent` is `requested` (`approvalId`, `toolName`, `input`, `summary`, `at`), `answered` (`approvalId`, `approved`, `reason?`, `at`) or `abandoned` (`approvalId`, `reason`, `at`), plain JSON.
+
 ## Always allow
 
 ### `suggestGrant(request)`

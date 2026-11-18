@@ -35,6 +35,14 @@ export {
   isComplete,
   QUESTIONS_TOOL_NAME,
 } from './questions/questions.js';
+export type {
+  AbandonReason,
+  RemoteApprovalEvent,
+  RemoteApprovalRequest,
+  RemoteApprover,
+  RemoteApproverOptions,
+} from './remote/remote-approver.js';
+export { remoteApprover } from './remote/remote-approver.js';
 export { toolKindOf } from './utils/requests.js';
 export type { CommandSegment } from './utils/shell.js';
 export { commandSegments } from './utils/shell.js';
