@@ -189,6 +189,35 @@ try {
 }
 ```
 
+### Layers, and where a host comes from
+
+An application often allows hosts at more than one level: those the harness cannot run without, a general list in its settings, and those of each repository or project a sandbox holds. `networkLayers({ locked, general, sources })` merges them as `networkPolicy()` does and remembers where each host comes from:
+
+```ts
+import { harnessHosts, networkLayers, trustedHosts } from 'ai-sdk-harness-network';
+
+const layers = networkLayers({
+  locked: harnessHosts('claude-code'), // never taken out by a settings form
+  general: [...trustedHosts('github', 'javascript'), ...settings.allowedHosts],
+  sources: {
+    'acme/widgets': ['pypi.org', 'files.pythonhosted.org'], // a repository's own hosts
+  },
+});
+
+const sandboxSession = await createSbxNetworkSandboxSession({
+  networkPolicy: { mode: 'custom', allowedHosts: layers.allowedHosts },
+});
+
+layers.originOf('registry.npmjs.org'); // [{ layer: 'locked' }, { layer: 'general' }]
+layers.originOf('raw.githubusercontent.com'); // [{ layer: 'general' }]: `*.githubusercontent.com`
+layers.originOf('pypi.org'); // [{ layer: 'source', source: 'acme/widgets' }]
+layers.originOf('example.com'); // []: refused
+```
+
+- `originOf(host)` lists every layer that allows the host, the locked hosts first, then the general list, then the sources in the order given: a settings page shows why a host is allowed, and whether taking it out of one list closes it.
+- `host` is a name the sandbox reached or an entry of a list, matched as `matchesHost()` matches it: a wildcard covers the subdomains only, unless `wildcardMatchesDomain: true` is passed with the layers.
+- Every layer is checked as `allowedHosts()` checks a list: one host it refuses throws an `InvalidHostError`.
+
 ### Matching a host
 
 `matchesHost(hosts, host, options?)` says whether a host matches a list: a name listed as it is, or a subdomain of a `*.<domain>` entry. Case and a final dot are ignored. It is what a proxy of your own checks a name against, or a settings page a host a user types:
@@ -212,6 +241,7 @@ Whether `*.example.com` covers `example.com` itself differs from one sandbox to 
 | ---------------------------- | -------------------------------------------------------------------------------- |
 | `networkPolicy(...)`         | `{ mode: 'custom', allowedHosts }` from lists of hosts, checked and merged       |
 | `allowedHosts(...)`          | The hosts of lists, checked, in lower case, unique and sorted                    |
+| `networkLayers(options)`     | The hosts of the locked, general and per-source layers, and `originOf(host)`     |
 | `isAllowedHost(host)`        | Whether a network policy takes `host`                                            |
 | `matchesHost(hosts, host)`   | Whether `host` matches a list, wildcards included (`MatchesHostOptions`)         |
 | `trustedHosts(...)`          | The hosts of services or groups (`TrustedService`, `TrustedGroup`), or of all    |

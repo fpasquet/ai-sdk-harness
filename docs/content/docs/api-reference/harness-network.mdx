@@ -41,3 +41,14 @@ The hosts of a provider's API: those of `PROVIDER_HOSTS`, or of Vertex AI, Bedro
 Whether `host` matches an entry of `hosts`: a name listed as it is, or a subdomain of a `*.<domain>` entry, the domain itself too with `wildcardMatchesDomain`.
 
 <AutoTypeTable path="packages/harness-network/src/hosts/match-host.ts" name="MatchesHostOptions" />
+
+## `networkLayers(options)`
+
+The hosts of the locked, general and per-source layers, merged as `allowedHosts()` merges them, and `originOf(host)`, the layers that allow a host, matched as `matchesHost()` matches it.
+
+<AutoTypeTable
+  path="packages/harness-network/src/hosts/network-layers.ts"
+  name="NetworkLayersOptions"
+/>
+
+<AutoTypeTable path="packages/harness-network/src/hosts/network-layers.ts" name="NetworkLayers" />

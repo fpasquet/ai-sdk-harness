@@ -3,6 +3,8 @@ export { allowedHosts, isAllowedHost, networkPolicy } from './hosts/allowed-host
 export type { AllowedHostsPolicy } from './hosts/allowed-hosts.js';
 export { matchesHost } from './hosts/match-host.js';
 export type { MatchesHostOptions } from './hosts/match-host.js';
+export { networkLayers } from './hosts/network-layers.js';
+export type { HostOrigin, NetworkLayers, NetworkLayersOptions } from './hosts/network-layers.js';
 export { HARNESS_NETWORK, harnessHosts } from './presets/harness-hosts.js';
 export type { HarnessHostsOptions, HarnessNetwork, KnownHarness } from './presets/harness-hosts.js';
 export { PROVIDER_HOSTS, providerHosts } from './presets/provider-hosts.js';
