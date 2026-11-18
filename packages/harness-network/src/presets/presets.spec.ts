@@ -133,6 +133,16 @@ describe('harnessHosts', () => {
     expect(harnessHosts('claude-code', { install: false })).toEqual(['api.anthropic.com']);
   });
 
+  it('adds where a runtime signs in with a subscription, on request', () => {
+    expect(harnessHosts('claude-code', { signIn: true })).toEqual([
+      'registry.npmjs.org',
+      'api.anthropic.com',
+      'claude.ai',
+      'platform.claude.com',
+    ]);
+    expect(harnessHosts('codex', { signIn: true })).toEqual(harnessHosts('codex'));
+  });
+
   it('gives none for a harness that runs on your server, or one it does not know', () => {
     expect(harnessHosts('cline')).toEqual([]);
     expect(harnessHosts('opencode-next')).toEqual([]);

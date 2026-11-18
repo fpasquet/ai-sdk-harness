@@ -13,6 +13,12 @@ export interface HarnessNetwork {
    * carries on. Its runtime's settings turn most of it off.
    */
   optional: readonly string[];
+  /**
+   * Where its runtime signs in with a subscription and refreshes the token, when it does so from
+   * the sandbox: a runtime run with its own login there, rather than a token the harness brokers
+   * from your server. Absent when none is known.
+   */
+  signIn?: readonly string[];
 }
 
 const NPM = ['registry.npmjs.org'];
@@ -28,12 +34,16 @@ const ON_YOUR_SERVER: HarnessNetwork = { install: [], service: [], providers: []
  * bridge installs from.
  */
 export const HARNESS_NETWORK = {
-  /** Claude Code: the Anthropic API; its telemetry and error reports go to Datadog. */
+  /**
+   * Claude Code: the Anthropic API; its telemetry and error reports go to Datadog. Signed in with
+   * a Claude subscription, it refreshes its token on claude.ai and platform.claude.com.
+   */
   'claude-code': {
     install: NPM,
     service: [],
     providers: ['anthropic'],
     optional: ['http-intake.logs.us5.datadoghq.com', 'browser-intake-us5-datadoghq.com'],
+    signIn: ['claude.ai', 'platform.claude.com'],
   },
   /** Codex: the OpenAI API with an API key, ChatGPT's with a ChatGPT sign-in. */
   codex: { install: NPM, service: [], providers: ['openai', 'chatgpt'], optional: [] },
@@ -85,6 +95,11 @@ export interface HarnessHostsOptions extends ProviderLocation {
   optional?: boolean;
   /** Its install hosts, for a sandbox without a template yet. @defaultValue `true` */
   install?: boolean;
+  /**
+   * Where its runtime signs in with a subscription (`HarnessNetwork.signIn`), for a runtime run
+   * with its own login in the sandbox. @defaultValue `false`
+   */
+  signIn?: boolean;
 }
 
 /**
@@ -102,6 +117,7 @@ export function harnessHosts(harnessId: string, options: HarnessHostsOptions = {
     ...(options.install === false ? [] : network.install),
     ...network.service,
     ...providers.flatMap((provider) => providerHosts(provider, options)),
+    ...(options.signIn === true ? (network.signIn ?? []) : []),
     ...(options.optional === true ? network.optional : []),
   ];
   return [...new Set(hosts)];

@@ -122,7 +122,8 @@ Some services rely on hosts shared with everyone: `storage.googleapis.com` (Go, 
 - `provider` takes another provider in place of the harness's own: `harnessHosts('claude-code', { provider: 'gateway' })` for the Vercel AI Gateway, `{ provider: 'amazon-bedrock', region: 'eu-west-3' }`, `{ provider: 'google-vertex', region: 'europe-west1' }`. OpenCode has no provider of its own: name it.
 - `optional: true` adds what a turn does without: refused, the runtime carries on. Most runtimes turn it off in their settings (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for Claude Code, `--disable-client-telemetry` for Copilot).
 - `install: false` leaves out where the runtime installs from, for a sandbox started from a template that holds it.
-- Codex calls `api.openai.com` with an API key and `chatgpt.com` with a ChatGPT sign-in; Claude Code and Codex refresh a subscription's token on your server, never in the sandbox.
+- `signIn: true` adds where the runtime signs in with a subscription and refreshes its token, for a runtime run with its own login in the sandbox rather than a token brokered from your server: `claude.ai` and `platform.claude.com` for Claude Code (`HARNESS_NETWORK['claude-code'].signIn`). The other runtimes list none yet.
+- Codex calls `api.openai.com` with an API key and `chatgpt.com` with a ChatGPT sign-in. Through their `@ai-sdk/harness-*` adapters, Claude Code and Codex refresh a subscription's token on your server, never in the sandbox: `signIn` is for a runtime run otherwise.
 - An ACP agent (`@ai-sdk/harness-acp`) has the id you give it and the hosts of the agent you install: list them, beside `registry.npmjs.org` where its bridge installs from. A harness the package does not know gives none.
 
 ### Model providers
