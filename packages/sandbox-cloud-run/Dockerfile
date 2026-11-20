@@ -2,7 +2,7 @@
 # The image of the sandbox service, published to Docker Hub by the release workflow. It is also
 # what the sandboxes see: deploy it as it is for agents that need Node.js and git only, or start
 # your own image FROM it and add your project's toolchain.
-FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
 # procps (pgrep) lets the service stop a process with everything it started. make runs a project's
 # Makefile; jq, unzip and xz-utils serve the scripts and archives of the usual toolchains. A compiler
