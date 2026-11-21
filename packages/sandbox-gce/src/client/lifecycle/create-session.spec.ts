@@ -16,6 +16,7 @@ import type { GceNetworkSandboxSession } from '../../index.js';
 import { startFakeService } from '../../../test/fake-service.js';
 import {
   createGceNetworkSandboxSession,
+  deleteGceSandboxTemplate,
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
@@ -603,6 +604,47 @@ describe('a template', () => {
     expect(id).toMatch(/^ai-sdk-harness-template-[0-9a-f]{24}$/);
     expect(templateId({ template: template('b'), setup: [] })).not.toBe(id);
     expect(templateId({ template: template('a'), setup: ['x'] })).not.toBe(id);
+  });
+
+  it('is deleted alone, and built again by the next sandbox made from it', async () => {
+    const prepare = vi.fn<HarnessV1SandboxTemplate['prepare']>(() => Promise.resolve());
+    const template: HarnessV1SandboxTemplate = { identity: 'deleted@1', prepare };
+    const setup = ['echo set-up > "$HOME/setup.txt"'];
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one', template, setup });
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'other', template });
+    await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'py',
+      template,
+      setup,
+      image: 'python',
+    });
+    const id = templateId({ template, setup });
+    const images = (): string[] => [...fake.compute.images.keys()];
+    const own = images().filter((name) => name.startsWith(`${id}-`));
+    expect(own).toHaveLength(2);
+
+    await deleteGceSandboxTemplate({ ...options(), template, setup });
+
+    expect(images()).toHaveLength(2);
+    expect(images().filter((name) => own.includes(name))).toHaveLength(1);
+    const two = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'two',
+      template,
+      setup,
+    });
+    expect(prepare).toHaveBeenCalledTimes(4);
+    expect((await two.run({ command: 'cat "$HOME/setup.txt"' })).stdout).toBe('set-up\n');
+  });
+
+  it('is deleted without error when it does not exist', async () => {
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'never-built@1',
+      prepare: () => Promise.resolve(),
+    };
+
+    await expect(deleteGceSandboxTemplate({ ...options(), template })).resolves.toBeUndefined();
   });
 
   it('is built again when the first build failed', async () => {

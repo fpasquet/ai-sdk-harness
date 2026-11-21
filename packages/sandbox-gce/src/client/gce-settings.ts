@@ -119,6 +119,27 @@ export interface GcePrepareSettings extends GceConnectionSettings {
   abortSignal?: AbortSignal;
 }
 
+/** Options of `deleteGceSandboxTemplate()`: the template, as the sandboxes made from it were. */
+export interface GceTemplateDeletionSettings extends GceConnectionSettings {
+  /** The template the sandboxes were created from, `await agent.getSandboxTemplate()`. */
+  template: HarnessV1SandboxTemplate;
+  /**
+   * The `setup` the sandboxes were created with: with the template, what names the template's
+   * image.
+   *
+   * @defaultValue `[]`
+   */
+  setup?: readonly string[];
+  /**
+   * The image the sandboxes were created on, by the name the service gives it in `SANDBOX_IMAGES`.
+   *
+   * @defaultValue the service's `SANDBOX_IMAGE`
+   */
+  image?: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
+}
+
 /** Options of `createGceNetworkSandboxSession()`. */
 export type GceNetworkSandboxSessionCreateOptions =
   HarnessV1SandboxSessionCreateOptions<GceCreationSettings>;

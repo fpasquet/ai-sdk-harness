@@ -468,6 +468,20 @@ A harness bootstraps itself in the sandbox before its first turn: Claude Code in
 
 The image is named after the template's id and a digest of this package's version and the base image, a family resolved to its latest image: `ai-sdk-harness-template-<digest>-<base>`. After a new sandbox image, or a new version of the package, the first sandbox makes the template again. Delete the old images (label `ai-sdk-sandbox=template`) now and then: each costs its storage.
 
+A template whose sandboxes are made with a `setup` of their own, one per project say, outlives that setup when it changes or goes. Delete it then, with what the sandboxes were created with:
+
+```ts
+import { deleteGceSandboxTemplate } from 'ai-sdk-sandbox-gce';
+
+await deleteGceSandboxTemplate({
+  url: process.env.GCE_SANDBOX_URL!,
+  template: await agent.getSandboxTemplate(),
+  setup, // and `image`, when the sandboxes had one
+});
+```
+
+The sandboxes made from it keep their disk. The next sandbox created from the same template, setup and image builds it again. A template that does not exist is no error.
+
 A template is made from a sandbox no agent ever ran in: the client's throwaway one, where only `setup` and the harness's own installation run. Never save a sandbox an agent worked in as a template, through the API or otherwise: whatever the agent left on its disk, the `agent` service of the machine included, would start in every later sandbox.
 
 Making a template takes a few minutes: the machine boots, the harness installs, Compute Engine saves the disk, and the first sandbox on a new image waits a minute more while Compute Engine spreads it. Make it when you deploy, rather than in the first user's session, with a script that creates a sandbox from the agent's template and deletes it:
