@@ -1,6 +1,7 @@
 import type {
   HarnessV1SandboxSessionCreateOptions,
   HarnessV1SandboxSessionResumeOptions,
+  HarnessV1SandboxTemplate,
 } from '@ai-sdk/harness';
 
 /**
@@ -74,6 +75,20 @@ export interface CloudRunCreationSettings extends CloudRunConnectionSettings {
    * @defaultValue `[]`
    */
   setup?: readonly string[];
+}
+
+/** Options of `deleteCloudRunSandboxTemplate()`: the template, as the sandboxes made from it were. */
+export interface CloudRunTemplateDeletionSettings extends CloudRunConnectionSettings {
+  /** The template the sandboxes were created from, `await agent.getSandboxTemplate()`. */
+  template: HarnessV1SandboxTemplate;
+  /**
+   * The `setup` the sandboxes were created with: with the template, what names the template.
+   *
+   * @defaultValue `[]`
+   */
+  setup?: readonly string[];
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
 }
 
 /** Options of `createCloudRunNetworkSandboxSession()`. */

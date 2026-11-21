@@ -16,6 +16,7 @@ import {
   CloudRunSandboxNotFoundError,
   CloudRunSandboxServiceError,
   createCloudRunNetworkSandboxSession,
+  deleteCloudRunSandboxTemplate,
   resumeCloudRunNetworkSandboxSession,
 } from '../../index.js';
 import { templateId } from './sandbox-template.js';
@@ -456,6 +457,42 @@ describe('a template', () => {
       expect(stdout).toBe('bakedset-up\n');
     }
     expect(fake.calls().filter(([command]) => command === 'run')).toHaveLength(3);
+  });
+
+  it('is deleted alone, and built again by the next sandbox made from it', async () => {
+    const prepare = vi.fn<HarnessV1SandboxTemplate['prepare']>(() => Promise.resolve());
+    const template: HarnessV1SandboxTemplate = { identity: 'deleted@1', prepare };
+    const setup = ['echo set-up > "$HOME/setup.txt"'];
+    await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'one', template, setup });
+    await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'other', template });
+    const saved = (source: { setup: string[] }): boolean =>
+      existsSync(
+        join(fake.snapshots, `templates/test/${templateId({ template, ...source })}.tar.gz`),
+      );
+
+    await deleteCloudRunSandboxTemplate({ ...options(), template, setup });
+
+    expect(saved({ setup })).toBe(false);
+    expect(saved({ setup: [] })).toBe(true);
+    const two = await createCloudRunNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'two',
+      template,
+      setup,
+    });
+    expect(prepare).toHaveBeenCalledTimes(3);
+    expect((await two.run({ command: 'cat "$HOME/setup.txt"' })).stdout).toBe('set-up\n');
+  });
+
+  it('is deleted without error when it does not exist', async () => {
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'never-built@1',
+      prepare: () => Promise.resolve(),
+    };
+
+    await expect(
+      deleteCloudRunSandboxTemplate({ ...options(), template }),
+    ).resolves.toBeUndefined();
   });
 
   it('gets an id of its own for each harness version and setup', () => {

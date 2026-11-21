@@ -181,8 +181,9 @@ export class SandboxServiceClient {
     return response.status !== 404;
   }
 
-  async deleteTemplate(id: string): Promise<void> {
-    await this.call('DELETE', `v1/templates/${id}`);
+  /** Deletes the template `id`: no error when there is none. */
+  async deleteTemplate(id: string, abortSignal?: AbortSignal): Promise<void> {
+    await this.call('DELETE', `v1/templates/${id}`, { abortSignal });
   }
 
   /**

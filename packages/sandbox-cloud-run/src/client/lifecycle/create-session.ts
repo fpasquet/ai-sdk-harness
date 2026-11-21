@@ -5,6 +5,7 @@ import type {
   CloudRunConnectionSettings,
   CloudRunNetworkSandboxSessionCreateOptions,
   CloudRunNetworkSandboxSessionResumeOptions,
+  CloudRunTemplateDeletionSettings,
 } from '../cloud-run-settings.js';
 
 import { CloudRunSandboxNotFoundError } from '../errors/cloud-run-sandbox-not-found-error.js';
@@ -12,7 +13,7 @@ import { CloudRunNetworkSandboxSession } from '../session/cloud-run-network-sand
 import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
-import { runSetup, withTemplate } from './sandbox-template.js';
+import { forgetTemplate, runSetup, templateId, withTemplate } from './sandbox-template.js';
 
 /** What the sandbox CLI of Cloud Run and a URL path both take as a name. */
 const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -82,6 +83,26 @@ export async function createCloudRunNetworkSandboxSession(
     await client.remove(name).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Deletes the template that sandboxes created with `template` and `setup` start from: the snapshot
+ * of a prepared sandbox in the service's store, billed for its storage until it goes. Call it once
+ * no sandbox is to be made from it any more, say when the setup it was made with changes.
+ *
+ * The sandboxes made from it keep their own snapshot, and run, suspend and resume as before. A
+ * sandbox created from the same template afterwards, by this process or another one, builds it
+ * again. Deleting a template that does not exist, or no longer does, is no error.
+ */
+export async function deleteCloudRunSandboxTemplate(
+  options: CloudRunTemplateDeletionSettings,
+): Promise<void> {
+  const { template, setup = [], abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  const client = clientOf(options);
+  const source = { template, setup };
+  forgetTemplate(client, source);
+  await client.deleteTemplate(templateId(source), abortSignal);
 }
 
 /**

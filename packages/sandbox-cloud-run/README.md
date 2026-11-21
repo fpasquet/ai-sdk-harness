@@ -224,6 +224,20 @@ The first call creates a throwaway sandbox, runs `setup` in it, lets the harness
 
 A template is a layer over the service image, and is kept under `templates/<image>/`, `<image>` standing for this package's version, its Node.js and `SANDBOX_IMAGE_ID` (the Cloud Run revision without it). A template made on another image is never used: after a change to the image, the first sandbox makes the template again. Delete old folders of `templates/`, or let a lifecycle rule do it.
 
+A template whose sandboxes are made with a `setup` of their own, one per project say, outlives that setup when it changes or goes. Delete it then, with what the sandboxes were created with:
+
+```ts
+import { deleteCloudRunSandboxTemplate } from 'ai-sdk-sandbox-cloud-run';
+
+await deleteCloudRunSandboxTemplate({
+  url: process.env.CLOUD_RUN_SANDBOX_URL!,
+  template: await agent.getSandboxTemplate(),
+  setup,
+});
+```
+
+The sandboxes made from it keep their snapshot. The next sandbox created from the same template and setup builds it again. A template that does not exist is no error.
+
 ## Suspending and resuming
 
 `stop()` suspends the sandbox: the processes this session started are stopped, the sandbox's writable layer is saved to `snapshots/<name>.tar.gz` and the sandbox is deleted from the instance. Resume it later, from this process or another one:
