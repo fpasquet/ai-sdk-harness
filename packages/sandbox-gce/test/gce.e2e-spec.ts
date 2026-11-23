@@ -8,7 +8,11 @@ import type { GceAuth, GceNetworkSandboxSession } from '../src/index.js';
 import { templateId } from '../src/client/lifecycle/sandbox-template.js';
 import { identityToken } from '../src/client/transport/identity-token.js';
 import { SandboxServiceClient } from '../src/client/transport/sandbox-service-client.js';
-import { createGceNetworkSandboxSession, resumeGceNetworkSandboxSession } from '../src/index.js';
+import {
+  createGceNetworkSandboxSession,
+  deleteGceSandboxTemplate,
+  resumeGceNetworkSandboxSession,
+} from '../src/index.js';
 
 /**
  * Against a sandbox service deployed on Google Cloud: set GCE_SANDBOX_URL to its URL, and have
@@ -19,6 +23,8 @@ const url = process.env['GCE_SANDBOX_URL'];
 const auth = (process.env['GCE_SANDBOX_AUTH'] ?? 'gcloud') as GceAuth;
 const run = randomBytes(3).toString('hex');
 const sessions: GceNetworkSandboxSession[] = [];
+/** The setup of a template of its own, deleted by the test that makes it. */
+const setup = [`echo ${run} > "$HOME/setup.txt"`];
 const template: HarnessV1SandboxTemplate = {
   identity: `e2e-${run}`,
   prepare: async ({ session }) => {
@@ -36,14 +42,15 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
     serviceToken: process.env['GCE_SANDBOX_SERVICE_TOKEN'],
   };
   let session: GceNetworkSandboxSession;
+  const client = new SandboxServiceClient(options.url, {
+    token: identityToken(auth, options.url),
+    serviceToken: options.serviceToken,
+  });
 
   afterAll(async () => {
     await Promise.all(sessions.map((created) => created.destroy().catch(() => undefined)));
-    const client = new SandboxServiceClient(options.url, {
-      token: identityToken(auth, options.url),
-      serviceToken: options.serviceToken,
-    });
     await client.deleteTemplate(templateId({ template, setup: [] })).catch(() => undefined);
+    await client.deleteTemplate(templateId({ template, setup })).catch(() => undefined);
   });
 
   it('boots a machine of its own, and runs commands as its user', async () => {
@@ -142,5 +149,39 @@ describe.skipIf(url === undefined)('a sandbox on Compute Engine', () => {
     const { stdout } = await first.run({ command: 'cat "$HOME/baked.txt"' });
 
     expect(stdout).toBe('baked\n');
+  });
+
+  it('deletes the template of a setup, and the next sandbox from it builds it again', async () => {
+    const id = templateId({ template, setup });
+    sessions.push(
+      await createGceNetworkSandboxSession({
+        ...options,
+        sandboxId: `e2e-${run}-d1`,
+        template,
+        setup,
+      }),
+    );
+    const built = await client.templateExists(id);
+
+    await deleteGceSandboxTemplate({ ...options, template, setup });
+    const deleted = await client.templateExists(id);
+    const again = await createGceNetworkSandboxSession({
+      ...options,
+      sandboxId: `e2e-${run}-d2`,
+      template,
+      setup,
+    });
+    sessions.push(again);
+    const rebuilt = await client.templateExists(id);
+    const { stdout } = await again.run({ command: 'cat "$HOME/baked.txt" "$HOME/setup.txt"' });
+
+    expect([built, deleted, rebuilt]).toEqual([true, false, true]);
+    expect(stdout).toBe(`baked\n${run}\n`);
+  });
+
+  it('deletes a template that does not exist without error', async () => {
+    await expect(
+      deleteGceSandboxTemplate({ ...options, template, setup: [`echo never-built-${run}`] }),
+    ).resolves.toBeUndefined();
   });
 });
