@@ -20,8 +20,12 @@ export interface SandboxesOptions {
   logger: Logger;
   /** The settings of a sandbox: `{sandbox}` in its paths is its name. */
   sandbox: SandboxSettings;
-  /** What every sandbox may reach, before what the caller adds. */
-  network: Required<SandboxNetwork>;
+  /**
+   * What every sandbox may reach, before what the caller adds; whether its commands get
+   * `NODE_USE_ENV_PROXY`, when the caller does not say.
+   */
+  network: Pick<SandboxNetwork, 'nodeUseEnvProxy'> &
+    Required<Omit<SandboxNetwork, 'nodeUseEnvProxy'>>;
   /** Where the tars of the snapshots pass on their way in and out: a pipe, or a file. */
   scratch: string;
   /** How they pass: through a named pipe by default, through a file if the CLI refuses pipes. */
@@ -141,7 +145,11 @@ export class Sandboxes {
   /** Replaces the hosts the running sandbox `name` may reach, the service's own aside. */
   setAllowedHosts(name: string, allowedHosts: readonly string[]): void {
     const sandbox = this.get(name);
-    this.applyNetwork(sandbox, { allowedHosts, baseUrls: sandbox.baseUrls });
+    this.applyNetwork(sandbox, {
+      allowedHosts,
+      baseUrls: sandbox.baseUrls,
+      nodeUseEnvProxy: sandbox.nodeUseEnvProxy,
+    });
   }
 
   /** Saves the running sandbox `name` as the template `id`, which new sandboxes can start from. */
@@ -229,11 +237,12 @@ export class Sandboxes {
 
   private applyNetwork(
     sandbox: Sandbox,
-    { allowedHosts = [], baseUrls = {} }: SandboxNetwork,
+    { allowedHosts = [], baseUrls = {}, nodeUseEnvProxy }: SandboxNetwork,
   ): void {
     const defaults = this.options.network;
     sandbox.allowedHosts = [...new Set([...defaults.allowedHosts, ...allowedHosts])];
     sandbox.baseUrls = { ...defaults.baseUrls, ...baseUrls };
+    sandbox.nodeUseEnvProxy = nodeUseEnvProxy ?? defaults.nodeUseEnvProxy ?? false;
   }
 
   private save(sandbox: Sandbox, key: string): Promise<void> {

@@ -65,7 +65,7 @@ function mcpServersOf(runtime: PluginRuntime, plugins: readonly Plugin[]): Plugi
       }
       owners.set(name, plugin.name);
       const resolved = resolvedServer(server, `its MCP server "${name}"`, plugin.name);
-      mcpServers[name] = runtime.mcpServer(withPluginRoot(resolved, plugin.name));
+      mcpServers[name] = runtime.mcpServer(withNodeEnvProxy(withPluginRoot(resolved, plugin.name)));
     }
   }
   return owners.size > 0 ? { mcpServers } : {};
@@ -86,6 +86,17 @@ function withPluginRoot(server: ResolvedMcpServer, plugin: string): ResolvedMcpS
       ),
     }),
   };
+}
+
+/**
+ * A stdio server with `NODE_USE_ENV_PROXY=1`, unless the plugin gives it a value of its own. The
+ * sandboxes leave it out of their commands, where it breaks the test suites that mock `fetch`; a
+ * server on Node.js that calls an API with `fetch` needs it to leave through the sandbox's proxy.
+ * Node.js ignores it where no proxy variable is set.
+ */
+function withNodeEnvProxy(server: ResolvedMcpServer): ResolvedMcpServer {
+  if (server.type !== 'stdio') return server;
+  return { ...server, env: { NODE_USE_ENV_PROXY: '1', ...server.env } };
 }
 
 /** The server as the runtime takes it; throws when it refers to a secret not yet resolved. */

@@ -35,6 +35,11 @@ export interface AgentConfig {
   proxy: string;
   /** Base URL variables, routed through the proxy, and where each really leads. */
   baseUrls: Readonly<Record<string, string>>;
+  /**
+   * Whether the commands get `NODE_USE_ENV_PROXY=1`, which sends Node.js's own `fetch` and `http`
+   * through the proxy. Off without it.
+   */
+  nodeUseEnvProxy?: boolean;
 }
 
 /** Where a sandbox's commands run: the agent's answer to its configuration. */

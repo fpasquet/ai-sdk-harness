@@ -30,6 +30,10 @@ export function noProxy(config: AgentConfig): string {
  * base URL variable is routed too: a harness that points its client at the real API still goes
  * through the proxy. Before the service configured the agent, commands get no proxy: the firewall
  * leaves them no way out.
+ *
+ * `NODE_USE_ENV_PROXY` only when the sandbox asks for it: it sends Node.js's own `fetch` and `http`
+ * to the proxy, where a test suite that mocks them by their sockets (MSW 3) no longer sees its
+ * requests.
  */
 export function commandEnvironment(
   settings: CommandSettings,
@@ -48,15 +52,15 @@ export function commandEnvironment(
   const route = (url: string): string => proxyRoute(url, origin) ?? url;
   const excluded = noProxy(config);
   Object.assign(variables, {
-    // Everything else leaves through the proxy: package managers, git and Node.js read these.
+    // Everything else leaves through the proxy: package managers, git and the harnesses read these.
     HTTPS_PROXY: origin,
     HTTP_PROXY: origin,
     https_proxy: origin,
     http_proxy: origin,
     NO_PROXY: excluded,
     no_proxy: excluded,
-    NODE_USE_ENV_PROXY: '1',
   });
+  if (config.nodeUseEnvProxy === true) variables['NODE_USE_ENV_PROXY'] = '1';
   for (const [name, url] of Object.entries(config.baseUrls)) variables[name] = route(url);
   for (const [name, value] of Object.entries(env)) {
     variables[name] = name in config.baseUrls ? route(value) : value;

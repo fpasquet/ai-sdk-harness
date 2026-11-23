@@ -389,6 +389,28 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     expect(await resumed.readTextFile({ path: 'work.txt' })).toBe('kept');
   });
 
+  it('sets NODE_USE_ENV_PROXY only for a sandbox that asks for it, again when it resumes', async () => {
+    const variable = { command: 'echo "[$NODE_USE_ENV_PROXY]"' };
+    const plain = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'plain' });
+    const session = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      nodeUseEnvProxy: true,
+    });
+
+    expect((await plain.run(variable)).stdout).toBe('[]\n');
+    expect((await session.run(variable)).stdout).toBe('[1]\n');
+    await session.stop();
+    const resumed = await resumeGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      nodeUseEnvProxy: true,
+    });
+    expect((await resumed.run(variable)).stdout).toBe('[1]\n');
+    const forgotten = await resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    expect((await forgotten.run(variable)).stdout).toBe('[]\n');
+  });
+
   it('runs a command in a working directory that does not exist, and says so', async () => {
     const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
@@ -1033,5 +1055,30 @@ describe('the ports of a Compute Engine sandbox', () => {
     expect(session.ports).toEqual([5000]);
     expect(await upgrade(`${fake.url}/v1/sandboxes/ghost/ports/4000`, /\r\n\r\n/)).toContain('404');
     expect(await upgrade(`${fake.url}/v1/sandboxes/box/ports/99999`, /\r\n\r\n/)).toContain('404');
+  });
+});
+
+describe('a service that sets NODE_USE_ENV_PROXY', () => {
+  let fake: FakeService;
+
+  beforeEach(async () => {
+    fake = await startFakeService({
+      network: { allowedHosts: [], baseUrls: {}, nodeUseEnvProxy: true },
+    });
+  });
+  afterEach(() => fake.dispose());
+
+  it('sets it for every sandbox but one that turns it off', async () => {
+    const options = { url: fake.url, auth: 'none' } as const;
+    const variable = { command: 'echo "[$NODE_USE_ENV_PROXY]"' };
+    const session = await createGceNetworkSandboxSession({ ...options, sandboxId: 'box' });
+    const off = await createGceNetworkSandboxSession({
+      ...options,
+      sandboxId: 'off',
+      nodeUseEnvProxy: false,
+    });
+
+    expect((await session.run(variable)).stdout).toBe('[1]\n');
+    expect((await off.run(variable)).stdout).toBe('[]\n');
   });
 });

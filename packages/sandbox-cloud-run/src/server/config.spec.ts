@@ -35,15 +35,17 @@ describe('the service configuration', () => {
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
         OPENAI_BASE_URL: 'https://api.openai.com/v1',
       },
+      nodeUseEnvProxy: false,
     });
     expect(config.store).toBeInstanceOf(DirectorySnapshotStore);
   });
 
-  it('reads the hosts, base URLs and bucket from the environment', () => {
+  it('reads the network and bucket from the environment', () => {
     const config = sandboxesConfig(
       {
         SANDBOX_ALLOWED_HOSTS: 'registry.npmjs.org, *.pypi.org,',
         SANDBOX_BASE_URLS: 'ANTHROPIC_BASE_URL=https://gateway.example.com/anthropic',
+        SANDBOX_NODE_USE_ENV_PROXY: 'true',
         SNAPSHOT_BUCKET: 'snapshots',
       },
       silentLogger,
@@ -52,6 +54,7 @@ describe('the service configuration', () => {
     expect(config.network).toEqual({
       allowedHosts: ['registry.npmjs.org', '*.pypi.org'],
       baseUrls: { ANTHROPIC_BASE_URL: 'https://gateway.example.com/anthropic' },
+      nodeUseEnvProxy: true,
     });
     expect(config.store).toBeInstanceOf(GcsSnapshotStore);
   });

@@ -90,13 +90,21 @@ async function createFrom(
 export async function createGceNetworkSandboxSession(
   options: GceNetworkSandboxSessionCreateOptions,
 ): Promise<GceNetworkSandboxSession> {
-  const { abortSignal, template, setup = [], allowedHosts, baseUrls, image } = options;
+  const {
+    abortSignal,
+    template,
+    setup = [],
+    allowedHosts,
+    baseUrls,
+    nodeUseEnvProxy,
+    image,
+  } = options;
   const requiredCommands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   const name = options.sandboxId ?? `ai-sdk-${randomBytes(4).toString('hex')}`;
   assertSandboxName(name);
   const client = clientOf(options);
-  const network = { allowedHosts, baseUrls };
+  const network = { allowedHosts, baseUrls, nodeUseEnvProxy };
   const create = (ready?: ReadyTemplate): Promise<SandboxDescription> =>
     createFrom(client, name, { ...network, image, template: ready, abortSignal });
   const description = await (template
@@ -168,16 +176,21 @@ export async function deleteGceSandboxTemplate(
  * one: throws `GceSandboxNotFoundError` when no sandbox is named `sandboxId`.
  *
  * The service does not keep what a sandbox may reach across a suspension: pass the same `ports`,
- * `allowedHosts` and `baseUrls` the sandbox was created with.
+ * `allowedHosts`, `baseUrls` and `nodeUseEnvProxy` the sandbox was created with.
  */
 export async function resumeGceNetworkSandboxSession(
   options: GceNetworkSandboxSessionResumeOptions,
 ): Promise<GceNetworkSandboxSession> {
-  const { abortSignal, sandboxId, allowedHosts, baseUrls } = options;
+  const { abortSignal, sandboxId, allowedHosts, baseUrls, nodeUseEnvProxy } = options;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   assertSandboxName(sandboxId);
   const client = clientOf(options);
-  const description = await client.resume(sandboxId, { allowedHosts, baseUrls, abortSignal });
+  const description = await client.resume(sandboxId, {
+    allowedHosts,
+    baseUrls,
+    nodeUseEnvProxy,
+    abortSignal,
+  });
   if (description === undefined) throw new GceSandboxNotFoundError(sandboxId);
   return sessionOf(client, description, options);
 }

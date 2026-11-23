@@ -65,8 +65,12 @@ export interface SandboxesOptions {
   agentAddress?: (instance: Instance) => { host: string; port: number };
   /** The egress proxy, as the machines reach it: `http://10.0.0.2:3128`. */
   proxyUrl: string;
-  /** What every sandbox may reach, before what the caller adds. */
-  network: Required<SandboxNetwork>;
+  /**
+   * What every sandbox may reach, before what the caller adds; whether its commands get
+   * `NODE_USE_ENV_PROXY`, when the caller does not say.
+   */
+  network: Pick<SandboxNetwork, 'nodeUseEnvProxy'> &
+    Required<Omit<SandboxNetwork, 'nodeUseEnvProxy'>>;
   /** How long a machine has to boot and its agent to answer. */
   startTimeoutMs: number;
   /**
@@ -1005,6 +1009,7 @@ export class Sandboxes {
     const { home, workingDirectory } = await agent.configure({
       proxy: this.options.proxyUrl,
       baseUrls,
+      nodeUseEnvProxy: network.nodeUseEnvProxy ?? this.options.network.nodeUseEnvProxy,
     });
     return { name, home, workingDirectory };
   }

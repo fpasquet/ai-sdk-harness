@@ -13,6 +13,7 @@ import type { CommandUser } from './processes.js';
 import { readCommandLine } from '../common/command-line.js';
 import {
   offsetOf,
+  optionalBoolean,
   parseObject,
   readBytes,
   readJson,
@@ -58,7 +59,12 @@ const PROCESS_INPUT = /^\/v1\/processes\/([^/]+)\/stdin$/;
 function toConfig(body: Record<string, unknown>): AgentConfig {
   const proxy = requiredString(body, 'proxy');
   if (!URL.canParse(proxy)) throw new HttpError(400, '`proxy` must be a URL.');
-  return { proxy, baseUrls: stringRecord(body, 'baseUrls') ?? {} };
+  const nodeUseEnvProxy = optionalBoolean(body, 'nodeUseEnvProxy');
+  return {
+    proxy,
+    baseUrls: stringRecord(body, 'baseUrls') ?? {},
+    ...(nodeUseEnvProxy !== undefined && { nodeUseEnvProxy }),
+  };
 }
 
 /**

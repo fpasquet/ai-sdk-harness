@@ -46,9 +46,10 @@ describe('the service configuration', () => {
       ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
       OPENAI_BASE_URL: 'https://api.openai.com/v1',
     });
+    expect(config.network.nodeUseEnvProxy).toBe(false);
   });
 
-  it('takes an image of another project, a family, and the hosts and base URLs of every sandbox', async () => {
+  it('takes an image of another project, a family, and the network of every sandbox', async () => {
     const config = await sandboxesConfig(
       {
         ...REQUIRED,
@@ -60,6 +61,7 @@ describe('the service configuration', () => {
         SANDBOX_MAX_RUNNING: '10',
         SANDBOX_MAX_RUN_HOURS: '1.5',
         SANDBOX_PROXY_INSTANCE: 'sandbox-proxy',
+        SANDBOX_NODE_USE_ENV_PROXY: 'true',
         SANDBOX_IMAGES: 'python=family/sandbox-python, go=projects/images-project/global/images/go',
       },
       silentLogger,
@@ -77,6 +79,7 @@ describe('the service configuration', () => {
     expect(config.network).toEqual({
       allowedHosts: ['registry.npmjs.org', '*.github.com'],
       baseUrls: { GATEWAY_URL: 'https://gateway.example.com' },
+      nodeUseEnvProxy: true,
     });
   });
 

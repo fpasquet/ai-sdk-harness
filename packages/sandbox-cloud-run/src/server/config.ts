@@ -82,6 +82,7 @@ export function sandboxesConfig(env: Environment, logger: Logger): ServiceOption
     network: {
       allowedHosts: list(env['SANDBOX_ALLOWED_HOSTS']),
       baseUrls: baseUrls(env['SANDBOX_BASE_URLS']),
+      nodeUseEnvProxy: env['SANDBOX_NODE_USE_ENV_PROXY'] === 'true',
     },
     scratch: tmpdir(),
     layerTransfer: env['SNAPSHOT_TRANSFER'] === 'file' ? 'file' : 'fifo',
