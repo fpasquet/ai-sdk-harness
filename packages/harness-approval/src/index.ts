@@ -12,8 +12,12 @@ export type {
 export { APPROVAL_DECISIONS } from './definitions/policy.js';
 export { POLICY_ENV } from './definitions/sandbox.js';
 export type { ToolKind } from './definitions/tools.js';
-export type { ToolCallSummary } from './describe/describe-tool-call.js';
-export { describeToolCall } from './describe/describe-tool-call.js';
+export type {
+  DescribeToolCallOptions,
+  ToolCallAction,
+  ToolCallSummary,
+} from './describe/describe-tool-call.js';
+export { describeToolCall, TOOL_CALL_TITLES } from './describe/describe-tool-call.js';
 export type {
   ApprovalHarness,
   ClaudeCodeSandboxSettings,
@@ -35,6 +39,6 @@ export {
   isComplete,
   QUESTIONS_TOOL_NAME,
 } from './questions/questions.js';
-export { toolKindOf } from './utils/requests.js';
+export { commandOf, pathsOf, toolKindOf } from './utils/requests.js';
 export type { CommandSegment } from './utils/shell.js';
 export { commandSegments } from './utils/shell.js';
