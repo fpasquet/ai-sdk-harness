@@ -1,5 +1,12 @@
 # ai-sdk-sandbox-gce
 
+## 0.4.2
+
+### Patch Changes
+
+- 8341bb9: `deleteGceSandboxTemplate()` deletes the template that sandboxes created with a given `template`, `setup` and `image` boot from. A template made for a `setup` of its own, one per project say, used to outlive that setup when it changed or went, its image billed for its storage until deleted by hand. The sandboxes made from it keep their disk; the next sandbox created from the same template builds it again, without first meeting a 404 in the process that deleted it. A template that does not exist is no error.
+- c89c8ef: Sessions implement `stat`, `listDirectory` and `deleteFile`, which `SandboxSession` requires since `@ai-sdk/provider-utils` 5.0.81. `stat` follows symbolic links and answers `null` for a path that does not exist; `listDirectory` reports a link as `symlink` without following it, answers `null` for a missing directory and rejects with `ENOTDIR` for a file; `deleteFile` deletes a link rather than its target, answers `false` for a missing file and rejects with `EISDIR` for a directory.
+
 ## 0.4.1
 
 ### Patch Changes

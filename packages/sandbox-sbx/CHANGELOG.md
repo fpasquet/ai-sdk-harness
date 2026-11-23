@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-sbx
 
+## 0.2.4
+
+### Patch Changes
+
+- c89c8ef: Sessions implement `stat`, `listDirectory` and `deleteFile`, which `SandboxSession` requires since `@ai-sdk/provider-utils` 5.0.81. `stat` follows symbolic links and answers `null` for a path that does not exist; `listDirectory` reports a link as `symlink` without following it, answers `null` for a missing directory and rejects with `ENOTDIR` for a file; `deleteFile` deletes a link rather than its target, answers `false` for a missing file and rejects with `EISDIR` for a directory.
+
 ## 0.2.3
 
 ### Patch Changes
