@@ -5,6 +5,16 @@ import type { Plugin } from '../definitions/plugin.js';
 
 import { pluginHarnessSettings } from './plugin-harness-settings.js';
 
+/** What Codex passes on to a stdio server from the sandbox's environment. */
+const PROXY_VARIABLES = [
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'https_proxy',
+  'http_proxy',
+  'no_proxy',
+];
+
 const servers: Plugin = {
   name: 'servers',
   description: '',
@@ -35,9 +45,9 @@ describe('pluginHarnessSettings', () => {
           type: 'stdio',
           command: 'npx',
           args: ['-y', 'server'],
-          env: { LEVEL: 'info' },
+          env: { NODE_USE_ENV_PROXY: '1', LEVEL: 'info' },
         },
-        bare: { type: 'stdio', command: 'server', args: [], env: {} },
+        bare: { type: 'stdio', command: 'server', args: [], env: { NODE_USE_ENV_PROXY: '1' } },
         remote: {
           type: 'http',
           url: 'https://mcp.example.com',
@@ -51,8 +61,18 @@ describe('pluginHarnessSettings', () => {
   it('gives Codex its MCP servers in the form of its configuration', () => {
     expect(pluginHarnessSettings('codex', [servers])).toEqual({
       mcpServers: {
-        local: { command: 'npx', args: ['-y', 'server'], env: { LEVEL: 'info' } },
-        bare: { command: 'server', args: [], env: {} },
+        local: {
+          command: 'npx',
+          args: ['-y', 'server'],
+          env: { NODE_USE_ENV_PROXY: '1', LEVEL: 'info' },
+          env_vars: PROXY_VARIABLES,
+        },
+        bare: {
+          command: 'server',
+          args: [],
+          env: { NODE_USE_ENV_PROXY: '1' },
+          env_vars: PROXY_VARIABLES,
+        },
         remote: { url: 'https://mcp.example.com', http_headers: { Authorization: 'Bearer x' } },
         open: { url: 'https://open.example.com' },
       },
@@ -151,9 +171,30 @@ describe('pluginHarnessSettings', () => {
       box: {
         command: '.ai-sdk-harness/plugins/shipped/bin/server',
         args: ['--config', '.ai-sdk-harness/plugins/shipped/config.json'],
-        env: { DATA: '.ai-sdk-harness/plugins/shipped/data' },
+        env: { NODE_USE_ENV_PROXY: '1', DATA: '.ai-sdk-harness/plugins/shipped/data' },
+        env_vars: PROXY_VARIABLES,
       },
     });
+  });
+
+  it('sends the Node.js of a stdio server through the proxy, unless the plugin says otherwise', () => {
+    const direct: Plugin = {
+      name: 'direct',
+      description: '',
+      mcpServers: {
+        off: {
+          type: 'stdio',
+          command: 'server',
+          env: { NODE_USE_ENV_PROXY: '' },
+          runIn: 'sandbox',
+        },
+      },
+    };
+    for (const harness of ['claude-code', 'codex']) {
+      expect(pluginHarnessSettings(harness, [direct]).mcpServers).toMatchObject({
+        off: { env: { NODE_USE_ENV_PROXY: '' } },
+      });
+    }
   });
 
   it('leaves out a server your server connects to, and refuses an unresolved secret', () => {

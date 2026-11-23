@@ -217,7 +217,12 @@ describe('withPlugins', () => {
     const { plugins } = await resolvePlugins([box]);
     expect(() => withPlugins({ harness: claudeCode }, plugins)).not.toThrow();
     expect(pluginHarnessSettings('claude-code', plugins).mcpServers).toEqual({
-      local: { type: 'stdio', command: 'node', args: ['s.mjs'], env: {} },
+      local: {
+        type: 'stdio',
+        command: 'node',
+        args: ['s.mjs'],
+        env: { NODE_USE_ENV_PROXY: '1' },
+      },
     });
     const toConnect: Plugin = {
       name: 'docs',

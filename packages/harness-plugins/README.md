@@ -462,6 +462,7 @@ The package imports `@ai-sdk/mcp` itself, at run time, out of a bundler's sight:
 
 - `connectMcpServer` replaces the connection, for an authentication of your own such as OAuth: `resolvePlugins(plugins, { connectMcpServer: (server, { plugin, name }) => createMCPClient(…) })`.
 - `runIn: 'sandbox'` lets the runtime start the server in the sandbox instead, from the plugin's files, as a Claude Code plugin's stdio servers do. It may hold no secret, and goes to the harness adapter: `createClaudeCode({ ...pluginHarnessSettings('claude-code', plugins) })`.
+- A stdio server run in the sandbox gets `NODE_USE_ENV_PROXY=1`, for a server on Node.js that calls an API with `fetch` to leave through the sandbox's proxy: the sandboxes of `ai-sdk-sandbox-cloud-run` and `ai-sdk-sandbox-gce` no longer set it for every command, since it breaks the test suites that mock `fetch`. A value the plugin gives in `env` wins: `NODE_USE_ENV_PROXY: ''` leaves it off. On Codex, which starts a stdio server with a few variables of its own only, the server also gets the proxy variables of the sandbox (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and their lower-case forms), through `env_vars`.
 
 ### Subagents on Codex
 

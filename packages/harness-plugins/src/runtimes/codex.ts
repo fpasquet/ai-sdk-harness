@@ -9,6 +9,20 @@ import { stringifyToml } from '../utils/toml.js';
 /** Where Codex reads a project's own subagents, one TOML file each. */
 const AGENTS_DIR = '.codex/agents';
 
+/**
+ * The proxy variables Codex passes on to a stdio MCP server: it starts one with a few variables of
+ * its own (`HOME`, `PATH`…) and those it is told to, without which the server has no way out of a
+ * sandbox. Those the environment has not are left out.
+ */
+const PROXY_VARIABLES = [
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'https_proxy',
+  'http_proxy',
+  'no_proxy',
+];
+
 /** The models of a subagent written for Claude Code, which name no Codex model: Codex's default. */
 const CLAUDE_CODE_MODELS = new Set(['haiku', 'inherit', 'opus', 'sonnet']);
 
@@ -48,7 +62,12 @@ export const codexRuntime: PluginRuntime = {
   rules: 'instructions',
   mcpServer: (server) =>
     server.type === 'stdio'
-      ? { command: server.command, args: server.args ?? [], env: server.env ?? {} }
+      ? {
+          command: server.command,
+          args: server.args ?? [],
+          env: server.env ?? {},
+          env_vars: PROXY_VARIABLES,
+        }
       : { url: server.url, ...(server.headers && { http_headers: server.headers }) },
   layout: (plugins) => ({
     files: plugins.flatMap((plugin) => (plugin.subagents ?? []).map(subagentFile)),
