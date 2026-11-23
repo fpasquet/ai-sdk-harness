@@ -68,6 +68,8 @@ export interface TurnReport {
   endedAt: Date;
   /** What went wrong, when the turn failed or was cut short. */
   failure: string | undefined;
+  /** How many times the turn was run again after a transient error (`turnRetries`). */
+  retries: number;
   /** The tokens of the whole turn, over all its streams. */
   usage: LanguageModelUsage;
   /** Its steps, in order; empty when the agent's results do not give them. */

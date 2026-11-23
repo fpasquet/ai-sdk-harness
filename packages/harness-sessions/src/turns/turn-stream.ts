@@ -13,8 +13,26 @@ export interface TurnOutcome {
   /** What went wrong, when the turn failed or was cut short. */
   failure: string | undefined;
   usage: TurnUsage;
-  /** The turn's tokens in detail, its steps and the raw events of its harness, for `onTurn`. */
-  report: { usage: LanguageModelUsage; steps: TurnStepReport[]; rawEvents: unknown[] };
+  /** The turn's tokens in detail, its steps, the raw events of its harness and its retries. */
+  report: {
+    usage: LanguageModelUsage;
+    steps: TurnStepReport[];
+    rawEvents: unknown[];
+    retries: number;
+  };
+}
+
+/** How a turn that failed is run again: what the manager decides, the stream follows. */
+export interface TurnRetry {
+  /**
+   * The chunk telling the client the turn runs again, and how long it waits first, for this
+   * retry (counted from 1) after `error`; `undefined` when the turn fails there.
+   */
+  plan: (error: unknown, attempt: number) => undefined | { chunk: UIMessageChunk; delayMs: number };
+  /** The stream that carries the turn on, once the delay is over; `undefined` when it cannot. */
+  resume: (error: unknown, attempt: number) => Promise<SessionStreamResult | undefined>;
+  /** The turn's signal: a turn cut short is not run again. */
+  abortSignal: AbortSignal;
 }
 
 /**
@@ -37,6 +55,8 @@ export interface TurnStreamOptions {
   next?: (messages: UIMessage[]) => Promise<TurnStep | undefined>;
   /** Runs once, when the turn is over, before the client's stream closes. */
   onSettled: (outcome: TurnOutcome) => Promise<void>;
+  /** Runs the turn again after an error, as it says. Default: a turn fails on its first error. */
+  retry?: TurnRetry;
 }
 
 const messageOf = (error: unknown): string =>
@@ -45,6 +65,10 @@ const messageOf = (error: unknown): string =>
 interface SegmentOutcome {
   messages: UIMessage[] | undefined;
   failure: string | undefined;
+  /** The error itself, for a retry to judge. */
+  error: unknown;
+  /** Its error chunks, held back while a retry may take the error's place. */
+  errors: UIMessageChunk[];
   /** The stream's `finish` chunk, held back until the turn is over. */
   finish: UIMessageChunk | undefined;
   /**
@@ -58,19 +82,23 @@ interface SegmentOutcome {
 async function readSegment(
   result: SessionStreamResult,
   originalMessages: UIMessage[],
-  {
-    first,
-    send,
-    options,
-  }: { first: boolean; send: (chunk: UIMessageChunk) => void; options: TurnStreamOptions },
+  { send, options }: { send: (chunk: UIMessageChunk) => void; options: TurnStreamOptions },
 ): Promise<SegmentOutcome> {
   const outcome: SegmentOutcome = {
     messages: undefined,
     failure: undefined,
+    error: undefined,
+    errors: [],
     finish: undefined,
     requests: [],
   };
   const holding = options.next !== undefined;
+  // The first error is the one: the stream's own `onError` is called again with its text.
+  const fail = (error: unknown) => {
+    if (outcome.failure !== undefined) return;
+    outcome.failure = messageOf(error);
+    outcome.error = error;
+  };
   const reader = result
     .toUIMessageStream<UIMessage>({
       originalMessages,
@@ -81,7 +109,7 @@ async function readSegment(
       },
       // Called again with the text it returned, as the error chunk is read: the first is the one.
       onError: (error) => {
-        outcome.failure ??= messageOf(error);
+        fail(error);
         return options.errorMessage(error);
       },
     })
@@ -90,12 +118,12 @@ async function readSegment(
     for (let read = await reader.read(); !read.done; read = await reader.read()) {
       const chunk = read.value;
       if (chunk.type === 'finish') outcome.finish = chunk;
+      else if (options.retry !== undefined && chunk.type === 'error') outcome.errors.push(chunk);
       else if (holding && chunk.type === 'tool-approval-request') outcome.requests.push(chunk);
-      // A stream that continues the turn continues the client's message: it is already open.
-      else if (first || chunk.type !== 'start') send(chunk);
+      else send(chunk);
     }
   } catch (error) {
-    outcome.failure ??= messageOf(error);
+    fail(error);
   }
   return outcome;
 }
@@ -179,6 +207,20 @@ async function rawEventsOf(result: SessionStreamResult): Promise<unknown[]> {
   return events;
 }
 
+/** Waits `ms`, or less when `signal` aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
+
 /** Adds the tokens a stream of the turn used, once it is over. */
 async function addUsage(usage: TurnUsage, result: SessionStreamResult): Promise<void> {
   const spent = await Promise.resolve(result.totalUsage).catch(() => undefined);
@@ -196,19 +238,32 @@ class TurnRun {
   private messages: UIMessage[] | undefined;
   private failure: string | undefined;
   private finish: UIMessageChunk | undefined;
+  private retries = 0;
+  private started = false;
 
   constructor(
     private readonly options: TurnStreamOptions,
-    private readonly send: (chunk: UIMessageChunk) => void,
+    private readonly out: (chunk: UIMessageChunk) => void,
   ) {}
+
+  /**
+   * Sends a chunk to the client. The turn is one message there: a stream that continues it — after
+   * approvals, or a retry — continues that message, opened by the first `start`.
+   */
+  private readonly send = (chunk: UIMessageChunk): void => {
+    if (chunk.type === 'start') {
+      if (this.started) return;
+      this.started = true;
+    }
+    this.out(chunk);
+  };
 
   async run(first: SessionStreamResult): Promise<TurnOutcome> {
     let result: SessionStreamResult | undefined = first;
     let originalMessages = this.options.originalMessages;
-    for (let index = 0; result !== undefined; index += 1) {
+    while (result !== undefined) {
       const raw = rawEventsOf(result);
       const outcome = await readSegment(result, originalMessages, {
-        first: index === 0,
         send: this.send,
         options: this.options,
       });
@@ -219,9 +274,15 @@ class TurnRun {
       const events = await raw;
       this.steps.push(...steps);
       this.rawEvents.push(...events);
-      this.failure ??= outcome.failure;
       this.finish = outcome.finish;
       this.messages = outcome.messages ?? this.messages;
+      result = await this.retryAfter(outcome);
+      if (result !== undefined) {
+        // The turn carries on where the failed stream left it, in the client's message.
+        originalMessages = this.messages ?? originalMessages;
+        continue;
+      }
+      this.failure ??= outcome.failure;
       const step = await this.next(outcome.messages, outcome.requests);
       result = step?.result;
       if (step) originalMessages = this.messages = step.messages;
@@ -231,8 +292,47 @@ class TurnRun {
       messages: this.messages,
       failure: this.failure,
       usage: this.usage,
-      report: { usage: this.details, steps: this.steps, rawEvents: this.rawEvents },
+      report: {
+        usage: this.details,
+        steps: this.steps,
+        rawEvents: this.rawEvents,
+        retries: this.retries,
+      },
     };
+  }
+
+  /**
+   * The stream that runs the turn again after a stream that failed, as `retry` decides, the
+   * client told first; `undefined` once it gives up. A retry that cannot start counts as one.
+   */
+  private async retryAfter(outcome: SegmentOutcome): Promise<SessionStreamResult | undefined> {
+    if (outcome.failure === undefined) return undefined;
+    const result = this.failure === undefined ? await this.retry(outcome) : undefined;
+    // Given up: the client is told the error the retries were holding back.
+    if (result === undefined) for (const chunk of outcome.errors) this.send(chunk);
+    return result;
+  }
+
+  private async retry(outcome: SegmentOutcome): Promise<SessionStreamResult | undefined> {
+    const { retry } = this.options;
+    if (retry === undefined) return undefined;
+    let error: unknown = outcome.error ?? new Error(outcome.failure);
+    for (;;) {
+      if (retry.abortSignal.aborted) return undefined;
+      const planned = retry.plan(error, this.retries + 1);
+      if (planned === undefined) return undefined;
+      this.retries += 1;
+      this.send(planned.chunk);
+      await pause(planned.delayMs, retry.abortSignal);
+      if (retry.abortSignal.aborted) return undefined;
+      try {
+        return await retry.resume(error, this.retries);
+      } catch (failed) {
+        error = failed;
+        outcome.failure = messageOf(failed);
+        outcome.errors = [{ type: 'error', errorText: this.options.errorMessage(failed) }];
+      }
+    }
   }
 
   /**
