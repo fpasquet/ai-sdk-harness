@@ -11,15 +11,21 @@ import type {
   MicrosandboxConnection,
   SandboxExecution,
 } from '../transport/microsandbox-connection.js';
+import type { DirectoryEntry, FileStat } from './file-info.js';
 
 import {
   COMMAND,
+  DELETE,
+  LIST,
+  NOT_DIRECTORY,
   READ,
   READ_DIRECTORY,
   READ_MISSING,
+  STAT,
   WRITE,
 } from '../transport/sandbox-scripts.js';
 import { abortReason } from '../utils/abort.js';
+import { fileError, parseEntries, parseStat } from './file-info.js';
 
 type ProcessOptions = Parameters<SandboxSession['run']>[0];
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
@@ -95,11 +101,7 @@ export class MicrosandboxSandboxSession implements SandboxSession {
     const target = this.resolve(path);
     const result = await this.handle.connection.run(['sh', '-c', READ, target]);
     if (result.exitCode === READ_MISSING) return null;
-    if (result.exitCode === READ_DIRECTORY) {
-      throw Object.assign(new Error(`EISDIR: illegal operation on a directory, read '${target}'`), {
-        code: 'EISDIR',
-      });
-    }
+    if (result.exitCode === READ_DIRECTORY) throw fileError('EISDIR', 'read', target);
     if (result.exitCode !== 0) {
       throw new Error(`Could not read ${target} in the sandbox: ${result.stderr.trim()}`);
     }
@@ -148,6 +150,41 @@ export class MicrosandboxSandboxSession implements SandboxSession {
       ...options,
       content: new Uint8Array(Buffer.from(content, encoding as BufferEncoding)),
     });
+
+  stat = async ({ path, abortSignal }: ReadOptions): Promise<FileStat | null> => {
+    abortSignal?.throwIfAborted();
+    const target = this.resolve(path);
+    const result = await this.handle.connection.run(['sh', '-c', STAT, target]);
+    if (result.exitCode === READ_MISSING) return null;
+    if (result.exitCode !== 0) {
+      throw new Error(`Could not stat ${target} in the sandbox: ${result.stderr.trim()}`);
+    }
+    return parseStat(result.stdout);
+  };
+
+  listDirectory = async ({ path, abortSignal }: ReadOptions): Promise<DirectoryEntry[] | null> => {
+    abortSignal?.throwIfAborted();
+    const target = this.resolve(path);
+    const result = await this.handle.connection.run(['sh', '-c', LIST, target]);
+    if (result.exitCode === READ_MISSING) return null;
+    if (result.exitCode === NOT_DIRECTORY) throw fileError('ENOTDIR', 'scandir', target);
+    if (result.exitCode !== 0) {
+      throw new Error(`Could not list ${target} in the sandbox: ${result.stderr.trim()}`);
+    }
+    return parseEntries(result.stdout);
+  };
+
+  deleteFile = async ({ path, abortSignal }: ReadOptions): Promise<boolean> => {
+    abortSignal?.throwIfAborted();
+    const target = this.resolve(path);
+    const result = await this.handle.connection.run(['sh', '-c', DELETE, target]);
+    if (result.exitCode === READ_MISSING) return false;
+    if (result.exitCode === READ_DIRECTORY) throw fileError('EISDIR', 'unlink', target);
+    if (result.exitCode !== 0) {
+      throw new Error(`Could not delete ${target} in the sandbox: ${result.stderr.trim()}`);
+    }
+    return true;
+  };
 
   /** Stops every process the views of this sandbox still run. */
   protected async killAll(): Promise<void> {

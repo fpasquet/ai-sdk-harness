@@ -1,8 +1,9 @@
 import type { ChildProcess } from 'node:child_process';
+import type { Dirent, Stats } from 'node:fs';
 
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { constants } from 'node:os';
 import { dirname } from 'node:path';
@@ -157,6 +158,54 @@ function write(channel: number, path: string): void {
   });
 }
 
+/** Sends `value` as the channel's data, in JSON, then closes it. */
+function reply(channel: number, value: unknown): void {
+  sendData(channel, Buffer.from(JSON.stringify(value)));
+  close(channel, { ok: true });
+}
+
+function typeOf(entry: Dirent | Stats): 'directory' | 'file' | 'other' | 'symlink' {
+  if (entry.isSymbolicLink()) return 'symlink';
+  if (entry.isDirectory()) return 'directory';
+  return entry.isFile() ? 'file' : 'other';
+}
+
+function statOf(channel: number, path: string): void {
+  stat(path).then(
+    (stats) => reply(channel, { type: typeOf(stats), size: stats.size }),
+    (error: unknown) => close(channel, failure(error)),
+  );
+}
+
+function list(channel: number, path: string): void {
+  readdir(path, { withFileTypes: true }).then(
+    (entries) =>
+      reply(
+        channel,
+        entries.map((entry) => ({ name: entry.name, type: typeOf(entry) })),
+      ),
+    (error: unknown) => close(channel, failure(error)),
+  );
+}
+
+/** Deletes the file `path`: `EISDIR` for a directory, which `unlink` reports otherwise on macOS. */
+function remove(channel: number, path: string): void {
+  lstat(path)
+    .then((stats) => {
+      if (stats.isDirectory()) {
+        throw Object.assign(
+          new Error(`EISDIR: illegal operation on a directory, unlink '${path}'`),
+          { code: 'EISDIR' },
+        );
+      }
+      return unlink(path);
+    })
+    .then(
+      () => close(channel, { ok: true }),
+      (error: unknown) => close(channel, failure(error)),
+    );
+}
+
 function killAll(): void {
   for (const child of processes) killTree(child);
 }
@@ -165,13 +214,19 @@ function open(channel: number, request: Request): void {
   switch (request.kind) {
     case 'connect':
       return connectTo(channel, request.port);
+    case 'delete':
+      return remove(channel, request.path);
     case 'kill-all':
       killAll();
       return close(channel, { ok: true });
+    case 'list':
+      return list(channel, request.path);
     case 'read':
       return read(channel, request.path);
     case 'spawn':
       return run(channel, request);
+    case 'stat':
+      return statOf(channel, request.path);
     case 'write':
       return write(channel, request.path);
     default:

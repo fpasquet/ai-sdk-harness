@@ -213,7 +213,50 @@ describe('a Cloud Run sandbox', () => {
     await expect(session.writeTextFile({ path: 'locked/new.txt', content: 'x' })).rejects.toThrow(
       'Could not write',
     );
+    await expect(session.deleteFile({ path: 'locked/file.txt' })).rejects.toThrow(
+      'Could not delete',
+    );
+    await session.run({ command: 'chmod 000 locked' });
+    await expect(session.listDirectory({ path: 'locked' })).rejects.toThrow('Could not list');
     await session.run({ command: 'chmod 700 locked' });
+  });
+
+  it('stats, lists and deletes files, links never followed by a listing or a deletion', async () => {
+    const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    await session.writeTextFile({ path: 'list/five.txt', content: 'hello' });
+    await session.run({
+      command:
+        'mkdir list/sub && touch "list/sub/.a hidden" && ln -s five.txt list/link && ln -s nowhere list/broken',
+    });
+
+    expect(await session.stat({ path: 'list/five.txt' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'list/link' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'list/sub' })).toMatchObject({ type: 'directory' });
+    expect(await session.stat({ path: 'list/broken' })).toBeNull();
+    expect(
+      (await session.listDirectory({ path: 'list' }))?.toSorted((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    ).toEqual([
+      { name: 'broken', type: 'symlink' },
+      { name: 'five.txt', type: 'file' },
+      { name: 'link', type: 'symlink' },
+      { name: 'sub', type: 'directory' },
+    ]);
+    expect(await session.listDirectory({ path: 'list/sub' })).toEqual([
+      { name: '.a hidden', type: 'file' },
+    ]);
+    expect(await session.listDirectory({ path: 'missing' })).toBeNull();
+    await expect(session.listDirectory({ path: 'list/five.txt' })).rejects.toMatchObject({
+      code: 'ENOTDIR',
+    });
+
+    expect(await session.deleteFile({ path: 'list/link' })).toBe(true);
+    expect(await session.deleteFile({ path: 'list/link' })).toBe(false);
+    expect(await session.stat({ path: 'list/five.txt' })).not.toBeNull();
+    await expect(session.deleteFile({ path: 'list/sub' })).rejects.toMatchObject({
+      code: 'EISDIR',
+    });
   });
 
   it('streams the output of a spawned process, and kills it with what it started', async () => {

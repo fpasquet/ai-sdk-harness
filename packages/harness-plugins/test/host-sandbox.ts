@@ -51,6 +51,9 @@ export async function createHostSandbox({ home = false } = {}): Promise<HostSand
       await writeFile(path, content);
     },
     readFile: notImplemented,
+    stat: notImplemented,
+    listDirectory: notImplemented,
+    deleteFile: notImplemented,
     readBinaryFile: notImplemented,
     writeFile: notImplemented,
     writeBinaryFile: notImplemented,

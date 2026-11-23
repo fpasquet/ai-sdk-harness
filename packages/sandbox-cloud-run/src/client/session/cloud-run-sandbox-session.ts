@@ -8,9 +8,11 @@ import type {
 import { posix } from 'node:path';
 
 import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
+import type { DirectoryEntry, FileStat } from './file-info.js';
 
 import { FrameType, readFrames, STDERR, STDOUT } from '../../protocol/frames.js';
 import { abortReason } from '../utils/abort.js';
+import { fileError, parseEntries, parseStat } from './file-info.js';
 import { processInput } from './process-input.js';
 
 type ReadOptions = Parameters<SandboxSession['readFile']>[0];
@@ -26,6 +28,37 @@ const READ_DIRECTORY = 45;
 const READ = `[ -d "$0" ] && exit ${READ_DIRECTORY}; [ -e "$0" ] || exit ${READ_MISSING}; exec cat -- "$0"`;
 /** Writes stdin to the file `$0`, creating its parent directories. */
 const WRITE = 'mkdir -p "$(dirname "$0")" && cat > "$0"';
+/** Exit status of {@link LIST} for a path that is not a directory. */
+const NOT_DIRECTORY = 46;
+
+/**
+ * The type of the path `$0`, symbolic links followed, then its size in bytes: `file 12`. Exits
+ * {@link READ_MISSING} for a path that does not exist.
+ */
+const STAT =
+  `[ -e "$0" ] || exit ${READ_MISSING}; ` +
+  'if [ -d "$0" ]; then t=directory; elif [ -f "$0" ]; then t=file; else t=other; fi; ' +
+  's=$(stat -L -c %s -- "$0" 2>/dev/null || wc -c < "$0" 2>/dev/null || echo 0); echo "$t" $s';
+
+/**
+ * Every entry of the directory `$0` as `<type> <name>`, each ended by a NUL: a name may hold any
+ * other byte. Symbolic links are reported as such, not followed. Exits {@link READ_MISSING} for a
+ * path that does not exist and {@link NOT_DIRECTORY} for one that is not a directory.
+ */
+const LIST =
+  `[ -d "$0" ] || { [ -e "$0" ] && exit ${NOT_DIRECTORY}; exit ${READ_MISSING}; }; cd -- "$0" || exit 1; ` +
+  'for f in * .[!.]* ..?*; do ' +
+  'if [ -L "$f" ]; then t=symlink; elif [ -d "$f" ]; then t=directory; elif [ -f "$f" ]; then t=file; ' +
+  'elif [ -e "$f" ]; then t=other; else continue; fi; ' +
+  'printf \'%s %s\\0\' "$t" "$f"; done';
+
+/**
+ * Deletes the file `$0`, a symbolic link itself rather than its target. Exits {@link READ_MISSING}
+ * for a path that does not exist and {@link READ_DIRECTORY} for a directory.
+ */
+const DELETE =
+  `if [ -L "$0" ]; then :; elif [ -d "$0" ]; then exit ${READ_DIRECTORY}; elif [ ! -e "$0" ]; then exit ${READ_MISSING}; fi; ` +
+  'exec rm -f -- "$0"';
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -143,11 +176,7 @@ export class CloudRunSandboxSession implements SandboxSession {
     const target = this.resolve(path);
     const { exitCode, stdout, stderr } = await this.exec(script(READ, target), { abortSignal });
     if (exitCode === READ_MISSING) return null;
-    if (exitCode === READ_DIRECTORY) {
-      throw Object.assign(new Error(`EISDIR: illegal operation on a directory, read '${target}'`), {
-        code: 'EISDIR',
-      });
-    }
+    if (exitCode === READ_DIRECTORY) throw fileError('EISDIR', 'read', target);
     if (exitCode !== 0)
       throw new Error(`Could not read ${target} in the sandbox: ${stderr.trim()}`);
     return stdout;
@@ -195,6 +224,35 @@ export class CloudRunSandboxSession implements SandboxSession {
       ...options,
       content: new Uint8Array(Buffer.from(content, encoding as BufferEncoding)),
     });
+
+  stat = async ({ path, abortSignal }: ReadOptions): Promise<FileStat | null> => {
+    const target = this.resolve(path);
+    const { exitCode, stdout, stderr } = await this.exec(script(STAT, target), { abortSignal });
+    if (exitCode === READ_MISSING) return null;
+    if (exitCode !== 0)
+      throw new Error(`Could not stat ${target} in the sandbox: ${stderr.trim()}`);
+    return parseStat(stdout);
+  };
+
+  listDirectory = async ({ path, abortSignal }: ReadOptions): Promise<DirectoryEntry[] | null> => {
+    const target = this.resolve(path);
+    const { exitCode, stdout, stderr } = await this.exec(script(LIST, target), { abortSignal });
+    if (exitCode === READ_MISSING) return null;
+    if (exitCode === NOT_DIRECTORY) throw fileError('ENOTDIR', 'scandir', target);
+    if (exitCode !== 0)
+      throw new Error(`Could not list ${target} in the sandbox: ${stderr.trim()}`);
+    return parseEntries(stdout);
+  };
+
+  deleteFile = async ({ path, abortSignal }: ReadOptions): Promise<boolean> => {
+    const target = this.resolve(path);
+    const { exitCode, stderr } = await this.exec(script(DELETE, target), { abortSignal });
+    if (exitCode === READ_MISSING) return false;
+    if (exitCode === READ_DIRECTORY) throw fileError('EISDIR', 'unlink', target);
+    if (exitCode !== 0)
+      throw new Error(`Could not delete ${target} in the sandbox: ${stderr.trim()}`);
+    return true;
+  };
 
   /** Stops every process this session started and that may still run. */
   protected async killAll(): Promise<void> {

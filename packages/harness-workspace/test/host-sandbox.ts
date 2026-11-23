@@ -117,6 +117,9 @@ function hostSession({
     writeBinaryFile: ({ path, content }) => write(path, content),
     writeFile: ({ path, content }) => write(path, Readable.fromWeb(content as never)),
     readFile: notImplemented,
+    stat: notImplemented,
+    listDirectory: notImplemented,
+    deleteFile: notImplemented,
     spawn: notImplemented,
   };
 }
