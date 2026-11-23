@@ -23,3 +23,12 @@ Reattaches to a running sandbox, or starts a stopped one again on its disk. Besi
 Has the sandbox service boot what the sandbox created next will need, without waiting for it: its egress proxy, when it starts and stops it, and a machine booted from the sandbox's template, which the creation takes. A hint: do not await it. It never builds the template, and a service of an earlier version boots the proxy only, or nothing.
 
 <AutoTypeTable path="packages/sandbox-gce/src/client/gce-settings.ts" name="GcePrepareSettings" />
+
+## `deleteGceSandboxTemplate(options)`
+
+Deletes the template that sandboxes created with `template`, `setup` and `image` boot from: the image the service saved, billed for its storage. The sandboxes made from it keep their disk; the next one created from it builds it again. A template that does not exist is no error.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceTemplateDeletionSettings"
+/>

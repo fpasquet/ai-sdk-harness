@@ -20,3 +20,12 @@ Reattaches to a running sandbox, or restores a suspended one from its snapshot. 
   path="packages/sandbox-cloud-run/src/client/cloud-run-settings.ts"
   name="CloudRunConnectionSettings"
 />
+
+## `deleteCloudRunSandboxTemplate(options)`
+
+Deletes the template that sandboxes created with `template` and `setup` start from: the snapshot saved in the service's bucket, billed for its storage. The sandboxes made from it keep their snapshot; the next one created from it builds it again. A template that does not exist is no error.
+
+<AutoTypeTable
+  path="packages/sandbox-cloud-run/src/client/cloud-run-settings.ts"
+  name="CloudRunTemplateDeletionSettings"
+/>

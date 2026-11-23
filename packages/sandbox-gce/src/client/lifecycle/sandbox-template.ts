@@ -105,6 +105,17 @@ export function ensureTemplate(
 }
 
 /**
+ * Forgets the template of `source` on this service, built or being built: the next sandbox from it
+ * asks the service whether it exists, rather than create from it and meet a 404 first.
+ */
+export function forgetTemplate(
+  client: SandboxServiceClient,
+  source: TemplateSource & { image?: string },
+): void {
+  building.delete(keyOf(client, source));
+}
+
+/**
  * Calls `create` with the template ready. This process remembers a template for as long as it runs,
  * and the service can lose it meanwhile, to a new version or a new base image: on
  * its 404, the template is forgotten, built again if need be, and `create` called once more.

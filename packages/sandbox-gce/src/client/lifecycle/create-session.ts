@@ -6,6 +6,7 @@ import type {
   GceNetworkSandboxSessionCreateOptions,
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
+  GceTemplateDeletionSettings,
 } from '../gce-settings.js';
 
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -14,7 +15,13 @@ import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
 import { assertRequiredCommands, DEFAULT_REQUIRED_COMMANDS } from './required-commands.js';
-import { type ReadyTemplate, runSetup, templateId, withTemplate } from './sandbox-template.js';
+import {
+  forgetTemplate,
+  type ReadyTemplate,
+  runSetup,
+  templateId,
+  withTemplate,
+} from './sandbox-template.js';
 
 /**
  * What a Compute Engine instance name takes once the service's prefix is put before it, and a URL
@@ -133,6 +140,26 @@ export async function prepareGceSandboxService(options: GcePrepareSettings): Pro
     image,
     abortSignal,
   });
+}
+
+/**
+ * Deletes the template that sandboxes created with `template`, `setup` and `image` boot from: the
+ * image the service saved of a prepared sandbox, billed for its storage until it goes. Call it once
+ * no sandbox is to be made from it any more, say when the setup it was made with changes.
+ *
+ * The sandboxes made from it keep their disk, and run, stop and resume as before. A sandbox created
+ * from the same template afterwards, by this process or another one, builds it again. Deleting a
+ * template that does not exist, or no longer does, is no error.
+ */
+export async function deleteGceSandboxTemplate(
+  options: GceTemplateDeletionSettings,
+): Promise<void> {
+  const { template, setup = [], image, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  const client = clientOf(options);
+  const source = { template, setup, image };
+  forgetTemplate(client, source);
+  await client.deleteTemplate(templateId(source), image, abortSignal);
 }
 
 /**

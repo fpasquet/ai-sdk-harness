@@ -258,8 +258,9 @@ export class SandboxServiceClient {
     });
   }
 
-  async deleteTemplate(id: string, image?: string): Promise<void> {
-    await this.call('DELETE', templatePath(id, image));
+  /** Deletes the template `id` made on `image`: no error when there is none. */
+  async deleteTemplate(id: string, image?: string, abortSignal?: AbortSignal): Promise<void> {
+    await this.call('DELETE', templatePath(id, image), { abortSignal });
   }
 
   /**
