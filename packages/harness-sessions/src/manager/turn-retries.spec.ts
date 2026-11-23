@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SessionManager, SessionManagerOptions, TurnReport } from '../index.js';
 
 import { FakeAgent, fakeSandboxes, readAll, until } from '../../test/fakes.js';
-import { createSessionManager, TURN_RETRY_CHUNK } from '../index.js';
+import { createSessionManager, SANDBOX_RESUME_CHUNK, TURN_RETRY_CHUNK } from '../index.js';
 
 const BRIDGE_LOST = 'claude-code bridge closed before the turn finished.';
 
@@ -197,6 +197,67 @@ describe('turn retries', () => {
     expect(await started.done).toMatchObject({ status: 'idle', error: BRIDGE_LOST });
     expect(retryChunks(await chunks)).toHaveLength(1);
     expect(agent.prompts).toEqual(['hello']);
+  });
+
+  /** Makes the next start of a harness session fail, as on a sandbox whose machine stopped. */
+  const loseSandbox = (error = new Error('No sandbox box-s1 is running.')) => {
+    const create = agent.createSession;
+    let lost = true;
+    agent.createSession = (options) => {
+      if (!lost) return create(options);
+      lost = false;
+      return Promise.reject(error);
+    };
+  };
+
+  it('resumes a lost sandbox, then runs the turn again in it', async () => {
+    await ready();
+    agent.script.push({ fail: new Error(BRIDGE_LOST) }, { text: 'done' });
+    loseSandbox();
+
+    const { chunks, session } = await turn();
+
+    expect(chunks.filter(({ type }) => type === SANDBOX_RESUME_CHUNK)).toEqual([
+      { type: SANDBOX_RESUME_CHUNK, data: { attempt: 1 }, transient: true },
+    ]);
+    expect(chunks.filter(({ type }) => type === 'error')).toEqual([]);
+    expect(session).toMatchObject({ status: 'idle', turns: 1 });
+    expect(session.error).toBeUndefined();
+    expect(fake.events).toEqual(['acquire s1', 'suspend s1', 'acquire s1 (resume)']);
+    expect(agent.handles).toHaveLength(2);
+    expect(agent.handles[1]?.resumeFrom).toBeDefined();
+    expect(agent.prompts).toHaveLength(2);
+    expect(errors.map(({ action }) => action)).toEqual(['retry turn']);
+  });
+
+  it('leaves the session suspended, with the reason, when its sandbox cannot be resumed', async () => {
+    await ready();
+    agent.script.push({ fail: new Error(BRIDGE_LOST) });
+    loseSandbox();
+    fake.failAcquire.error = new Error('The machine cannot start: no capacity in the zone.');
+
+    const { chunks, session } = await turn();
+
+    expect(chunks.filter(({ type }) => type === SANDBOX_RESUME_CHUNK)).toHaveLength(1);
+    expect(chunks.filter(({ type }) => type === 'error')).toHaveLength(1);
+    expect(session).toMatchObject({
+      status: 'suspended',
+      error: 'The machine cannot start: no capacity in the zone.',
+    });
+    expect(agent.prompts).toEqual(['hello']);
+  });
+
+  it('never resumes the sandbox of a turn cut short', async () => {
+    await sessions.shutdown();
+    sessions = manager({ turnTimeoutMs: 20 });
+    await ready();
+    agent.script.push({ hold: new Promise(() => undefined) });
+    loseSandbox();
+
+    const { session } = await turn();
+
+    expect(fake.events).not.toContain('acquire s1 (resume)');
+    expect(session.status).toBe('suspended');
   });
 
   it('leaves the session interrupted when its harness session cannot be stopped', async () => {

@@ -1,6 +1,7 @@
 export type { SessionAgent, SessionStreamResult } from './definitions/agent.js';
 export type {
   ContinueOptions,
+  SandboxResumeData,
   SendOptions,
   SessionEvent,
   SessionManager,
@@ -9,7 +10,7 @@ export type {
   TurnRetryData,
   TurnRetryOptions,
 } from './definitions/manager.js';
-export { TURN_RETRY_CHUNK } from './definitions/manager.js';
+export { SANDBOX_RESUME_CHUNK, TURN_RETRY_CHUNK } from './definitions/manager.js';
 export type { SessionSandboxes, SessionSandboxLease } from './definitions/sandboxes.js';
 export { LIVE_STATUSES, SESSION_STATUSES } from './definitions/session.js';
 export type {

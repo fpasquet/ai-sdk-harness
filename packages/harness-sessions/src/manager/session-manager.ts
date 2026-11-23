@@ -5,9 +5,10 @@ import { getHarnessErrorMessage } from '@ai-sdk/harness/agent';
 import { createUIMessageStreamResponse } from 'ai';
 import { randomUUID } from 'node:crypto';
 
-import type { SessionStreamResult } from '../definitions/agent.js';
+import type { SessionAgent, SessionStreamResult } from '../definitions/agent.js';
 import type {
   ContinueOptions,
+  SandboxResumeData,
   SendOptions,
   SessionEvent,
   SessionManager,
@@ -16,6 +17,7 @@ import type {
   TurnRetryData,
   TurnRetryOptions,
 } from '../definitions/manager.js';
+import type { SessionSandboxLease } from '../definitions/sandboxes.js';
 import type {
   ApprovalVerdict,
   PendingApproval,
@@ -30,7 +32,7 @@ import type { InputResponses } from '../turns/pending-input.js';
 import type { TurnRetry, TurnStep } from '../turns/turn-stream.js';
 import type { LiveSession, ReadySession } from './live-session.js';
 
-import { TURN_RETRY_CHUNK } from '../definitions/manager.js';
+import { SANDBOX_RESUME_CHUNK, TURN_RETRY_CHUNK } from '../definitions/manager.js';
 import { SessionCapacityError } from '../errors/session-capacity-error.js';
 import { SessionConflictError } from '../errors/session-conflict-error.js';
 import { SessionNotFoundError } from '../errors/session-not-found-error.js';
@@ -871,8 +873,12 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
           delayMs: data.delayMs,
         };
       },
-      resume: async () => {
-        await this.renew(session, session.handle);
+      resume: async (_error, attempt, send) => {
+        // A sandbox lost with its machine is resumed first: the client hears why the retry waits.
+        await this.renew(session, session.handle, () => {
+          const data: SandboxResumeData = { attempt };
+          send({ type: SANDBOX_RESUME_CHUNK, data, transient: true });
+        });
         const handle = session.handle as HarnessAgentSession | undefined;
         // Closed, suspended or interrupted meanwhile, or it could not start again.
         if (handle === undefined || this.live.get(id) !== session) return undefined;
@@ -977,7 +983,11 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
    * starts, and its answer is lost. A session that cannot start again is `suspended`, resumed by
    * the next message, or `interrupted` when its harness session could not be stopped.
    */
-  private async renew(session: LiveSession<METADATA>, handle: HarnessAgentSession): Promise<void> {
+  private async renew(
+    session: LiveSession<METADATA>,
+    handle: HarnessAgentSession,
+    onSandboxLost?: () => void,
+  ): Promise<void> {
     const { id, status } = session.record;
     // Closed, suspended or shut down meanwhile: whoever did it stops the harness session.
     if (this.live.get(id) !== session || status !== 'busy') return;
@@ -997,11 +1007,7 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     }
     const resumeFrom = withoutUnfinishedTurn(stopped);
     try {
-      session.handle = await agent.createSession({
-        sessionId: id,
-        sandboxSession: lease.sandboxSession,
-        resumeFrom,
-      });
+      await this.startAgain(session, { agent, lease, resumeFrom, onSandboxLost });
     } catch (error) {
       this.report('resume', id)(error);
       if (this.live.get(id) === session) this.live.delete(id);
@@ -1011,6 +1017,44 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
         resumeState: resumeFrom,
       });
     }
+  }
+
+  /**
+   * Starts the harness session again in its sandbox. When it cannot — the machine stopped or was
+   * preempted, its disk kept — and `onSandboxLost` is given, the lease is handed back and the
+   * sandbox acquired again as after a suspension, which starts a stopped machine, then the harness
+   * session started there.
+   */
+  private async startAgain(
+    session: LiveSession<METADATA>,
+    {
+      agent,
+      lease,
+      resumeFrom,
+      onSandboxLost,
+    }: {
+      agent: SessionAgent;
+      lease: SessionSandboxLease;
+      resumeFrom: HarnessAgentResumeSessionState;
+      onSandboxLost: (() => void) | undefined;
+    },
+  ): Promise<void> {
+    const { id } = session.record;
+    const start = ({ sandboxSession }: SessionSandboxLease) =>
+      agent.createSession({ sessionId: id, sandboxSession, resumeFrom });
+    try {
+      session.handle = await start(lease);
+      return;
+    } catch (error) {
+      if (onSandboxLost === undefined) throw error;
+      // Expected of a lost sandbox, not reported: `onSandboxLost` says it, a failed resume reports.
+    }
+    onSandboxLost();
+    session.lease = undefined;
+    await lease.suspend().catch(this.report('suspend', id));
+    const resumed = await this.options.sandboxes.acquire(id, { resume: true });
+    session.lease = resumed;
+    session.handle = await start(resumed);
   }
 
   private async closeKept(kept: SessionRecord<METADATA>): Promise<SessionSummary<METADATA>> {

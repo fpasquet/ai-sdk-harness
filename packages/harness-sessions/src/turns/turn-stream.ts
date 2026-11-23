@@ -29,8 +29,15 @@ export interface TurnRetry {
    * retry (counted from 1) after `error`; `undefined` when the turn fails there.
    */
   plan: (error: unknown, attempt: number) => undefined | { chunk: UIMessageChunk; delayMs: number };
-  /** The stream that carries the turn on, once the delay is over; `undefined` when it cannot. */
-  resume: (error: unknown, attempt: number) => Promise<SessionStreamResult | undefined>;
+  /**
+   * The stream that carries the turn on, once the delay is over; `undefined` when it cannot.
+   * `send` tells the client what the retry waits for meanwhile.
+   */
+  resume: (
+    error: unknown,
+    attempt: number,
+    send: (chunk: UIMessageChunk) => void,
+  ) => Promise<SessionStreamResult | undefined>;
   /** The turn's signal: a turn cut short is not run again. */
   abortSignal: AbortSignal;
 }
@@ -326,7 +333,7 @@ class TurnRun {
       await pause(planned.delayMs, retry.abortSignal);
       if (retry.abortSignal.aborted) return undefined;
       try {
-        return await retry.resume(error, this.retries);
+        return await retry.resume(error, this.retries, this.send);
       } catch (failed) {
         error = failed;
         outcome.failure = messageOf(failed);
