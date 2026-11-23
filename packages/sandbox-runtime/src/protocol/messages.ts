@@ -2,8 +2,12 @@
 export type Request =
   /** Bytes to and from `127.0.0.1:<port>` in the sandbox, as the channel's data. */
   | { kind: 'connect'; port: number }
+  /** Deletes a file, a symbolic link itself rather than its target. */
+  | { kind: 'delete'; path: string }
   /** Stops every process the supervisor runs, then closes the channel. */
   | { kind: 'kill-all' }
+  /** The entries of a directory, as the channel's data: a JSON array of `{ name, type }`. */
+  | { kind: 'list'; path: string }
   /** The content of a file, as the channel's data. */
   | { kind: 'read'; path: string }
   /**
@@ -12,6 +16,8 @@ export type Request =
    * of it; without, its standard input is closed.
    */
   | { kind: 'spawn'; command: string; cwd: string; env: Record<string, string>; stdin?: boolean }
+  /** The type and size of a path, symbolic links followed, as the channel's data: JSON. */
+  | { kind: 'stat'; path: string }
   /** Writes the channel's data to a file, creating its directories, once the host ends it. */
   | { kind: 'write'; path: string };
 

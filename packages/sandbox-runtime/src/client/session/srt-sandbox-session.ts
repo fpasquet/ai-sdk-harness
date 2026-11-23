@@ -7,7 +7,7 @@ import type {
 
 import { posix } from 'node:path';
 
-import type { Outcome } from '../../protocol/messages.js';
+import type { Outcome, Request } from '../../protocol/messages.js';
 import type { LinkChannel } from '../transport/supervisor-link.js';
 import type { SupervisorHost } from './supervisor-host.js';
 
@@ -61,6 +61,20 @@ function errorOf({ error }: { error: { code?: string; message: string } }): Erro
 /** `outcome`, which must be a success. */
 function succeeded(outcome: Outcome): void {
   if ('error' in outcome) throw errorOf(outcome);
+}
+
+/** Information about a path, symbolic links followed: what {@link SrtSandboxSession.stat} resolves to. */
+export interface FileStat {
+  type: 'directory' | 'file' | 'other';
+  /** Size in bytes; for a directory, what the host's filesystem says. */
+  size: number;
+}
+
+/** One entry of a directory: what {@link SrtSandboxSession.listDirectory} resolves to. */
+export interface DirectoryEntry {
+  name: string;
+  /** A symbolic link is reported as such, not followed. */
+  type: 'directory' | 'file' | 'other' | 'symlink';
 }
 
 /**
@@ -173,6 +187,24 @@ export class SrtSandboxSession implements SandboxSession {
       content: new Uint8Array(Buffer.from(content, encoding as BufferEncoding)),
     });
 
+  stat = async ({ path, abortSignal }: ReadOptions): Promise<FileStat | null> =>
+    this.ask<FileStat>({ kind: 'stat', path: this.resolve(path) }, abortSignal);
+
+  listDirectory = async ({ path, abortSignal }: ReadOptions): Promise<DirectoryEntry[] | null> =>
+    this.ask<DirectoryEntry[]>({ kind: 'list', path: this.resolve(path) }, abortSignal);
+
+  deleteFile = async ({ path, abortSignal }: ReadOptions): Promise<boolean> => {
+    if (abortSignal?.aborted) throw abortReason(abortSignal);
+    const channel = (await this.handle.supervisor.link()).open({
+      kind: 'delete',
+      path: this.resolve(path),
+    });
+    const outcome = await channel.closed;
+    if ('error' in outcome && outcome.error.code === 'ENOENT') return false;
+    succeeded(outcome);
+    return true;
+  };
+
   /** Stops every process this view still runs in the sandbox. */
   protected async killAll(): Promise<void> {
     const running = [...this.handle.processes];
@@ -209,6 +241,18 @@ export class SrtSandboxSession implements SandboxSession {
         await channel.closed;
       },
     };
+  }
+
+  /** What the supervisor answers `request` with, in JSON: `null` for a path that does not exist. */
+  private async ask<T>(request: Request, abortSignal?: AbortSignal): Promise<null | T> {
+    if (abortSignal?.aborted) throw abortReason(abortSignal);
+    const channel = (await this.handle.supervisor.link()).open(request);
+    const chunks: Buffer[] = [];
+    channel.onData = (chunk) => chunks.push(chunk);
+    const outcome = await channel.closed;
+    if ('error' in outcome && outcome.error.code === 'ENOENT') return null;
+    succeeded(outcome);
+    return JSON.parse(Buffer.concat(chunks).toString()) as T;
   }
 
   private resolve(path: string): string {

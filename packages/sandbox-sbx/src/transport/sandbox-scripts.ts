@@ -53,3 +53,35 @@ export const WRITE = 'mkdir -p "$(dirname "$0")" && cat > "$0"';
 
 /** The sandbox's working directory on the first line, then its environment. */
 export const PROBE = 'pwd; env';
+
+/** Exit status of {@link LIST} for a path that is not a directory. */
+export const NOT_DIRECTORY = 46;
+
+/**
+ * The type of the path `$0`, symbolic links followed, then its size in bytes: `file 12`. Exits
+ * {@link READ_MISSING} for a path that does not exist.
+ */
+export const STAT =
+  `[ -e "$0" ] || exit ${READ_MISSING}; ` +
+  'if [ -d "$0" ]; then t=directory; elif [ -f "$0" ]; then t=file; else t=other; fi; ' +
+  's=$(stat -L -c %s -- "$0" 2>/dev/null || wc -c < "$0" 2>/dev/null || echo 0); echo "$t" $s';
+
+/**
+ * Every entry of the directory `$0` as `<type> <name>`, each ended by a NUL: a name may hold any
+ * other byte. Symbolic links are reported as such, not followed. Exits {@link READ_MISSING} for a
+ * path that does not exist and {@link NOT_DIRECTORY} for one that is not a directory.
+ */
+export const LIST =
+  `[ -d "$0" ] || { [ -e "$0" ] && exit ${NOT_DIRECTORY}; exit ${READ_MISSING}; }; cd -- "$0" || exit 1; ` +
+  'for f in * .[!.]* ..?*; do ' +
+  'if [ -L "$f" ]; then t=symlink; elif [ -d "$f" ]; then t=directory; elif [ -f "$f" ]; then t=file; ' +
+  'elif [ -e "$f" ]; then t=other; else continue; fi; ' +
+  'printf \'%s %s\\0\' "$t" "$f"; done';
+
+/**
+ * Deletes the file `$0`, a symbolic link itself rather than its target. Exits {@link READ_MISSING}
+ * for a path that does not exist and {@link READ_DIRECTORY} for a directory.
+ */
+export const DELETE =
+  `if [ -L "$0" ]; then :; elif [ -d "$0" ]; then exit ${READ_DIRECTORY}; elif [ ! -e "$0" ]; then exit ${READ_MISSING}; fi; ` +
+  'exec rm -f -- "$0"';

@@ -56,14 +56,14 @@
     "@repo/prettier-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^24.19.2",
-    "eslint": "^10.13.0",
+    "eslint": "^10.14.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
-    "playwright-core": "^1.64.0",
-    "prettier": "^3.9.10",
+    "playwright-core": "^1.65.0",
+    "prettier": "^3.10.1",
     "publint": "^0.3.24",
     "tsx": "^4.23.13",
-    "turbo": "^2.11.8",
+    "turbo": "^2.11.11",
     "typescript": "^6.0.3"
   },
   "keywords": [

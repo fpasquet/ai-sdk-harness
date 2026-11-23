@@ -86,6 +86,43 @@ describe.skipIf(url === undefined)('a sandbox on Cloud Run', () => {
     expect(github.exitCode).not.toBe(0);
   });
 
+  it('stats, lists and deletes files, links never followed by a listing or a deletion', async () => {
+    await session.writeTextFile({ path: 'e2e-list/five.txt', content: 'hello' });
+    const { exitCode } = await session.run({
+      command:
+        'mkdir -p e2e-list/sub && touch "e2e-list/sub/.a hidden" && ln -s five.txt e2e-list/link',
+    });
+    expect(exitCode).toBe(0);
+
+    expect(await session.stat({ path: 'e2e-list/five.txt' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'e2e-list/link' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'e2e-list/sub' })).toMatchObject({ type: 'directory' });
+    expect(await session.stat({ path: 'e2e-list/missing' })).toBeNull();
+    expect(
+      (await session.listDirectory({ path: 'e2e-list' }))?.toSorted((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    ).toEqual([
+      { name: 'five.txt', type: 'file' },
+      { name: 'link', type: 'symlink' },
+      { name: 'sub', type: 'directory' },
+    ]);
+    expect(await session.listDirectory({ path: 'e2e-list/sub' })).toEqual([
+      { name: '.a hidden', type: 'file' },
+    ]);
+    expect(await session.listDirectory({ path: 'e2e-list/missing' })).toBeNull();
+    await expect(session.listDirectory({ path: 'e2e-list/five.txt' })).rejects.toMatchObject({
+      code: 'ENOTDIR',
+    });
+
+    expect(await session.deleteFile({ path: 'e2e-list/link' })).toBe(true);
+    expect(await session.deleteFile({ path: 'e2e-list/link' })).toBe(false);
+    expect(await session.readTextFile({ path: 'e2e-list/five.txt' })).toBe('hello');
+    await expect(session.deleteFile({ path: 'e2e-list/sub' })).rejects.toMatchObject({
+      code: 'EISDIR',
+    });
+  });
+
   it('hands back exit codes and files as they are', async () => {
     expect((await session.run({ command: 'exit 44' })).exitCode).toBe(44);
 

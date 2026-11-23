@@ -96,6 +96,43 @@ describe.runIf(hostRunsMicroVms())('a microsandbox', () => {
     });
   });
 
+  it('stats, lists and deletes files, links never followed by a listing or a deletion', async () => {
+    await session.writeTextFile({ path: 'e2e-list/five.txt', content: 'hello' });
+    const { exitCode } = await session.run({
+      command:
+        'mkdir -p e2e-list/sub && touch "e2e-list/sub/.a hidden" && ln -s five.txt e2e-list/link',
+    });
+    expect(exitCode).toBe(0);
+
+    expect(await session.stat({ path: 'e2e-list/five.txt' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'e2e-list/link' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'e2e-list/sub' })).toMatchObject({ type: 'directory' });
+    expect(await session.stat({ path: 'e2e-list/missing' })).toBeNull();
+    expect(
+      (await session.listDirectory({ path: 'e2e-list' }))?.toSorted((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    ).toEqual([
+      { name: 'five.txt', type: 'file' },
+      { name: 'link', type: 'symlink' },
+      { name: 'sub', type: 'directory' },
+    ]);
+    expect(await session.listDirectory({ path: 'e2e-list/sub' })).toEqual([
+      { name: '.a hidden', type: 'file' },
+    ]);
+    expect(await session.listDirectory({ path: 'e2e-list/missing' })).toBeNull();
+    await expect(session.listDirectory({ path: 'e2e-list/five.txt' })).rejects.toMatchObject({
+      code: 'ENOTDIR',
+    });
+
+    expect(await session.deleteFile({ path: 'e2e-list/link' })).toBe(true);
+    expect(await session.deleteFile({ path: 'e2e-list/link' })).toBe(false);
+    expect(await session.readTextFile({ path: 'e2e-list/five.txt' })).toBe('hello');
+    await expect(session.deleteFile({ path: 'e2e-list/sub' })).rejects.toMatchObject({
+      code: 'EISDIR',
+    });
+  });
+
   it('forwards a variable to one command only', async () => {
     const { stdout } = await session.run({ command: 'echo "$SECRET"', env: { SECRET: 's3cr3t' } });
     const next = await session.run({ command: 'echo "[$SECRET]"' });
@@ -318,9 +355,14 @@ describe.runIf(hostRunsMicroVms())('the network policy of a microsandbox', () =>
   const hostUrl = (): string =>
     `http://host.microsandbox.internal:${(hostService.address() as AddressInfo).port}`;
 
-  /** The HTTP status `url` answers the sandbox with, `000` when it cannot be reached. */
-  const status = async (session: MicrosandboxNetworkSandboxSession, url: string) =>
-    (await session.run({ command: `curl -s -m 8 -o /dev/null -w '%{http_code}' ${url}` })).stdout;
+  /**
+   * The HTTP status `url` answers the sandbox with, `000` when it cannot be reached: microsandbox
+   * drops a connection its policy denies, or answers a plain HTTP request with a 403 of its own.
+   */
+  const status = async (session: MicrosandboxNetworkSandboxSession, url: string) => {
+    const { stdout } = await session.run({ command: `curl -s -m 8 -w ' %{http_code}' ${url}` });
+    return stdout.includes('"network_policy_denied"') ? '000' : stdout.slice(-3);
+  };
 
   afterAll(() => hostService.close());
 

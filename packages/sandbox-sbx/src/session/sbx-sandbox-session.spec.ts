@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -216,6 +216,74 @@ describe('SbxSandboxSession', () => {
       await expect(session.writeTextFile({ path: 'file/child', content: 'x' })).rejects.toThrow(
         /Could not write/,
       );
+    });
+
+    it('stats a file, a directory and a link, its target followed', async () => {
+      writeFileSync(join(root, 'five.txt'), 'hello');
+      mkdirSync(join(root, 'dir'));
+      symlinkSync('five.txt', join(root, 'link'));
+
+      expect(await session.stat({ path: 'five.txt' })).toEqual({ type: 'file', size: 5 });
+      expect(await session.stat({ path: 'dir' })).toMatchObject({ type: 'directory' });
+      expect(await session.stat({ path: 'link' })).toEqual({ type: 'file', size: 5 });
+      expect(await session.stat({ path: 'missing' })).toBeNull();
+    });
+
+    it('lists a directory, hidden entries and links included, never followed', async () => {
+      mkdirSync(join(root, 'list/sub'), { recursive: true });
+      writeFileSync(join(root, 'list/a file'), '');
+      writeFileSync(join(root, 'list/.hidden'), '');
+      symlinkSync('sub', join(root, 'list/link'));
+      symlinkSync('nowhere', join(root, 'list/broken'));
+      mkdirSync(join(root, 'empty'));
+
+      const entries = await session.listDirectory({ path: 'list' });
+
+      expect(entries?.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual([
+        { name: '.hidden', type: 'file' },
+        { name: 'a file', type: 'file' },
+        { name: 'broken', type: 'symlink' },
+        { name: 'link', type: 'symlink' },
+        { name: 'sub', type: 'directory' },
+      ]);
+      expect(await session.listDirectory({ path: 'empty' })).toEqual([]);
+      expect(await session.listDirectory({ path: 'missing' })).toBeNull();
+    });
+
+    it('refuses to list a file', async () => {
+      writeFileSync(join(root, 'plain'), '');
+
+      await expect(session.listDirectory({ path: 'plain' })).rejects.toMatchObject({
+        code: 'ENOTDIR',
+      });
+    });
+
+    it('deletes a file, and a link rather than its target', async () => {
+      writeFileSync(join(root, 'target'), 'kept');
+      symlinkSync('target', join(root, 'link'));
+      writeFileSync(join(root, 'gone'), '');
+
+      expect(await session.deleteFile({ path: 'link' })).toBe(true);
+      expect(await session.deleteFile({ path: 'gone' })).toBe(true);
+      expect(await session.deleteFile({ path: 'gone' })).toBe(false);
+      expect(existsSync(join(root, 'target'))).toBe(true);
+      expect(existsSync(join(root, 'gone'))).toBe(false);
+    });
+
+    it('refuses to delete a directory', async () => {
+      mkdirSync(join(root, 'dir'));
+
+      await expect(session.deleteFile({ path: 'dir' })).rejects.toMatchObject({ code: 'EISDIR' });
+      expect(existsSync(join(root, 'dir'))).toBe(true);
+    });
+
+    it('reports a stat, a listing or a deletion the sandbox could not do', async () => {
+      sbx.update((state) => state.failOn.push('stat -L', 'printf', 'rm -f'));
+      mkdirSync(join(root, 'dir'));
+
+      await expect(session.stat({ path: 'x' })).rejects.toThrow(/Could not stat/);
+      await expect(session.listDirectory({ path: 'dir' })).rejects.toThrow(/Could not list/);
+      await expect(session.deleteFile({ path: 'x' })).rejects.toThrow(/Could not delete/);
     });
   });
 });

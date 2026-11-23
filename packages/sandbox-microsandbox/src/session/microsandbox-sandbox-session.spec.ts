@@ -1,4 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -188,6 +195,89 @@ describe('MicrosandboxSandboxSession', () => {
       await expect(
         session.writeTextFile({ path: 'x', content: '', abortSignal }),
       ).rejects.toThrow();
+    });
+
+    it('stats a file, a directory and a link, its target followed', async () => {
+      writeFileSync(join(workspace, 'five.txt'), 'hello');
+      mkdirSync(join(workspace, 'dir'));
+      symlinkSync('five.txt', join(workspace, 'link'));
+
+      expect(await session.stat({ path: 'five.txt' })).toEqual({ type: 'file', size: 5 });
+      expect(await session.stat({ path: 'dir' })).toMatchObject({ type: 'directory' });
+      expect(await session.stat({ path: 'link' })).toEqual({ type: 'file', size: 5 });
+      expect(await session.stat({ path: 'missing' })).toBeNull();
+    });
+
+    it('lists a directory, hidden entries and links included, never followed', async () => {
+      mkdirSync(join(workspace, 'list/sub'), { recursive: true });
+      writeFileSync(join(workspace, 'list/a file'), '');
+      writeFileSync(join(workspace, 'list/.hidden'), '');
+      symlinkSync('sub', join(workspace, 'list/link'));
+      symlinkSync('nowhere', join(workspace, 'list/broken'));
+      mkdirSync(join(workspace, 'empty'));
+
+      const entries = await session.listDirectory({ path: 'list' });
+
+      expect(entries?.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual([
+        { name: '.hidden', type: 'file' },
+        { name: 'a file', type: 'file' },
+        { name: 'broken', type: 'symlink' },
+        { name: 'link', type: 'symlink' },
+        { name: 'sub', type: 'directory' },
+      ]);
+      expect(await session.listDirectory({ path: 'empty' })).toEqual([]);
+      expect(await session.listDirectory({ path: 'missing' })).toBeNull();
+    });
+
+    it('refuses to list a file', async () => {
+      writeFileSync(join(workspace, 'plain'), '');
+
+      await expect(session.listDirectory({ path: 'plain' })).rejects.toMatchObject({
+        code: 'ENOTDIR',
+      });
+    });
+
+    it('deletes a file, and a link rather than its target', async () => {
+      writeFileSync(join(workspace, 'target'), 'kept');
+      symlinkSync('target', join(workspace, 'link'));
+      writeFileSync(join(workspace, 'gone'), '');
+
+      expect(await session.deleteFile({ path: 'link' })).toBe(true);
+      expect(await session.deleteFile({ path: 'gone' })).toBe(true);
+      expect(await session.deleteFile({ path: 'gone' })).toBe(false);
+      expect(existsSync(join(workspace, 'target'))).toBe(true);
+      expect(existsSync(join(workspace, 'gone'))).toBe(false);
+    });
+
+    it('refuses to delete a directory', async () => {
+      mkdirSync(join(workspace, 'dir'));
+
+      await expect(session.deleteFile({ path: 'dir' })).rejects.toMatchObject({ code: 'EISDIR' });
+      expect(existsSync(join(workspace, 'dir'))).toBe(true);
+    });
+
+    it('reports a listing or a deletion the sandbox could not do', async () => {
+      mkdirSync(join(workspace, 'locked'));
+      writeFileSync(join(workspace, 'locked/file'), '');
+      chmodSync(join(workspace, 'locked'), 0o000);
+
+      try {
+        await expect(session.listDirectory({ path: 'locked' })).rejects.toThrow(/Could not list/);
+        chmodSync(join(workspace, 'locked'), 0o500);
+        await expect(session.deleteFile({ path: 'locked/file' })).rejects.toThrow(
+          /Could not delete/,
+        );
+      } finally {
+        chmodSync(join(workspace, 'locked'), 0o700);
+      }
+    });
+
+    it('refuses to stat, list or delete once aborted', async () => {
+      const abortSignal = AbortSignal.abort();
+
+      await expect(session.stat({ path: 'x', abortSignal })).rejects.toThrow();
+      await expect(session.listDirectory({ path: 'x', abortSignal })).rejects.toThrow();
+      await expect(session.deleteFile({ path: 'x', abortSignal })).rejects.toThrow();
     });
   });
 });

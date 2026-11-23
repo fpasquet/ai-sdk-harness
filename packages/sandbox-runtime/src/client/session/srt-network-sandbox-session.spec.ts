@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, symlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -164,6 +164,53 @@ describe('SrtNetworkSandboxSession', () => {
     await expect(
       session.writeTextFile({ path: 'notes/hello.txt/inside', content: '' }),
     ).rejects.toThrow();
+  });
+
+  it('stats, lists and deletes files, links never followed by a listing or a deletion', async () => {
+    const { session } = await open();
+    const root = session.defaultWorkingDirectory;
+    await session.writeTextFile({ path: 'list/five.txt', content: 'hello' });
+    await session.writeTextFile({ path: 'list/sub/.hidden', content: '' });
+    await symlink('five.txt', join(root, 'list/link'));
+
+    expect(await session.stat({ path: 'list/five.txt' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'list/link' })).toEqual({ type: 'file', size: 5 });
+    expect(await session.stat({ path: 'list/sub' })).toMatchObject({ type: 'directory' });
+    expect(await session.stat({ path: 'missing' })).toBeNull();
+    expect(
+      (await session.listDirectory({ path: 'list' }))?.toSorted((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    ).toEqual([
+      { name: 'five.txt', type: 'file' },
+      { name: 'link', type: 'symlink' },
+      { name: 'sub', type: 'directory' },
+    ]);
+    expect(await session.listDirectory({ path: 'list/sub' })).toEqual([
+      { name: '.hidden', type: 'file' },
+    ]);
+    expect(await session.listDirectory({ path: 'missing' })).toBeNull();
+    await expect(session.listDirectory({ path: 'list/five.txt' })).rejects.toMatchObject({
+      code: 'ENOTDIR',
+    });
+
+    expect(await session.deleteFile({ path: 'list/link' })).toBe(true);
+    expect(await session.deleteFile({ path: 'list/link' })).toBe(false);
+    expect(existsSync(join(root, 'list/five.txt'))).toBe(true);
+    await expect(session.deleteFile({ path: 'list/sub' })).rejects.toMatchObject({
+      code: 'EISDIR',
+    });
+    expect(await session.deleteFile({ path: 'list/five.txt' })).toBe(true);
+    expect(existsSync(join(root, 'list/five.txt'))).toBe(false);
+  });
+
+  it('refuses to stat, list or delete once aborted', async () => {
+    const { session } = await open();
+    const abortSignal = AbortSignal.abort(new Error('stop'));
+
+    await expect(session.stat({ path: 'x', abortSignal })).rejects.toThrow('stop');
+    await expect(session.listDirectory({ path: 'x', abortSignal })).rejects.toThrow('stop');
+    await expect(session.deleteFile({ path: 'x', abortSignal })).rejects.toThrow('stop');
   });
 
   it('forwards an exposed port to this host, with the scheme asked for', async () => {
