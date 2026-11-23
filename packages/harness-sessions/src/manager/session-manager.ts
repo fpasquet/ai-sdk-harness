@@ -861,7 +861,10 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     }
     let decision: ApprovalVerdict | undefined;
     try {
-      decision = await approve(approval, { session: summaryOf(session.record) });
+      decision = await approve(approval, {
+        session: summaryOf(session.record),
+        abortSignal: answered.abortSignal,
+      });
     } catch (error) {
       // Left to a person: they decide, as without approve.
       this.report('approve', session.record.id)(error);

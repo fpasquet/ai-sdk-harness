@@ -91,6 +91,46 @@ A harness that cannot ask before using its own tools — Codex today — gets `a
 
 Its `grants` option reads the grants of the session from what the manager passes: `{ session }`, its metadata included.
 
+### Answered from a remote interface
+
+An approval the policy leaves to a person can be answered elsewhere than in the chat — a page of its own, a phone — while the turn waits. `remoteApprover({ request })` sends each approval to `request`, which asks your interface and resolves with its answer, and tells every step as plain JSON, for each interface to follow:
+
+```ts
+import { defineApprovalPolicy, remoteApprover } from 'ai-sdk-harness-approval';
+import type { ApprovalVerdict } from 'ai-sdk-harness-approval';
+
+const answers = new Map<string, (verdict: ApprovalVerdict) => void>();
+const remote = remoteApprover({
+  // Waits for the answer a page posts; the signal aborts once the approval is abandoned.
+  request: ({ approvalId }, { signal }) =>
+    new Promise((resolve) => {
+      answers.set(approvalId, resolve);
+      signal.addEventListener('abort', () => answers.delete(approvalId));
+    }),
+  timeoutMs: 15 * 60_000,
+});
+const decide = policy.approver({ grants: ({ session }) => session.metadata.grants });
+
+const sessions = createSessionManager<Metadata>({
+  // …
+  approve: async (approval, context) =>
+    decide(approval, context) ?? remote.approve(approval, context),
+});
+
+// GET /api/approvals: remote.pending(), then each event of remote.subscribe() as it comes (SSE).
+// POST /api/approvals/:id with { approved, reason }: answers.get(id)?.({ approved, reason }).
+```
+
+| Event       | When                                           | Carries                                                                          |
+| ----------- | ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `requested` | An approval waits for an answer                | `approvalId`, `toolName`, `input`, `summary` (`describeToolCall()`), `at`        |
+| `answered`  | `request` resolved with `{ approved, reason }` | `approvalId`, `approved`, `reason`, `at`                                         |
+| `abandoned` | The approval was given up                      | `approvalId`, `reason`: `abandoned`, `aborted`, `timeout`, `undecided`, `failed` |
+
+- An approval is abandoned by `remote.abandon(approvalId)`, by the `abortSignal` of the context it is asked with — the turn's, which the session manager passes, so an interrupted turn or a closed session withdraws it —, after `timeoutMs`, when `request` resolves with `undefined` (`undecided`), or when it throws (`failed`, the error thrown again). The signal `request` holds aborts then, and an answer given afterwards is ignored.
+- `approve()` resolves with `undefined` for an abandoned approval: the session manager leaves it to a person, the session `awaiting-input`, as without `approve`.
+- `pending()` lists the approvals that wait, the oldest first, for an interface that connects; `subscribe(listener)` and `onEvent` get every event. An approval asked again with the same `approvalId` abandons the first wait.
+
 ### Always allow
 
 A person who approves a call can allow the same for the rest of the session. `suggestGrant(request)` says what to grant, and how a button says it:
@@ -194,6 +234,7 @@ npx shadcn@latest add https://ai-sdk-harness.pages.dev/r/questions-form.json
 | `installClaudeCodePolicies(sandbox, policies)`     | Installs policies in a sandbox (`ai-sdk-harness-approval/sandbox`) |
 | `policy.answer(requests, { grants })`              | `{ responses, remaining }`: what a route continues a turn with     |
 | `policy.approver({ grants })`                      | The `approve` option of `createSessionManager()`                   |
+| `remoteApprover({ request, timeoutMs })`           | Approvals answered from a remote interface, with their events      |
 | `suggestGrant(request)`                            | `{ grants, label }`: what "Always allow" grants                    |
 | `withGrants(grants, added)`                        | The grants with `added`, each once                                 |
 | `describeGrant(grant)`                             | "\`npm test\` commands", "file edits"                              |

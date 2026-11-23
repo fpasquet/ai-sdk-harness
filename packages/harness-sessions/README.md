@@ -287,6 +287,8 @@ await sessions.update(id, { metadata: (metadata) => ({ ...metadata, grants }) })
 
 When a pause holds several approvals and `approve` answers some, the session waits for the others: `pendingInput.approvals` carries the answers given in `decision`, and `continue()` sends them with the person's, which cannot overturn them. An approval asked again right after `approve` answered it, with the same input, is left to a person: a harness that does not take the answer would otherwise ask forever.
 
+`approve` gets the turn's `abortSignal` beside the session: an `approve` that waits — for a person answering on another page, `remoteApprover()` of `ai-sdk-harness-approval` — settles when it aborts, as the turn is interrupted, takes longer than `turnTimeoutMs`, or its session is closed or shut down. Until `approve` settles, the turn waits for it: one that ignores the signal holds `interrupt()` back.
+
 ## Sandboxes
 
 Where each session runs is up to `sandboxes`:
