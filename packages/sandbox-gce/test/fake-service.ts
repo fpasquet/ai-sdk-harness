@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { SandboxNetwork } from '../src/protocol/api.js';
 import type { SandboxServer } from '../src/server/http/sandbox-server.js';
+import type { SandboxesOptions } from '../src/server/sandboxes/sandboxes.js';
 import type { FakeCompute } from './fake-compute.js';
 
 import { silentLogger } from '../src/common/logger.js';
@@ -38,7 +38,7 @@ export interface FakeService {
 /** What a test changes of the service and its proxy. */
 interface FakeServiceOverrides {
   allowPrivateNetwork?: boolean;
-  network?: Required<SandboxNetwork>;
+  network?: SandboxesOptions['network'];
   serviceToken?: string;
   /** The port the proxy's tunnels reach, 443 without it. */
   tunnelPort?: number;

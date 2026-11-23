@@ -65,6 +65,16 @@ export interface GceConnectionSettings {
    * @defaultValue `{}`
    */
   baseUrls?: Readonly<Record<string, string>>;
+  /**
+   * Sets `NODE_USE_ENV_PROXY=1` for the sandbox's commands: Node.js's own `fetch` and `http` then
+   * leave through the egress proxy, as package managers, git and the harnesses already do. Off by
+   * default: it breaks the test suites that mock `fetch` by its sockets, such as MSW 3, whose
+   * requests then reach the proxy instead of their mocks. Turn it on for code that calls an outside
+   * API with Node.js's `fetch` and no proxy support of its own. A command can still set it itself.
+   *
+   * @defaultValue the service's `SANDBOX_NODE_USE_ENV_PROXY`, `false` by default
+   */
+  nodeUseEnvProxy?: boolean;
 }
 
 /** What a new sandbox is made of. */

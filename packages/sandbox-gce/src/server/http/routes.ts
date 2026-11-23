@@ -5,6 +5,7 @@ import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
 import {
   offsetOf,
+  optionalBoolean,
   optionalString,
   readBytes,
   readJson,
@@ -41,6 +42,7 @@ const network = async (request: IncomingMessage) => {
   return {
     allowedHosts: stringList(body, 'allowedHosts'),
     baseUrls: stringRecord(body, 'baseUrls'),
+    nodeUseEnvProxy: optionalBoolean(body, 'nodeUseEnvProxy'),
     template: optionalString(body, 'template'),
     image: optionalString(body, 'image'),
     name: optionalString(body, 'name'),

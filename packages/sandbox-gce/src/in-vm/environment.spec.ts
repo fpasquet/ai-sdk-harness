@@ -30,6 +30,29 @@ describe('the environment of a command', () => {
     });
   });
 
+  it('leaves Node.js out of the proxy variables unless the sandbox asks for it', () => {
+    expect(commandEnvironment(settings, config)).not.toHaveProperty('NODE_USE_ENV_PROXY');
+    expect(commandEnvironment(settings, { ...config, nodeUseEnvProxy: false })).not.toHaveProperty(
+      'NODE_USE_ENV_PROXY',
+    );
+    expect(commandEnvironment(settings, { ...config, nodeUseEnvProxy: true })).toMatchObject({
+      NODE_USE_ENV_PROXY: '1',
+    });
+  });
+
+  it('lets a command set NODE_USE_ENV_PROXY itself, either way', () => {
+    expect(commandEnvironment(settings, config, { NODE_USE_ENV_PROXY: '1' })).toMatchObject({
+      NODE_USE_ENV_PROXY: '1',
+    });
+    expect(
+      commandEnvironment(
+        settings,
+        { ...config, nodeUseEnvProxy: true },
+        { NODE_USE_ENV_PROXY: '' },
+      ),
+    ).toMatchObject({ NODE_USE_ENV_PROXY: '' });
+  });
+
   it('routes git over HTTPS through the proxy, after the git configuration of the command', () => {
     const env = commandEnvironment(settings, config, {
       GIT_CONFIG_COUNT: '1',

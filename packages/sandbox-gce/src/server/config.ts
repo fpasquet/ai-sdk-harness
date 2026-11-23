@@ -275,6 +275,7 @@ export async function sandboxesConfig(env: Environment, logger: Logger): Promise
     network: {
       allowedHosts: allowedHosts(env, logger),
       baseUrls: baseUrls(env['SANDBOX_BASE_URLS']),
+      nodeUseEnvProxy: flag('SANDBOX_NODE_USE_ENV_PROXY', env['SANDBOX_NODE_USE_ENV_PROXY'], false),
     },
     startTimeoutMs: Number.parseInt(env['SANDBOX_START_TIMEOUT'] ?? '300', 10) * 1000,
     maxRunning: maxRunning(env['SANDBOX_MAX_RUNNING']),

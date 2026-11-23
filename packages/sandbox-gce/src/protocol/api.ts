@@ -14,6 +14,8 @@ export interface SandboxDescription {
 export interface SandboxNetwork {
   allowedHosts?: readonly string[];
   baseUrls?: Readonly<Record<string, string>>;
+  /** Sets `NODE_USE_ENV_PROXY=1` for the sandbox's commands: the service's setting without it. */
+  nodeUseEnvProxy?: boolean;
 }
 
 /** One command to run in a sandbox. */
