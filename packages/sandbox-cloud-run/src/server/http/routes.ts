@@ -9,6 +9,7 @@ import { PACKAGE_VERSION } from '../package-version.js';
 import { execStream } from './exec-stream.js';
 import { HttpError } from './http-error.js';
 import {
+  optionalBoolean,
   optionalString,
   readBytes,
   readJson,
@@ -51,6 +52,7 @@ const network = async (request: IncomingMessage) => {
   return {
     allowedHosts: stringList(body, 'allowedHosts'),
     baseUrls: stringRecord(body, 'baseUrls'),
+    nodeUseEnvProxy: optionalBoolean(body, 'nodeUseEnvProxy'),
     template: optionalString(body, 'template'),
     name: optionalString(body, 'name'),
   };

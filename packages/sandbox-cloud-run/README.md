@@ -378,6 +378,18 @@ flowchart TD
 
 Whatever it allows, the proxy never connects to a private address: loopback, link-local (the metadata server, `169.254.169.254`), the private ranges of the VPC. It checks the address a name resolves to, at the moment it connects, so no name leads there either, nor an IPv6 address carrying a private IPv4 one (NAT64, 6to4).
 
+### Node.js and the proxy
+
+Package managers, git, curl and the harnesses (Claude Code, Codex) read `HTTPS_PROXY` themselves. Node.js's own `fetch` and `http` only do with `NODE_USE_ENV_PROXY=1`, which the sandbox does not set by default: with it, a test suite that mocks `fetch` with [MSW](https://mswjs.io) 3 sees its requests leave for the relay, which refuses them (`fetch failed`, `Failed to establish tunnel … 403`), MSW's `onUnhandledRequest` saying nothing. MSW 3 catches a request at its socket, and Node.js then opens that socket to the relay, with a `CONNECT`, rather than to the host the suite mocks.
+
+Without it, code that calls an outside host with Node.js's `fetch` and has no proxy support of its own cannot reach it. Turn it on where it is needed:
+
+- for a sandbox: `nodeUseEnvProxy: true`, at its creation and at each resume;
+- for every sandbox of the service: `SANDBOX_NODE_USE_ENV_PROXY=true`, which a sandbox's `nodeUseEnvProxy: false` turns off;
+- for one command: `NODE_USE_ENV_PROXY=1 node script.mjs`, or `node --use-env-proxy script.mjs`. In a sandbox that sets it, `NODE_USE_ENV_PROXY= npm test` runs a test suite without it.
+
+The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev/docs/packages/harness-plugins) runs in the sandbox get it on their own.
+
 ## Ports
 
 `ports` lists the ports inside the sandbox the harness may reach. `getPortEndpoint()` returns a WebSocket URL on the service, `wss://<service>/v1/sandboxes/<name>/ports/<port>`, with the identity token as a header, read anew at each connection, and the service token if any. The service passes the connection on to `127.0.0.1:<port>` in the sandbox, without the caller's headers that let it through. A port outside the list is refused with `HarnessCapabilityUnsupportedError`.
@@ -411,43 +423,45 @@ A view starts its own processes and hands its own credentials to the service, an
 
 `createCloudRunNetworkSandboxSession(options)` takes every option below; `resumeCloudRunNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.
 
-| Option         | Default        | Description                                                                                         |
-| -------------- | -------------- | --------------------------------------------------------------------------------------------------- |
-| `url`          | required       | _Connection._ The URL of the sandbox service                                                        |
-| `auth`         | `'gcloud'`     | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token         |
-| `ports`        | `[]`           | _Connection._ Ports the harness may reach, through the service                                      |
-| `allowedHosts` | `[]`           | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                       |
-| `baseUrls`     | `{}`           | _Connection._ Base URL variables routed through the service, on top of its own                      |
-| `serviceToken` | none           | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                |
-| `sandboxId`    | `ai-sdk-<hex>` | The sandbox's name: lowercase letters, digits and dashes, 63 at most. Creation fails if it is taken |
-| `template`     | none           | `await agent.getSandboxTemplate()`: prepare once, start every later sandbox from it                 |
-| `setup`        | `[]`           | Commands run once after creation, as root, saved in the template                                    |
-| `abortSignal`  | none           | Aborts the creation or the resume                                                                   |
+| Option            | Default        | Description                                                                                                           |
+| ----------------- | -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `url`             | required       | _Connection._ The URL of the sandbox service                                                                          |
+| `auth`            | `'gcloud'`     | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token                           |
+| `ports`           | `[]`           | _Connection._ Ports the harness may reach, through the service                                                        |
+| `allowedHosts`    | `[]`           | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                                         |
+| `baseUrls`        | `{}`           | _Connection._ Base URL variables routed through the service, on top of its own                                        |
+| `nodeUseEnvProxy` | the service's  | _Connection._ `true` sets `NODE_USE_ENV_PROXY=1` for the commands: see [Node.js and the proxy](#nodejs-and-the-proxy) |
+| `serviceToken`    | none           | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                                  |
+| `sandboxId`       | `ai-sdk-<hex>` | The sandbox's name: lowercase letters, digits and dashes, 63 at most. Creation fails if it is taken                   |
+| `template`        | none           | `await agent.getSandboxTemplate()`: prepare once, start every later sandbox from it                                   |
+| `setup`           | `[]`           | Commands run once after creation, as root, saved in the template                                                      |
+| `abortSignal`     | none           | Aborts the creation or the resume                                                                                     |
 
 ## Service configuration
 
 The service reads its settings from the environment. Every variable has a default fit for Cloud Run.
 
-| Variable                        | Default                                                                                  | Description                                                                                                               |
-| ------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `SNAPSHOT_BUCKET`               | required on Cloud Run                                                                    | The bucket of the snapshots and templates                                                                                 |
-| `SANDBOX_ALLOWED_HOSTS`         | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                                             |
-| `SANDBOX_BASE_URLS`             | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the service, as `NAME=url` pairs                                                        |
-| `SANDBOX_HOME`                  | `/home/agent`                                                                            | The `HOME` of the sandboxes' commands                                                                                     |
-| `SANDBOX_WORKDIR`               | `/workspace`                                                                             | Their working directory                                                                                                   |
-| `SANDBOX_PATH`                  | `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`                           | Their `PATH`                                                                                                              |
-| `SANDBOX_EGRESS_PORT`           | `3128`                                                                                   | The port of the egress relay in each sandbox                                                                              |
-| `SANDBOX_IMAGE_ID`              | the Cloud Run revision                                                                   | What the image is made of, a commit or a digest: templates are tied to it                                                 |
-| `SANDBOX_SERVICE_TOKEN`         | required on Cloud Run                                                                    | A secret every call must carry, beside Cloud Run's IAM                                                                    |
-| `SANDBOX_INSECURE_NO_TOKEN`     | `false`                                                                                  | `true` to run on Cloud Run without `SANDBOX_SERVICE_TOKEN`, Cloud Run's IAM then the only lock, with a warning at startup |
-| `SANDBOX_ALLOW_EGRESS`          | `false`                                                                                  | `true` gives the sandboxes a network of their own (`--allow-egress`), beside the proxy: see [Security](#security)         |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`                                                                                  | Off Cloud Run only, for tests: lets the sandboxes reach private addresses and plain HTTP                                  |
-| `SNAPSHOT_TRANSFER`             | `fifo`                                                                                   | `file` to pass layers through a file rather than a pipe; the service falls back by itself                                 |
-| `SANDBOX_CLI`                   | `/usr/local/gcp/bin/sandbox`                                                             | The `sandbox` CLI                                                                                                         |
-| `SANDBOX_NODE`                  | the service's Node.js                                                                    | The Node.js the sandboxes run the relay with                                                                              |
-| `SNAPSHOT_DIRECTORY`            | `.snapshots`                                                                             | Off Cloud Run, without a bucket: the directory of the snapshots                                                           |
-| `PORT`, `HOST`                  | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                 |
-| `LOG_FORMAT`                    | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                               |
+| Variable                        | Default                                                                                  | Description                                                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SNAPSHOT_BUCKET`               | required on Cloud Run                                                                    | The bucket of the snapshots and templates                                                                                                            |
+| `SANDBOX_ALLOWED_HOSTS`         | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed                                                                        |
+| `SANDBOX_BASE_URLS`             | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the service, as `NAME=url` pairs                                                                                   |
+| `SANDBOX_NODE_USE_ENV_PROXY`    | `false`                                                                                  | `true` sets `NODE_USE_ENV_PROXY=1` for the commands of every sandbox that does not say otherwise: see [Node.js and the proxy](#nodejs-and-the-proxy) |
+| `SANDBOX_HOME`                  | `/home/agent`                                                                            | The `HOME` of the sandboxes' commands                                                                                                                |
+| `SANDBOX_WORKDIR`               | `/workspace`                                                                             | Their working directory                                                                                                                              |
+| `SANDBOX_PATH`                  | `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`                           | Their `PATH`                                                                                                                                         |
+| `SANDBOX_EGRESS_PORT`           | `3128`                                                                                   | The port of the egress relay in each sandbox                                                                                                         |
+| `SANDBOX_IMAGE_ID`              | the Cloud Run revision                                                                   | What the image is made of, a commit or a digest: templates are tied to it                                                                            |
+| `SANDBOX_SERVICE_TOKEN`         | required on Cloud Run                                                                    | A secret every call must carry, beside Cloud Run's IAM                                                                                               |
+| `SANDBOX_INSECURE_NO_TOKEN`     | `false`                                                                                  | `true` to run on Cloud Run without `SANDBOX_SERVICE_TOKEN`, Cloud Run's IAM then the only lock, with a warning at startup                            |
+| `SANDBOX_ALLOW_EGRESS`          | `false`                                                                                  | `true` gives the sandboxes a network of their own (`--allow-egress`), beside the proxy: see [Security](#security)                                    |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`                                                                                  | Off Cloud Run only, for tests: lets the sandboxes reach private addresses and plain HTTP                                                             |
+| `SNAPSHOT_TRANSFER`             | `fifo`                                                                                   | `file` to pass layers through a file rather than a pipe; the service falls back by itself                                                            |
+| `SANDBOX_CLI`                   | `/usr/local/gcp/bin/sandbox`                                                             | The `sandbox` CLI                                                                                                                                    |
+| `SANDBOX_NODE`                  | the service's Node.js                                                                    | The Node.js the sandboxes run the relay with                                                                                                         |
+| `SNAPSHOT_DIRECTORY`            | `.snapshots`                                                                             | Off Cloud Run, without a bucket: the directory of the snapshots                                                                                      |
+| `PORT`, `HOST`                  | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                                            |
+| `LOG_FORMAT`                    | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                                                          |
 
 A sandbox's commands run with nothing of the service's environment: only their `PATH`, `HOME`, proxy and base URL variables, `IS_SANDBOX=1` (a Cloud Run sandbox runs as root), `npm_config_side_effects_cache=false` (pnpm's side-effects cache crashes a Cloud Run sandbox, the Claude Code bridge's install included) and the variables the command sets.
 

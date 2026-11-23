@@ -76,6 +76,8 @@ export class Sandbox implements EgressPolicy {
   allowedHosts: readonly string[] = [];
   /** Variables pointed at the relay, and where they really lead. */
   baseUrls: Readonly<Record<string, string>> = {};
+  /** Whether the commands get `NODE_USE_ENV_PROXY=1`. */
+  nodeUseEnvProxy = false;
   transformations: HarnessV1RequestTransformation[] = [];
   private readonly processes = new Map<string, SandboxProcess>();
   private readonly proxy = new EgressProxy(() => this);
@@ -129,6 +131,10 @@ export class Sandbox implements EgressPolicy {
    * The variables a command runs with: the sandbox's, its base URLs routed through the relay, then
    * the command's own. A command's own value for a base URL variable is routed too: a harness that
    * points its client at the real API still goes through the relay.
+   *
+   * `NODE_USE_ENV_PROXY` only when the sandbox asks for it: it sends Node.js's own `fetch` and
+   * `http` to the relay, where a test suite that mocks them by their sockets (MSW 3) no longer sees
+   * its requests.
    */
   environment(env: Readonly<Record<string, string>> = {}): Record<string, string> {
     const origin = this.relayOrigin;
@@ -137,14 +143,15 @@ export class Sandbox implements EgressPolicy {
       PATH: this.settings.path,
       HOME: this.settings.home,
       LANG: 'C.UTF-8',
-      // Everything else leaves through the relay as a proxy: package managers and Node.js read these.
+      // Everything else leaves through the relay as a proxy: package managers, git and the harnesses
+      // read these.
       HTTPS_PROXY: origin,
       HTTP_PROXY: origin,
       https_proxy: origin,
       http_proxy: origin,
       NO_PROXY: 'localhost,127.0.0.1',
       no_proxy: 'localhost,127.0.0.1',
-      NODE_USE_ENV_PROXY: '1',
+      ...(this.nodeUseEnvProxy && { NODE_USE_ENV_PROXY: '1' }),
       // A Cloud Run sandbox runs its commands as root: tell the agents it is a sandbox all the same.
       IS_SANDBOX: '1',
       // pnpm copies a package a postinstall script changed back to its store: in a Cloud Run
