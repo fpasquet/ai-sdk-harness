@@ -15,8 +15,12 @@ allowBuilds:
 
 # Some harness adapters pin ws exactly (8.21.0): without one version, @ai-sdk/harness is installed
 # once per ws and its types no longer match across the workspace.
+#
+# @anthropic-ai/sandbox-runtime asks for zod ^3.25.0 but imports `zod/v3` only, which zod 4 ships
+# too (see its README): one zod 4 for the whole tree rather than a zod 3 of its own.
 overrides:
   ws: ^8.22.0
+  '@anthropic-ai/sandbox-runtime>zod': ^4.6.7
 
 minimumReleaseAgeExclude:
   - '@ai-sdk/provider-utils@5.0.70'
