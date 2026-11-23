@@ -11,6 +11,7 @@ body:
         - 'ai-sdk-sandbox-sbx'
         - 'ai-sdk-sandbox-microsandbox'
         - 'ai-sdk-sandbox-gce'
+        - 'ai-sdk-sandbox-gke'
         - 'ai-sdk-sandbox-runtime'
         - 'ai-sdk-harness-plugins'
         - 'ai-sdk-harness-sessions'
