@@ -46,6 +46,7 @@ return turn.toUIMessageStreamResponse();
 | Nobody writes for `idleTimeoutMs`      | Suspends the session: its harness session stops with its state, its sandbox is freed. The next message resumes it    |
 | Every sandbox slot is taken            | Suspends the session idle the longest to make room                                                                   |
 | Your server stops (`shutdown()`)       | Cuts the turns under way short, and suspends every session: the next start resumes them on their next message        |
+| A turn fails on a transient error      | With `turnRetries`, starts its harness session again and runs the turn again, telling the client                     |
 | Your server crashes                    | Marks the sessions it held `interrupted` at the next start: their conversation can still be read                     |
 | Your server runs on several instances  | With a store that gives leases, each instance runs the sessions it holds, and takes over those of one that crashed   |
 | You want the conversation again        | `get(id)` gives it as `useChat` shows it, `list()` every session, `subscribe()` every change, for a list to follow   |
@@ -138,6 +139,31 @@ export async function POST(request: Request) {
 The turn is read to its end on your server as well: a user who closes the tab does not leave the session hanging, and the session is written either way. `abortSignal: request.signal` lets the stop button of `useChat` cut the turn short; leave it out for turns that go on without the client. `interrupt(id)` cuts a turn short from anywhere.
 
 A turn cut short — by `interrupt(id)`, `turnTimeoutMs` or the caller's `abortSignal` — starts its harness session again, in the same sandbox, before the session takes another message. A runtime goes on with a turn for a moment after it is told to stop, and its harness session would hand what it still says to the next turn: that turn would end at once, its answer lost ([vercel/ai#23507](https://github.com/vercel/ai/issues/23507)). The conversation goes on where it stopped; starting again takes a few seconds. A harness session that cannot start again leaves the session `suspended`, resumed by the next message.
+
+### A turn that fails on a transient error
+
+A turn fails on its first error, by default: the client gets an `error` chunk, the session's `error` keeps the full message, and the session waits for the next message. `turnRetries` runs the turn again instead when the error is transient — the harness bridge lost, a connection reset or timed out, a 5xx or an overloaded provider:
+
+```ts
+const sessions = createSessionManager<Metadata>({
+  // …
+  // Waits 10 seconds before the first retry, 20 before the second.
+  turnRetries: { attempts: 2 },
+});
+```
+
+The harness session starts again from where it stopped, in the same sandbox, as after a turn cut short, and the agent is told to carry on: its conversation keeps what the failed attempt did. The client reads one answer. Before each retry it gets a `data-turn-retry` chunk (`TURN_RETRY_CHUNK`), sent `transient` so the conversation does not keep it, whose data is `{ attempt, attempts, delayMs, error }` — `error` as `errorMessage` tells it; the `error` chunk comes only once the retries are used up, with the last error:
+
+```tsx
+const { messages } = useChat({
+  onData: (part) => {
+    if (part.type === 'data-turn-retry')
+      setNotice(`Retrying (${part.data.attempt}/${part.data.attempts})…`);
+  },
+});
+```
+
+`isTransient` judges the errors (default: `isTransientError`, exported for the applications that retry on their own), `delayMs` sets the waits, a number or a function of the retry, and `prompt` what the agent is told. Each retry goes to `onError` (`action: 'retry turn'`); `TurnReport.retries` counts them. A rate limit, a quota, credentials refused, an abort and any error `isTransientError` does not recognise are never retried; nor is a turn that cannot start: `send()` rejects, and the session stays ready. A harness session that cannot be stopped to start again leaves the session `interrupted`, as after a turn cut short.
 
 ### Showing the conversations again
 
@@ -637,6 +663,7 @@ The same with `em.upsert()`, `em.findOne()`, `em.find(…, { fields: ['summary']
 | `idleTimeoutMs`         | never                    | Suspend a session idle, or awaiting input, for this long                                            |
 | `closeSuspendedAfterMs` | never                    | Close a session suspended for this long                                                             |
 | `turnTimeoutMs`         | never                    | Cut a turn short after this long                                                                    |
+| `turnRetries`           | none                     | Run a turn that failed on a transient error again: `{ attempts, delayMs, isTransient, prompt }`     |
 | `suspendIdleWhenFull`   | `true`                   | When every sandbox slot is taken, suspend the session idle the longest rather than refuse a new one |
 | `approve`               | none                     | Answers an approval before anyone sees it: `{ approved, reason }`, or `undefined` to ask a person   |
 | `generateId`            | `crypto.randomUUID`      | The ids of new sessions and of the messages of their turns                                          |
@@ -659,6 +686,8 @@ The same with `em.upsert()`, `em.findOne()`, `em.find(…, { fields: ['summary']
 | `shutdown()`               | Suspends every live session and shuts the sandboxes down                                                   |
 
 A `SessionTurn` has the turn as a UI message `stream`, `toUIMessageStreamResponse()` for a route, and `done`, the session once the turn is over and written.
+
+`isTransientError(error)` tells whether a turn that failed with `error` may succeed when run again: what `turnRetries` retries by default. It reads the error's `cause`s, its `code` and HTTP status, and the text the runtimes report an API error with.
 
 ### The task list
 

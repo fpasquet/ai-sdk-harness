@@ -13,6 +13,8 @@ import type {
   SessionManager,
   SessionManagerOptions,
   SessionTurn,
+  TurnRetryData,
+  TurnRetryOptions,
 } from '../definitions/manager.js';
 import type {
   ApprovalVerdict,
@@ -25,9 +27,10 @@ import type {
 } from '../definitions/session.js';
 import type { SessionStore } from '../definitions/store.js';
 import type { InputResponses } from '../turns/pending-input.js';
-import type { TurnStep } from '../turns/turn-stream.js';
+import type { TurnRetry, TurnStep } from '../turns/turn-stream.js';
 import type { LiveSession, ReadySession } from './live-session.js';
 
+import { TURN_RETRY_CHUNK } from '../definitions/manager.js';
 import { SessionCapacityError } from '../errors/session-capacity-error.js';
 import { SessionConflictError } from '../errors/session-conflict-error.js';
 import { SessionNotFoundError } from '../errors/session-not-found-error.js';
@@ -45,6 +48,7 @@ import {
   responsesFrom,
   withResponses,
 } from '../turns/pending-input.js';
+import { isTransientError } from '../turns/transient-error.js';
 import { streamTurn } from '../turns/turn-stream.js';
 import {
   isLive,
@@ -69,6 +73,11 @@ const WIND_DOWN_MS = 10_000;
 const LEASE_TTL_MS = 30_000;
 /** How many approvals `approve` answers in one turn, at most, before leaving them to a person. */
 const MAX_ANSWERED_PER_TURN = 200;
+/** What the agent is told when its turn runs again after a transient error. */
+const RETRY_PROMPT =
+  'Your last turn was cut short by a transient error, not by anything you did. Carry on with the task from where you stopped.';
+/** The wait before the first retry of a turn, doubled at each one. */
+const RETRY_DELAY_MS = 10_000;
 
 /**
  * The answers `continue()` was given, read from `useChat`'s message and given as they are, and
@@ -138,9 +147,24 @@ interface TransitionOptions {
 type Settings<METADATA> = Required<
   Omit<
     SessionManagerOptions<METADATA>,
-    'agent' | 'approve' | 'leaseTtlMs' | 'managerId' | 'onTurn' | 'sandboxes' | 'store'
+    | 'agent'
+    | 'approve'
+    | 'leaseTtlMs'
+    | 'managerId'
+    | 'onTurn'
+    | 'sandboxes'
+    | 'store'
+    | 'turnRetries'
   >
->;
+> & { turnRetries: RetrySettings };
+
+/** `turnRetries` with its defaults. */
+interface RetrySettings {
+  attempts: number;
+  delayMs: (attempt: number) => number;
+  isTransient: (error: unknown) => boolean;
+  prompt: string;
+}
 
 /** A session kept in the store, held by this manager until `release()`. */
 interface HeldSession<METADATA> {
@@ -165,6 +189,21 @@ function settingsOf<METADATA>(options: SessionManagerOptions<METADATA>): Setting
     generateId: options.generateId ?? randomUUID,
     errorMessage: options.errorMessage ?? getHarnessErrorMessage,
     onError: options.onError ?? defaultReport,
+    turnRetries: retriesOf(options.turnRetries),
+  };
+}
+
+/** `turnRetries` with its defaults; none at all turns retries off. */
+function retriesOf(options: TurnRetryOptions | undefined): RetrySettings {
+  const delayMs = options?.delayMs;
+  return {
+    attempts: Math.max(0, Math.floor(options?.attempts ?? 0)),
+    delayMs:
+      typeof delayMs === 'number'
+        ? () => delayMs
+        : (delayMs ?? ((attempt) => RETRY_DELAY_MS * 2 ** (attempt - 1))),
+    isTransient: options?.isTransient ?? isTransientError,
+    prompt: options?.prompt ?? RETRY_PROMPT,
   };
 }
 
@@ -757,28 +796,32 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
     await this.transition(session, 'busy');
     const settle = async (failure?: string): Promise<void> => {
       clearTimeout(timer);
+      // A retry starts the harness session again: the turn's is the last one.
+      const current = (session.handle as HarnessAgentSession | undefined) ?? handle;
       // Cut short by an interrupt, a timeout or the caller: before the turn is over, so that a
       // close waits for it, and finds the harness session to destroy.
-      if (abort.signal.aborted || callerSignal?.aborted === true) await this.renew(session, handle);
-      await this.settleTurn(session, handle, failure);
+      const cutShort = abort.signal.aborted || callerSignal?.aborted === true;
+      if (cutShort) await this.renew(session, current);
+      await this.settleTurn(session, current, failure);
       finish();
     };
 
+    const signal = callerSignal ? AbortSignal.any([abort.signal, callerSignal]) : abort.signal;
     let result: SessionStreamResult;
     try {
-      result = await begin(
-        callerSignal ? AbortSignal.any([abort.signal, callerSignal]) : abort.signal,
-      );
+      result = await begin(signal);
     } catch (error) {
       await settle(messageOf(error));
       throw error;
     }
     const { record } = session;
     const answered: AnsweredApprovals = { last: new Set(), count: 0, abortSignal: abort.signal };
+    const retry = this.retryOf(session, signal);
     const { stream, settled } = streamTurn(result, {
       originalMessages: record.messages,
       generateMessageId: generateId,
       errorMessage,
+      ...(retry !== undefined && { retry }),
       next: (messages) => this.answerPause(session, messages, answered),
       onSettled: async ({ messages, failure, usage, report }) => {
         if (messages !== undefined) record.messages = messages;
@@ -797,6 +840,44 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       stream,
       toUIMessageStreamResponse: (init) => createUIMessageStreamResponse({ ...init, stream }),
       done,
+    };
+  }
+
+  /**
+   * How a turn of the session is run again after a transient error, with `turnRetries`: its
+   * harness session started again from where it stopped, as `renew()` does — the bridge of a
+   * runtime that failed may be gone —, then told to carry on.
+   */
+  private retryOf(
+    session: ReadySession<METADATA>,
+    abortSignal: AbortSignal,
+  ): TurnRetry | undefined {
+    const { attempts, delayMs, isTransient, prompt } = this.settings.turnRetries;
+    if (attempts === 0) return undefined;
+    const { id } = session.record;
+    return {
+      abortSignal,
+      plan: (error, attempt) => {
+        if (attempt > attempts || !isTransient(error)) return undefined;
+        const data: TurnRetryData = {
+          attempt,
+          attempts,
+          delayMs: Math.max(0, delayMs(attempt)),
+          error: this.settings.errorMessage(error),
+        };
+        this.report('retry turn', id)(error);
+        return {
+          chunk: { type: TURN_RETRY_CHUNK, data, transient: true },
+          delayMs: data.delayMs,
+        };
+      },
+      resume: async () => {
+        await this.renew(session, session.handle);
+        const handle = session.handle as HarnessAgentSession | undefined;
+        // Closed, suspended or interrupted meanwhile, or it could not start again.
+        if (handle === undefined || this.live.get(id) !== session) return undefined;
+        return session.agent.stream({ session: handle, prompt, abortSignal });
+      },
     };
   }
 

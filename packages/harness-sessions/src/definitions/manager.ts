@@ -50,6 +50,13 @@ export interface SessionManagerOptions<METADATA> {
   /** Cut a turn short after this long, in milliseconds. Default: never. */
   turnTimeoutMs?: number;
   /**
+   * Run a turn again when it fails on a transient error — a lost harness bridge, a network reset,
+   * a 5xx or an overloaded provider —, in a harness session started again from where it stopped.
+   * The client is told with a `data-turn-retry` chunk rather than the error. Default: a turn fails
+   * on its first error.
+   */
+  turnRetries?: TurnRetryOptions;
+  /**
    * When every sandbox slot is taken, suspend the session idle the longest to make room for a new
    * one, or a resume, rather than refusing it with `SessionCapacityError`. Default: `true`.
    */
@@ -89,6 +96,42 @@ export interface SessionManagerOptions<METADATA> {
    * `console.error`.
    */
   onError?: (error: unknown, context: { action: string; sessionId?: string }) => void;
+}
+
+/** How a turn that failed on a transient error is run again: `turnRetries`. */
+export interface TurnRetryOptions {
+  /** How many times a turn is run again, at most; `0` turns retries off. */
+  attempts: number;
+  /**
+   * How long to wait before each retry, in milliseconds: a number, or a function of the retry,
+   * counted from 1. Default: 10 seconds, doubled at each retry.
+   */
+  delayMs?: ((attempt: number) => number) | number;
+  /** Which errors are worth a retry. Default: `isTransientError`. */
+  isTransient?: (error: unknown) => boolean;
+  /**
+   * What the agent is told when its turn runs again: its conversation is kept, the work of the
+   * failed turn included. Default: to carry on from where it stopped.
+   */
+  prompt?: string;
+}
+
+/** The type of the chunk a turn sends its client before it runs again. */
+export const TURN_RETRY_CHUNK = 'data-turn-retry';
+
+/**
+ * The data of a `data-turn-retry` chunk, sent `transient`: the client may show it, the
+ * conversation does not keep it.
+ */
+export interface TurnRetryData {
+  /** This retry, counted from 1. */
+  attempt: number;
+  /** How many retries the turn may take. */
+  attempts: number;
+  /** How long the turn waits before it runs again, in milliseconds. */
+  delayMs: number;
+  /** What failed, as `errorMessage` tells a client. */
+  error: string;
 }
 
 /** A user message: `useChat`'s last message, or its text. */

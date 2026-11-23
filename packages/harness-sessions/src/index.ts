@@ -6,7 +6,10 @@ export type {
   SessionManager,
   SessionManagerOptions,
   SessionTurn,
+  TurnRetryData,
+  TurnRetryOptions,
 } from './definitions/manager.js';
+export { TURN_RETRY_CHUNK } from './definitions/manager.js';
 export type { SessionSandboxes, SessionSandboxLease } from './definitions/sandboxes.js';
 export { LIVE_STATUSES, SESSION_STATUSES } from './definitions/session.js';
 export type {
@@ -44,3 +47,4 @@ export type {
   TaskToolCall,
   TaskToolResult,
 } from './tasks/task-list.js';
+export { isTransientError } from './turns/transient-error.js';
