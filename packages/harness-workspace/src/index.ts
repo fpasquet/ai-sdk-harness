@@ -2,6 +2,8 @@ export type { SourceFetchContext, WorkspaceSource } from './definitions/source.j
 export type {
   ChangedFile,
   ChangedFilesOptions,
+  DeliverOptions,
+  Delivery,
   GitFileMode,
   MultiRepositoryWorkspaceOptions,
   SessionSandboxes,

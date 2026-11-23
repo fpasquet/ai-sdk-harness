@@ -605,6 +605,249 @@ describe('createWorkspace', () => {
     });
   });
 
+  describe('with a primary repository and mounted ones', () => {
+    let web: string;
+    let mounted: Workspace;
+    let webPath: string;
+
+    beforeEach(async () => {
+      web = await createSourceRepository();
+      // Where the host keeps the web app: the agent finds it at the same path.
+      webPath = join(host.directory, 'host/www/web');
+      mounted = createWorkspace({
+        repositories: {
+          api: { source: sandboxRepository({ path: source }), primary: true },
+          web: { source: sandboxRepository({ path: web }), mountAt: webPath },
+        },
+      });
+    });
+
+    it('checks the primary repository out in the working directory, the others where they are mounted', async () => {
+      const { directory } = await start('a', { workspace: mounted });
+      const session = mounted.session('a')!;
+
+      expect(session.repositories.map(({ name, directory: at }) => ({ name, at }))).toEqual([
+        { name: 'api', at: directory },
+        { name: 'web', at: webPath },
+      ]);
+      expect(session.additionalDirectories()).toEqual([webPath]);
+      expect(await git(directory, 'branch', '--show-current')).toBe('session/a');
+      expect(await git(webPath, 'branch', '--show-current')).toBe('session/a');
+      expect(await git(directory, 'status', '--porcelain')).toBe('');
+    });
+
+    it('reads the changes of a mounted repository under its key, and writes its local files there', async () => {
+      const { directory } = await start('a', { workspace: mounted });
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+      await writeFile(join(webPath, 'new.txt'), 'new\n');
+      const session = mounted.session('a')!;
+      await session.writeLocalFile('web/.env.local', 'SECRET=1\n');
+
+      const files = await session.changedFiles();
+
+      expect(files.map(({ path, repository }) => ({ path, repository }))).toEqual([
+        { path: 'index.js', repository: 'api' },
+        { path: 'web/new.txt', repository: 'web' },
+      ]);
+      expect(await readFile(join(webPath, '.env.local'), 'utf8')).toBe('SECRET=1\n');
+    });
+
+    it('finds the mounted checkouts again when the session resumes, and removes them when it is closed', async () => {
+      const { lease } = await start('a', { workspace: mounted });
+      await lease.suspend();
+      const resumed = await start('a', { workspace: mounted, resume: true });
+      expect(mounted.session('a')!.repository('web')!.directory).toBe(webPath);
+
+      await resumed.lease.close();
+
+      expect(await exists(webPath)).toBe(false);
+    });
+
+    it('lists every checkout as an additional directory without a primary repository', async () => {
+      const elsewhere = createWorkspace({
+        repositories: {
+          api: sandboxRepository({ path: source }),
+          web: { source: sandboxRepository({ path: web }), mountAt: webPath },
+        },
+      });
+      const { directory } = await start('a', { workspace: elsewhere });
+
+      expect(elsewhere.session('a')!.additionalDirectories()).toEqual([
+        join(directory, 'api'),
+        webPath,
+      ]);
+    });
+
+    it('refuses a primary repository and mounts that cannot go together', () => {
+      const from = sandboxRepository({ path: source });
+      const other = sandboxRepository({ path: web });
+      const refused = (repositories: WorkspaceRepositories) => () =>
+        createWorkspace({ repositories });
+
+      expect(
+        refused({ api: { source: from, primary: true }, web: { source: other, primary: true } }),
+      ).toThrow(/Only one repository may be primary/);
+      expect(refused({ api: { source: from, primary: true }, web: other })).toThrow(
+        /"web" needs a `mountAt`/,
+      );
+      expect(refused({ api: { source: from, primary: true, mountAt: '/srv/api' } })).toThrow(
+        /takes no `mountAt`/,
+      );
+      for (const mountAt of ['srv/web', '/', '/srv/../web', '/srv/web/']) {
+        expect(refused({ web: { source: other, mountAt } })).toThrow(/absolute, normalized/);
+      }
+      expect(
+        refused({
+          api: { source: from, mountAt: '/srv/app' },
+          web: { source: other, mountAt: '/srv/app/web' },
+        }),
+      ).toThrow(/one within the other/);
+      expect(
+        refused({
+          api: { source: from, primary: true },
+          web: { source: other, mountAt: '/srv/web' },
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('deliver', () => {
+    let target: string;
+
+    beforeEach(async () => {
+      // The repository on this host the work comes back to: a clone of the source.
+      target = await mkdtemp(join(tmpdir(), 'harness-workspace-target-'));
+      await git(target, 'clone', '--quiet', source, '.');
+    });
+
+    it("brings the checkout's commits back on a branch of the host's repository", async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+      const head = await git(directory, 'rev-parse', 'HEAD');
+
+      const delivery = await workspace.session('a')!.deliver({ to: target });
+
+      expect(delivery).toEqual({ branch: 'session/a', commit: head });
+      expect(await git(target, 'rev-parse', 'refs/heads/session/a')).toBe(head);
+      expect(await git(target, 'show', 'session/a:new.txt')).toBe('new');
+      // Neither the branch checked out on the host nor its working tree moved.
+      expect(await git(target, 'branch', '--show-current')).toBe('main');
+      expect(await git(target, 'status', '--porcelain')).toBe('');
+      expect(await git(target, 'for-each-ref', 'refs/ai-sdk-harness/')).toBe('');
+    });
+
+    it('commits what the agent left uncommitted first, when told to', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+
+      const delivery = await workspace.session('a')!.deliver({
+        to: target,
+        branch: 'agent/answer',
+        commitMessage: 'Work in progress',
+      });
+
+      expect(delivery.branch).toBe('agent/answer');
+      expect(await git(target, 'log', '-1', '--format=%s %an', 'agent/answer')).toBe(
+        'Work in progress Harness agent',
+      );
+      expect(await git(target, 'show', 'agent/answer:index.js')).toBe('export const answer = 42;');
+    });
+
+    it('delivers only the commits without being told to commit', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'index.js'), 'export const answer = 42;\n');
+
+      const delivery = await workspace.session('a')!.deliver({ to: target });
+
+      expect(delivery.commit).toBe(await git(source, 'rev-parse', 'HEAD'));
+      expect(await git(directory, 'status', '--porcelain')).toBe('M index.js');
+    });
+
+    it("never moves the host's checked-out branch, nor one that went its own way", async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+
+      // main is checked out on the host.
+      expect((await workspace.session('a')!.deliver({ to: target, branch: 'main' })).branch).toBe(
+        'main-2',
+      );
+      // Another branch whose tip the delivery does not hold.
+      await git(target, 'branch', 'feature', 'main');
+      await git(target, 'checkout', '--quiet', 'feature');
+      await writeFile(join(target, 'other.txt'), 'other\n');
+      await git(target, 'add', 'other.txt');
+      await git(target, 'commit', '--quiet', '-m', 'Host commit');
+      await git(target, 'checkout', '--quiet', 'main');
+      expect(
+        (await workspace.session('a')!.deliver({ to: target, branch: 'feature' })).branch,
+      ).toBe('feature-2');
+      // A branch the delivery only moves forward.
+      await git(target, 'branch', 'behind', 'main');
+      expect((await workspace.session('a')!.deliver({ to: target, branch: 'behind' })).branch).toBe(
+        'behind',
+      );
+    });
+
+    it('sends the whole history to a host repository without the base', async () => {
+      const empty = await mkdtemp(join(tmpdir(), 'harness-workspace-empty-'));
+      await git(empty, 'init', '--quiet', '--bare');
+      await start('a');
+
+      const delivery = await workspace.session('a')!.deliver({ to: empty });
+
+      expect(await git(empty, 'rev-parse', 'refs/heads/session/a')).toBe(delivery.commit);
+    });
+
+    it('runs no hook of the host repository', async () => {
+      const { directory } = await start('a');
+      await writeFile(join(directory, 'new.txt'), 'new\n');
+      await git(directory, 'add', 'new.txt');
+      await git(directory, 'commit', '--quiet', '-m', 'An agent commit');
+      const marker = join(target, 'hook-ran');
+      await writeFile(
+        join(target, '.git/hooks/reference-transaction'),
+        `#!/bin/sh\ntouch ${marker}\n`,
+        { mode: 0o755 },
+      );
+
+      await workspace.session('a')!.deliver({ to: target });
+
+      expect(await exists(marker)).toBe(false);
+    });
+
+    it('delivers the repository named, the one in the working directory by default', async () => {
+      const web = await createSourceRepository();
+      const several = createWorkspace({
+        repositories: {
+          api: sandboxRepository({ path: source }),
+          web: sandboxRepository({ path: web }),
+        },
+      });
+      await start('a', { workspace: several });
+      const session = several.session('a')!;
+
+      expect(() => session.deliver({ to: target })).toThrow(/name the one to deliver/);
+      expect(() => session.deliver({ to: target, repository: 'nope' })).toThrow(
+        /no repository "nope"/,
+      );
+      expect((await session.deliver({ to: target, repository: 'api' })).branch).toBe('session/a');
+    });
+
+    it('refuses a host path that is not absolute, and a branch name git would not take', async () => {
+      await start('a');
+      const session = workspace.session('a')!;
+
+      await expect(session.deliver({ to: 'relative/path' })).rejects.toThrow(/absolute path/);
+      await expect(session.deliver({ to: target, branch: 'bad..name' })).rejects.toThrow(
+        WorkspaceError,
+      );
+    });
+  });
+
   describe('with repositories chosen per session', () => {
     let web: string;
     let asked: string[];

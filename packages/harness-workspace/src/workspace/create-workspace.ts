@@ -1,6 +1,8 @@
 import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
 import type { Experimental_SandboxSession as SandboxSession } from 'ai';
 
+import { posix } from 'node:path';
+
 import type {
   MultiRepositoryWorkspaceOptions,
   SessionSandboxes,
@@ -10,6 +12,7 @@ import type {
   Workspace,
   WorkspaceOptions,
   WorkspaceRepositories,
+  WorkspaceRepositoryOptions,
   WorkspaceSession,
   WorkspaceSessionInput,
 } from '../definitions/workspace.js';
@@ -88,6 +91,7 @@ function repositoriesOf(options: WorkspaceOptions, setup: string[]): SlotSetting
     const repository: RepositorySettings = {
       name: options.source.name,
       path: '',
+      mountAt: undefined,
       source: options.source,
       // One repository: the workspace's setup is its own, run in its checkout.
       setup,
@@ -107,11 +111,13 @@ function repositoriesOf(options: WorkspaceOptions, setup: string[]): SlotSetting
 
 /** `repositories`, each with its settings, checked: a `TypeError` unless they fit side by side. */
 function severalRepositories(repositories: WorkspaceRepositories): RepositorySettings[] {
-  const settings = Object.entries(repositories).map(([path, entry]) => {
-    const repository = 'fetch' in entry ? { source: entry } : entry;
+  const settings = Object.entries(repositories).map(([key, entry]) => {
+    const repository: WorkspaceRepositoryOptions = 'fetch' in entry ? { source: entry } : entry;
+    checkKey(key);
     return {
-      name: path,
-      path,
+      name: key,
+      path: repository.primary === true ? '' : key,
+      mountAt: repository.mountAt,
       source: repository.source,
       setup: commands(repository.setup),
       setupEnv: repository.setupEnv,
@@ -119,7 +125,48 @@ function severalRepositories(repositories: WorkspaceRepositories): RepositorySet
     };
   });
   checkRepositories(settings, true);
+  checkMounts(settings);
   return settings;
+}
+
+/** Throws a `TypeError` unless `key`, the name of a repository, is a relative directory. */
+function checkKey(key: string): void {
+  if (checkRepositoryDirectory(key) !== key) {
+    throw new TypeError(
+      `The key of a repository is the directory it is checked out in, relative and normalized: got ${JSON.stringify(key)}.`,
+    );
+  }
+}
+
+/**
+ * Throws a `TypeError` unless the primary repository, if any, is the only one, and the others are
+ * each mounted at a path of their own, within no other's.
+ */
+function checkMounts(repositories: readonly RepositorySettings[]): void {
+  const primary = repositories.filter(({ path }) => path === '');
+  if (primary.length > 1) {
+    throw new TypeError(
+      `Only one repository may be primary; got ${primary.map(({ name }) => JSON.stringify(name)).join(', ')}.`,
+    );
+  }
+  const mounts: string[] = [];
+  for (const { name, path, mountAt } of repositories) {
+    if (mountAt === undefined) {
+      if (primary.length > 0 && path !== '') {
+        throw new TypeError(
+          `Repository ${JSON.stringify(name)} needs a \`mountAt\`: the primary repository's checkout is the session's working directory.`,
+        );
+      }
+      continue;
+    }
+    if (path === '') {
+      throw new TypeError(
+        `The primary repository ${JSON.stringify(name)} is checked out in the session's working directory: it takes no \`mountAt\`.`,
+      );
+    }
+    checkMountAt(mountAt, mounts);
+    mounts.push(mountAt);
+  }
 }
 
 function commands(setup: readonly string[] | string | undefined): string[] {
@@ -154,17 +201,40 @@ function checkRepositories(repositories: readonly RepositorySettings[], several:
   }
 }
 
-/** Throws a `TypeError` unless `repository` has a directory of its own, within no other's. */
-function checkPlace(
-  { path }: RepositorySettings,
-  repositories: readonly RepositorySettings[],
-): void {
-  if (checkRepositoryDirectory(path) !== path) {
+/** Throws a `TypeError` unless `mountAt` is an absolute path, within none of `mounts`. */
+function checkMountAt(mountAt: string, mounts: readonly string[]): void {
+  if (
+    !mountAt.startsWith('/') ||
+    mountAt === '/' ||
+    posix.normalize(mountAt) !== mountAt ||
+    mountAt.endsWith('/')
+  ) {
     throw new TypeError(
-      `The key of a repository is the directory it is checked out in, relative and normalized: got ${JSON.stringify(path)}.`,
+      `\`mountAt\` must be an absolute, normalized path other than /; got ${JSON.stringify(mountAt)}.`,
     );
   }
-  const outer = repositories.find((other) => path.startsWith(`${other.path}/`));
+  const other = mounts.find(
+    (mount) =>
+      mount === mountAt || mountAt.startsWith(`${mount}/`) || mount.startsWith(`${mountAt}/`),
+  );
+  if (other !== undefined) {
+    throw new TypeError(
+      `Repositories would be checked out at ${JSON.stringify(other)} and ${JSON.stringify(mountAt)}, one within the other.`,
+    );
+  }
+}
+
+/** Throws a `TypeError` unless `repository` has a directory of its own, within no other's. */
+function checkPlace(
+  { path, mountAt }: RepositorySettings,
+  repositories: readonly RepositorySettings[],
+): void {
+  // The primary repository is the working directory, one mounted elsewhere is out of it.
+  if (path === '' || mountAt !== undefined) return;
+  const outer = repositories.find(
+    (other) =>
+      other.path !== '' && other.mountAt === undefined && path.startsWith(`${other.path}/`),
+  );
   if (outer !== undefined) {
     throw new TypeError(
       `Repository ${JSON.stringify(path)} would be checked out within ${JSON.stringify(outer.path)}.`,
