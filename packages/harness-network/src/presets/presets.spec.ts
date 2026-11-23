@@ -13,6 +13,11 @@ describe('trustedHosts', () => {
     ]);
   });
 
+  it('gives the registry of Yarn alone, or with its releases', () => {
+    expect(trustedHosts('yarn-registry')).toEqual(['registry.yarnpkg.com']);
+    expect(trustedHosts('yarn')).toEqual(['registry.yarnpkg.com', 'repo.yarnpkg.com']);
+  });
+
   it('gives the services of a group', () => {
     expect(trustedHosts('rust')).toEqual([
       'crates.io',
@@ -131,6 +136,16 @@ describe('harnessHosts', () => {
       'http-intake.logs.us5.datadoghq.com',
     );
     expect(harnessHosts('claude-code', { install: false })).toEqual(['api.anthropic.com']);
+  });
+
+  it('adds where a runtime signs in with a subscription, on request', () => {
+    expect(harnessHosts('claude-code', { signIn: true })).toEqual([
+      'registry.npmjs.org',
+      'api.anthropic.com',
+      'claude.ai',
+      'platform.claude.com',
+    ]);
+    expect(harnessHosts('codex', { signIn: true })).toEqual(harnessHosts('codex'));
   });
 
   it('gives none for a harness that runs on your server, or one it does not know', () => {

@@ -50,6 +50,7 @@ const SAMPLES: Record<TrustedService, string[]> = {
     'https://registry.yarnpkg.com/left-pad',
     'https://repo.yarnpkg.com/4.5.0/packages/yarnpkg-cli/bin/yarn.js',
   ],
+  'yarn-registry': ['https://registry.yarnpkg.com/left-pad'],
   pnpm: ['https://get.pnpm.io/install.sh'],
   bun: ['https://bun.sh/install'],
   jsr: ['https://jsr.io/@std/path/meta.json', 'https://npm.jsr.io/@jsr/std__path'],
