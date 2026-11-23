@@ -37,6 +37,8 @@ export interface TurnStreamOptions {
   next?: (messages: UIMessage[]) => Promise<TurnStep | undefined>;
   /** Runs once, when the turn is over, before the client's stream closes. */
   onSettled: (outcome: TurnOutcome) => Promise<void>;
+  /** Runs with each raw event of the harness, as it comes. */
+  onRawEvent?: (event: unknown) => void;
 }
 
 const messageOf = (error: unknown): string =>
@@ -164,14 +166,19 @@ async function stepsOf(result: SessionStreamResult): Promise<TurnStepReport[]> {
 
 /**
  * The raw events a stream of the turn carries, read from its own copy of the stream, beside the
- * client's: what the harness sends that no other part says.
+ * client's: what the harness sends that no other part says. `onRawEvent` gets each as it comes.
  */
-async function rawEventsOf(result: SessionStreamResult): Promise<unknown[]> {
+async function rawEventsOf(
+  result: SessionStreamResult,
+  onRawEvent: ((event: unknown) => void) | undefined,
+): Promise<unknown[]> {
   const events: unknown[] = [];
   if (result.fullStream === undefined) return events;
   try {
     for await (const part of result.fullStream) {
-      if (part.type === 'raw') events.push(part.rawValue);
+      if (part.type !== 'raw') continue;
+      events.push(part.rawValue);
+      onRawEvent?.(part.rawValue);
     }
   } catch {
     // The turn's failure is told by the client's stream: the events read so far are kept.
@@ -206,7 +213,7 @@ class TurnRun {
     let result: SessionStreamResult | undefined = first;
     let originalMessages = this.options.originalMessages;
     for (let index = 0; result !== undefined; index += 1) {
-      const raw = rawEventsOf(result);
+      const raw = rawEventsOf(result, this.options.onRawEvent);
       const outcome = await readSegment(result, originalMessages, {
         first: index === 0,
         send: this.send,

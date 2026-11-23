@@ -85,6 +85,18 @@ export interface SessionManagerOptions<METADATA> {
     context: { session: SessionSummary<METADATA> },
   ) => PromiseLike<void> | void;
   /**
+   * Called with each raw event of the harness as the turn runs, in order — `onTurn` gets them all
+   * once it is over —: what a turn under way tells of itself, such as the rate limits of a
+   * subscription (`subscriptionQuota()`). `interrupt(reason)` cuts the turn short as `interrupt()`
+   * does, the reason its failure: stop a turn once a window of the subscription passes a threshold.
+   * Not awaited: what it throws, or its promise rejects with, goes to `onError`, and the turn goes
+   * on.
+   */
+  onRawEvent?: (
+    event: unknown,
+    context: { session: SessionSummary<METADATA>; interrupt: (reason?: string) => void },
+  ) => PromiseLike<void> | void;
+  /**
    * Called with what fails in the background: a start, a suspension, a write to the store. Default:
    * `console.error`.
    */

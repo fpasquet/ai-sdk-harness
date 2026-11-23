@@ -23,6 +23,7 @@ import {
   SessionCapacityError,
   SessionConflictError,
   SessionNotFoundError,
+  subscriptionQuota,
 } from '../index.js';
 import { createMemorySessionStore } from '../memory.js';
 
@@ -241,6 +242,81 @@ describe('createSessionManager', () => {
           sessionId: 's1',
           error: new Error('no ledger'),
         }),
+      ]);
+    });
+
+    it('hands each raw event of the harness to onRawEvent as the turn runs', async () => {
+      const seen: { event: unknown; status: string }[] = [];
+      sessions = manager({
+        onRawEvent: (event, { session }) => {
+          seen.push({ event, status: session.status });
+        },
+      });
+      const limit = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } };
+      const progress = { type: 'tool_progress' };
+      agent.script.push({ raw: [limit, progress] });
+      await ready();
+
+      await turn('s1', 'hello');
+
+      expect(seen).toEqual([
+        { event: limit, status: 'busy' },
+        { event: progress, status: 'busy' },
+      ]);
+    });
+
+    it('cuts the turn short when onRawEvent interrupts it, the reason its failure', async () => {
+      const reports: TurnReport[] = [];
+      sessions = manager({
+        onRawEvent: (event, { interrupt }) => {
+          const quota = subscriptionQuota(event);
+          if ((quota?.windows.five_hour?.percent ?? 0) >= 80) {
+            interrupt('The five-hour window of the subscription is 85% used.');
+          }
+        },
+        onTurn: (report) => {
+          reports.push(report);
+        },
+      });
+      const limit = {
+        type: 'rate_limit_event',
+        rate_limit_info: { unifiedWindows: { five_hour: { utilization: 0.85 } } },
+      };
+      agent.script.push({ raw: [limit], hold: new Promise(() => undefined) });
+      await ready();
+
+      const started = await sessions.send('s1', { message: 'hello' });
+
+      expect(await started.done).toMatchObject({
+        status: 'idle',
+        error: 'The five-hour window of the subscription is 85% used.',
+      });
+      expect(reports[0]).toMatchObject({
+        failure: 'The five-hour window of the subscription is 85% used.',
+        rawEvents: [limit],
+      });
+      const { session } = await turn('s1', 'again');
+      expect(session).toMatchObject({ status: 'idle', turns: 2 });
+    });
+
+    it('sends what onRawEvent throws or rejects with to onError, and goes on', async () => {
+      sessions = manager({
+        onRawEvent: (event) => {
+          if ((event as { type: string }).type === 'thrown') throw new Error('no gauge');
+          return Promise.reject(new Error('no ledger'));
+        },
+      });
+      agent.script.push({ raw: [{ type: 'thrown' }, { type: 'rejected' }] });
+      await ready();
+
+      const { session } = await turn('s1', 'hello');
+
+      expect(session.status).toBe('idle');
+      expect(session.error).toBeUndefined();
+      await until(() => errors.length === 2);
+      expect(errors).toEqual([
+        expect.objectContaining({ action: 'raw event', error: new Error('no gauge') }),
+        expect.objectContaining({ action: 'raw event', error: new Error('no ledger') }),
       ]);
     });
 

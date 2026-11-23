@@ -3,10 +3,11 @@ import { notFrom, restrictImports } from '@repo/eslint-config/boundaries';
 import nodeConfig from '@repo/eslint-config/node';
 
 /**
- * The layers of the package, each importing only the ones below it: `utils/` and `definitions/`
- * (types and constants) are leaves, then `errors/` ← `store/`, `sandboxes/` and `turns/`, beside
- * each other ← `manager/`. `tasks/` stands apart, a leaf: `ai-sdk-harness-sessions/tasks` runs in a
- * browser, so it imports nothing that runs on a server.
+ * The layers of the package, each importing only the ones below it: `utils/`, `definitions/`
+ * (types and constants) and `quota/` (what a raw event of Claude Code says) are leaves, then
+ * `errors/` ← `store/`, `sandboxes/` and `turns/`, beside each other ← `manager/`. `tasks/`
+ * stands apart, a leaf: `ai-sdk-harness-sessions/tasks` runs in a browser, so it imports nothing
+ * that runs on a server.
  */
 const MIDDLE = ['store', 'sandboxes', 'turns'];
 const LAYERS = [
@@ -17,11 +18,11 @@ const LAYERS = [
 export default [
   ...nodeConfig(import.meta.dirname),
   restrictImports({
-    files: ['src/utils/**/*.ts', 'src/definitions/**/*.ts'],
+    files: ['src/utils/**/*.ts', 'src/definitions/**/*.ts', 'src/quota/**/*.ts'],
     patterns: [
       {
         regex: '^\\.\\./',
-        message: 'utils/ and definitions/ are leaves: they import nothing of the package.',
+        message: 'utils/, definitions/ and quota/ are leaves: they import nothing of the package.',
       },
     ],
   }),

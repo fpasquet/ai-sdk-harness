@@ -26,6 +26,13 @@ export { SessionConflictError } from './errors/session-conflict-error.js';
 export { SessionNotFoundError } from './errors/session-not-found-error.js';
 export { SessionOwnedElsewhereError } from './errors/session-owned-elsewhere-error.js';
 export { createSessionManager } from './manager/session-manager.js';
+export { subscriptionQuota } from './quota/subscription-quota.js';
+export type {
+  QuotaStatus,
+  QuotaWindow,
+  QuotaWindowName,
+  SubscriptionQuota,
+} from './quota/subscription-quota.js';
 export { sandboxPerSession } from './sandboxes/sandbox-per-session.js';
 export type { SandboxPerSessionOptions } from './sandboxes/sandbox-per-session.js';
 export { sharedSandbox } from './sandboxes/shared-sandbox.js';

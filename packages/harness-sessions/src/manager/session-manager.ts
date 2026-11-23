@@ -138,7 +138,14 @@ interface TransitionOptions {
 type Settings<METADATA> = Required<
   Omit<
     SessionManagerOptions<METADATA>,
-    'agent' | 'approve' | 'leaseTtlMs' | 'managerId' | 'onTurn' | 'sandboxes' | 'store'
+    | 'agent'
+    | 'approve'
+    | 'leaseTtlMs'
+    | 'managerId'
+    | 'onRawEvent'
+    | 'onTurn'
+    | 'sandboxes'
+    | 'store'
   >
 >;
 
@@ -433,6 +440,29 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       await this.options.onTurn(report, { session: summaryOf(session.record) });
     } catch (error) {
       this.report('report turn', session.record.id)(error);
+    }
+  }
+
+  /**
+   * Hands a raw event of a turn under way to `onRawEvent`, with what cuts the turn short: what it
+   * throws goes to `onError`, the turn goes on.
+   */
+  private passRawEvent(
+    session: ReadySession<METADATA>,
+    abort: AbortController,
+    event: unknown,
+  ): void {
+    const { onRawEvent } = this.options;
+    if (onRawEvent === undefined) return;
+    const failed = this.report('raw event', session.record.id);
+    const interrupt = (reason?: string) => {
+      abort.abort(new Error(reason ?? 'The turn was interrupted.'));
+    };
+    try {
+      const passed = onRawEvent(event, { session: summaryOf(session.record), interrupt });
+      if (passed !== undefined) Promise.resolve(passed).catch(failed);
+    } catch (error) {
+      failed(error);
     }
   }
 
@@ -780,6 +810,7 @@ class HarnessSessionManager<METADATA> implements SessionManager<METADATA> {
       generateMessageId: generateId,
       errorMessage,
       next: (messages) => this.answerPause(session, messages, answered),
+      onRawEvent: (event) => this.passRawEvent(session, abort, event),
       onSettled: async ({ messages, failure, usage, report }) => {
         if (messages !== undefined) record.messages = messages;
         record.turns += 1;
