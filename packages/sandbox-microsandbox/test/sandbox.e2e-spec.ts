@@ -355,9 +355,14 @@ describe.runIf(hostRunsMicroVms())('the network policy of a microsandbox', () =>
   const hostUrl = (): string =>
     `http://host.microsandbox.internal:${(hostService.address() as AddressInfo).port}`;
 
-  /** The HTTP status `url` answers the sandbox with, `000` when it cannot be reached. */
-  const status = async (session: MicrosandboxNetworkSandboxSession, url: string) =>
-    (await session.run({ command: `curl -s -m 8 -o /dev/null -w '%{http_code}' ${url}` })).stdout;
+  /**
+   * The HTTP status `url` answers the sandbox with, `000` when it cannot be reached: microsandbox
+   * drops a connection its policy denies, or answers a plain HTTP request with a 403 of its own.
+   */
+  const status = async (session: MicrosandboxNetworkSandboxSession, url: string) => {
+    const { stdout } = await session.run({ command: `curl -s -m 8 -w ' %{http_code}' ${url}` });
+    return stdout.includes('"network_policy_denied"') ? '000' : stdout.slice(-3);
+  };
 
   afterAll(() => hostService.close());
 

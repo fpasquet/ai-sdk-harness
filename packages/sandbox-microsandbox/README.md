@@ -47,7 +47,7 @@ Every command and file operation goes to the agent microsandbox runs inside the 
 - Linux with KVM (your user needs read-write access to `/dev/kvm`), or macOS on Apple Silicon.
 - `@ai-sdk/harness` and a harness adapter, such as `@ai-sdk/harness-claude-code`.
 
-The runtime (`msb` and `libkrunfw`) comes with the `microsandbox` npm package this package depends on: nothing else to install. If you also installed the `msb` CLI, its runtime in `~/.microsandbox` takes precedence, and the SDK only launches a runtime of its own version: keep both on the same version (`msb --version`, `msb self update`), or the creation fails with `no tested sandbox launch contract for runtime …`. `msb doctor` checks the host.
+The runtime (`msb` and `libkrunfw`) comes with the `microsandbox` npm package this package depends on: nothing else to install. If you also installed the `msb` CLI, its runtime in `~/.microsandbox` takes precedence, and the SDK only launches a runtime of its own version: keep both on the same version (`msb --version`, `msb self update`), or the creation fails with `no tested sandbox launch contract for runtime …` or `upgrade required: selected runtime … does not advertise protected sandbox state`. The runtime's home (`~/.microsandbox`, or `$MSB_HOME`) must not be writable by other accounts, its group included: `chmod g-w,o-w ~/.microsandbox` if the creation fails with `catalog ancestor … permits path substitution`. `msb doctor` checks the host.
 
 ## Installation
 
