@@ -9,6 +9,7 @@
     "approving-tool-calls",
     "ui-components",
     "securing-credentials",
+    "agent-skills",
     "packages",
     "examples",
     "api-reference"

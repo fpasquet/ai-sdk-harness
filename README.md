@@ -65,6 +65,14 @@ The packages here run those harnesses on your own machine or in your own Google 
 
 [Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
 
+## Agent skills
+
+Prefer to have your coding agent do the wiring? An installable [agent skill](skills/README.md) teaches Claude Code, Cursor, Codex and others to set up a `HarnessAgent` in your app: it reads the project, asks which sandbox your machine or cloud can run, closes its network to the hosts it needs, and picks how its sessions live.
+
+```bash
+npx skills add fpasquet/ai-sdk-harness
+```
+
 ## Repository layout
 
 A pnpm + Turborepo monorepo.
@@ -85,6 +93,7 @@ packages/
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
   starter-next/       the Next.js starter, fetched without this repository too: every package and every sandbox together, with a harness of each kind and a marketplace; in the monorepo, the integration app run against this repository's code, and the source of the docs' screenshots and UI registry
+skills/               agent skills for the users of the packages (`npx skills add fpasquet/ai-sdk-harness`)
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```
