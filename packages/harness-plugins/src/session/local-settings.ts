@@ -28,13 +28,38 @@ export function mergeHookGroups(
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-/** The settings in `text`; an empty object for a missing file. Throws on a file that is not JSON. */
-export function parseSettings(text: null | string, path: string): Record<string, unknown> {
+/**
+ * The settings with each group of `next` its event has not yet added, or `undefined` when it has
+ * them all: what other sessions added stays.
+ */
+export function addHookGroups(
+  settings: Record<string, unknown>,
+  next: Readonly<Record<string, unknown[]>>,
+): Record<string, unknown> | undefined {
+  const hooks: Record<string, unknown> = { ...asRecord(settings.hooks) };
+  let added = false;
+  for (const [event, groups] of Object.entries(next)) {
+    const existing: unknown = hooks[event];
+    const present: unknown[] = Array.isArray(existing) ? (existing as unknown[]) : [];
+    const keys = new Set(present.map((group) => groupKey(event, group)));
+    const missing = groups.filter((group) => !keys.has(groupKey(event, group)));
+    if (missing.length === 0) continue;
+    hooks[event] = [...present, ...missing];
+    added = true;
+  }
+  return added ? { ...settings, hooks } : undefined;
+}
+
+/**
+ * The settings in `text`, the file `where` says; an empty object for a missing file. Throws on a
+ * file that is not JSON.
+ */
+export function parseSettings(text: null | string, where: string): Record<string, unknown> {
   if (text === null || text.trim() === '') return {};
   try {
     return asRecord(JSON.parse(text));
   } catch {
-    throw new Error(`${path} in the session's working directory is not valid JSON.`);
+    throw new Error(`${where} is not valid JSON.`);
   }
 }
 

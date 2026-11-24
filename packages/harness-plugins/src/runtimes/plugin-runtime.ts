@@ -19,7 +19,10 @@ export interface SessionLayout {
    * nothing there: its sessions then leave alone what another runtime's wrote.
    */
   homeFiles?: SessionFile[];
-  /** Claude Code hook groups by event, merged into `.claude/settings.local.json`. */
+  /**
+   * Claude Code hook groups by event, added to `$HOME/.claude/settings.json`, where they stay for
+   * the sandbox's life: each one runs only in the sessions that have it.
+   */
   hookGroups: Record<string, unknown[]>;
 }
 
