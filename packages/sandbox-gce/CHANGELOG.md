@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-gce
 
+## 0.5.2
+
+### Patch Changes
+
+- 455efc2: `deleteGceSandbox({ url, sandboxId })` deletes a sandbox by its id, its machine and its disk, without starting it: `destroy()` needs a session, which resumes a stopped sandbox, a minute of a billed machine only to delete it. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`.
+
 ## 0.5.1
 
 ### Patch Changes
