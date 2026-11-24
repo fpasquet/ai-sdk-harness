@@ -1,0 +1,41 @@
+name: Starters
+
+# The starters as a user gets them today: installed with npm from the published packages, which a
+# release of the AI SDK can break with no change here. Not required: a pull request cannot fix a
+# published package before its release. ci.yml checks them against the packages of each commit.
+on:
+  push:
+    branches: ['main']
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  published:
+    name: Starter (${{ matrix.starter }}, npm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        starter: [starter]
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.starter }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck

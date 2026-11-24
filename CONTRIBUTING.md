@@ -36,6 +36,8 @@ The unit tests of `ai-sdk-sandbox-cloud-run` run its service over a fake `sandbo
 CLOUD_RUN_SANDBOX_URL=https://… pnpm --filter ai-sdk-sandbox-cloud-run test:e2e
 ```
 
+`examples/next-chat` is the integration app of the repository: the only place where every package runs together, on every sandbox and with every official harness, against the code of your branch, where the unit tests run against fake sandboxes. Check a change there end to end before it is released. It is also the source of the documentation's screenshots (below), of the components of its shadcn registry (`components/harness/`, served at `/r/<name>.json`), and of the marketplace the README of `ai-sdk-harness-plugins` is tested against (`marketplace/`): keep them working when you change it. The starter (`examples/starter`) is for users, fetched without the monorepo.
+
 Run the example against a real Claude Code agent:
 
 ```bash

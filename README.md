@@ -83,12 +83,24 @@ packages/
   harness-network/    ai-sdk-harness-network, published to npm
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
-  next-chat/          a Next.js useChat page talking to every official harness, Claude Code, Codex, OpenCode and others, in a Docker Sandbox, a microsandbox, a Cloud Run sandbox or behind srt
+  starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
+  next-chat/          the demonstration and integration app: every package, every official harness and every sandbox together, against this repository's code; the source of the docs' screenshots and UI registry
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```
 
 ## Quick start
+
+To try the packages, start from the [starter](examples/starter), fetched without this repository: Node.js ≥ 24 and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) are all it needs.
+
+```bash
+npx giget@latest gh:fpasquet/ai-sdk-harness/examples/starter my-agent
+cd my-agent && npm install
+cp .env.example .env   # set CLAUDE_CODE_OAUTH_TOKEN
+npm start
+```
+
+To work on the monorepo, and run the Next.js example:
 
 Prerequisites: Node.js ≥ 24, pnpm ≥ 10, and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) (`sbx`) to run the example and the e2e tests — or, on Linux, `bubblewrap`, `socat` and `ripgrep` to run them with srt instead (`EXAMPLE_SANDBOX=srt`, see [`ai-sdk-sandbox-runtime`](packages/sandbox-runtime#linux)).
 
