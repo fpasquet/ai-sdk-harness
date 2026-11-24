@@ -34,6 +34,8 @@ They all share the one sandbox, and the conversations of different agents run si
 
 ## Run it
 
+This example runs from a clone of the monorepo. To start a chat of your own without it, fetch the [Next.js starter](../starter-next/README.md): one coding agent and one sandbox, from npm.
+
 You need Node.js 24 or later, pnpm, and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) (`sbx`) signed in.
 
 ```bash

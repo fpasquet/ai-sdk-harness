@@ -144,29 +144,61 @@ jobs:
             docker run --rm "ai-sdk-$package" --help
           done
 
-  # The starter is fetched and installed on its own, from npm: checked as a user runs it, against
-  # the published packages, not those of this commit.
-  starter:
-    name: Starter (npm install, typecheck)
+  # The starters are fetched and installed on their own, with npm. Checked as a user installs
+  # them, with the packages of this commit in place of the published ones: packed as npm would
+  # publish them, as the `images` job does. starters.yml checks them against npm.
+  starters:
+    name: Starter (${{ matrix.starter }}, this commit)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: examples/starter
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        starter: [starter, starter-next]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: pnpm install --frozen-lockfile
+
+      # The packages of this repository the starter depends on: ai-sdk-<dir> is packages/<dir>.
+      - name: Pack the packages it uses
+        env:
+          STARTER: examples/${{ matrix.starter }}
+        run: |
+          set -euo pipefail
+          packages=$(node -p "Object.keys(require('./$STARTER/package.json').dependencies).filter((name) => name.startsWith('ai-sdk-')).join(' ')")
+          pnpm turbo run build $(printf -- '--filter=%s ' $packages)
+          mkdir -p "$RUNNER_TEMP/packages"
+          for package in $packages; do
+            (cd "packages/${package#ai-sdk-}" && pnpm pack --pack-destination "$RUNNER_TEMP/packages")
+          done
+
+      - name: Install the starter with them
+        working-directory: examples/${{ matrix.starter }}
+        run: |
+          npm install --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/packages/*.tgz
 
       - name: Typecheck
+        if: matrix.starter == 'starter'
+        working-directory: examples/starter
         run: npm run typecheck
+
+      - name: Build
+        if: matrix.starter == 'starter-next'
+        working-directory: examples/starter-next
+        run: npm run build
 
   commitlint:
     name: Validate commit messages
@@ -202,13 +234,13 @@ jobs:
     # Stable required status check, whatever the Node matrix of `test` reports.
     name: CI
     runs-on: ubuntu-latest
-    needs: [check, test, images, starter]
+    needs: [check, test, images, starters]
     if: always()
     steps:
       - name: Check required jobs succeeded
         run: |
-          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] || [ "${{ needs.starter.result }}" != "success" ]; then
-            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }}, images=${{ needs.images.result }}, starter=${{ needs.starter.result }})."
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] || [ "${{ needs.starters.result }}" != "success" ]; then
+            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }}, images=${{ needs.images.result }}, starters=${{ needs.starters.result }})."
             exit 1
           fi
           echo "All CI jobs passed."

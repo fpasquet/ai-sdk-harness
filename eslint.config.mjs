@@ -2,7 +2,7 @@
 import nodeConfig from '@repo/eslint-config/node';
 
 export default [
-  // Outside the workspace, its dependencies are not installed here: CI type-checks it on its own.
-  { ignores: ['examples/starter/**'] },
+  // Outside the workspace, their dependencies are not installed here: CI checks them on their own.
+  { ignores: ['examples/starter/**', 'examples/starter-next/**'] },
   ...nodeConfig(import.meta.dirname),
 ];

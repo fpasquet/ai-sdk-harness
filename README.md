@@ -84,6 +84,7 @@ packages/
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
+  starter-next/       the same as a Next.js chat, its conversations kept by ai-sdk-harness-sessions
   next-chat/          a Next.js useChat page talking to every official harness, Claude Code, Codex, OpenCode and others, in a Docker Sandbox, a microsandbox, a Cloud Run sandbox or behind srt
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
@@ -99,6 +100,8 @@ cd my-agent && npm install
 cp .env.example .env   # set CLAUDE_CODE_OAUTH_TOKEN
 npm start
 ```
+
+The [Next.js starter](examples/starter-next) makes a chat of it: `examples/starter-next` in place of `examples/starter`, then `npm run dev`.
 
 To work on the monorepo, and run the Next.js example:
 
