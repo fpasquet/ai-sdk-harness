@@ -81,7 +81,7 @@ CLOUD_RUN_SANDBOX_SERVICE_TOKEN=<the service's token: gcloud secrets versions ac
 
 The header says which sandbox the agents run in. The first message saves a template with Claude Code and Codex to the service's bucket, a few minutes; every later start reuses it. The sandbox reaches the model APIs, the npm registry and the host of [a repository](#a-repository), nothing else.
 
-After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends a conversation: its harness session is stopped with its state. Once no conversation holds the sandbox, the sandbox is saved to a snapshot: nothing runs, nothing is billed. The next message brings the sandbox back, and the agent picks the conversation up where it was:
+After 5 minutes without a message (`EXAMPLE_SUSPEND_AFTER_MS`), the example suspends a conversation: its harness session is stopped with its state. Once no conversation holds the sandbox, the sandbox is saved to a snapshot: nothing runs, and only the snapshot's storage is billed. The next message brings the sandbox back, and the agent picks the conversation up where it was:
 
 ```mermaid
 stateDiagram-v2
@@ -93,7 +93,7 @@ stateDiagram-v2
   note right of Suspended
     Harness session stopped with its state;
     with no conversation left, sandbox saved
-    to Cloud Storage: nothing billed
+    to Cloud Storage: only its storage billed
   end note
 ```
 
