@@ -4,12 +4,14 @@ export type {
   CloudRunCreationSettings,
   CloudRunNetworkSandboxSessionCreateOptions,
   CloudRunNetworkSandboxSessionResumeOptions,
+  CloudRunSandboxDeletionSettings,
   CloudRunTemplateDeletionSettings,
 } from './client/cloud-run-settings.js';
 export { CloudRunSandboxNotFoundError } from './client/errors/cloud-run-sandbox-not-found-error.js';
 export { CloudRunSandboxServiceError } from './client/errors/cloud-run-sandbox-service-error.js';
 export {
   createCloudRunNetworkSandboxSession,
+  deleteCloudRunSandbox,
   deleteCloudRunSandboxTemplate,
   resumeCloudRunNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';

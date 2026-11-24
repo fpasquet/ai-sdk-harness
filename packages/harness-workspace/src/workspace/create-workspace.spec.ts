@@ -742,6 +742,24 @@ describe('createWorkspace', () => {
       expect(workspace.sandboxes(unavailable(false))).not.toHaveProperty('shutdown');
     });
 
+    it('leaves a session with a sandbox of its own to its sandboxes, never starting the sandbox', async () => {
+      const discarded: string[] = [];
+      const own: SessionSandboxes = {
+        ownSandboxes: true,
+        acquire: () => Promise.reject(new Error('a stopped machine would start')),
+        discard: (sessionId) => {
+          discarded.push(sessionId);
+          return Promise.resolve();
+        },
+      };
+
+      const sandboxes = workspace.sandboxes(own);
+      await sandboxes.discard!('a');
+
+      expect(discarded).toEqual(['a']);
+      expect(sandboxes.ownSandboxes).toBe(true);
+    });
+
     it('takes an abort signal at every step', async () => {
       const { signal } = new AbortController();
       const lease = workspace.open({ sessionId: 'a', sandboxSession: host.sandbox });

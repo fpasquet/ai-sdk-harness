@@ -127,6 +127,14 @@ export interface MicrosandboxCreationSettings extends MicrosandboxConnectionSett
 export type MicrosandboxNetworkSandboxSessionCreateOptions =
   HarnessV1SandboxSessionCreateOptions<MicrosandboxCreationSettings>;
 
+/** Options of `deleteMicrosandboxSandbox()`. */
+export interface MicrosandboxSandboxDeletionSettings {
+  /** The id the sandbox was created with. */
+  sandboxId: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
+}
+
 /** Options of `resumeMicrosandboxNetworkSandboxSession()`. */
 export type MicrosandboxNetworkSandboxSessionResumeOptions =
   HarnessV1SandboxSessionResumeOptions<MicrosandboxConnectionSettings>;

@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type {
   MicrosandboxNetworkSandboxSessionCreateOptions,
   MicrosandboxNetworkSandboxSessionResumeOptions,
+  MicrosandboxSandboxDeletionSettings,
 } from '../microsandbox-settings.js';
 import type { MicrosandboxNetworkSandboxSession } from '../session/microsandbox-network-sandbox-session.js';
 import type { MicrosandboxConnection } from '../transport/microsandbox-connection.js';
@@ -108,4 +109,19 @@ export async function resumeMicrosandboxNetworkSandboxSession(
 ): Promise<MicrosandboxNetworkSandboxSession> {
   options.abortSignal?.throwIfAborted();
   return openSession(connectSandbox(options.sandboxId), options);
+}
+
+/**
+ * Removes the microsandbox `sandboxId`, with its disk and its secrets, without starting it: a
+ * stopped sandbox, which `destroy()` of a session would first have to resume, its microVM booted
+ * only to be removed. Removing a sandbox that does not exist, or no longer does, is no error. The
+ * `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while
+ * suspended.
+ */
+export async function deleteMicrosandboxSandbox(
+  options: MicrosandboxSandboxDeletionSettings,
+): Promise<void> {
+  options.abortSignal?.throwIfAborted();
+  assertSandboxName(options.sandboxId);
+  await connectSandbox(options.sandboxId).destroy();
 }

@@ -297,6 +297,8 @@ await createMicrosandboxNetworkSandboxSession({
 
 microsandbox keeps what the commands print in `exec.log`, next to the sandbox's disk (`msb logs <id>`), until the sandbox is removed.
 
+`deleteMicrosandboxSandbox({ sandboxId })` removes a sandbox by its id, with its disk and its secrets, without a session: a stopped one is removed as it is, where `destroy()` needs a session, which resumes it, booting the microVM only to remove it. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#sandboxes), for the sessions closed while suspended.
+
 ## Options
 
 `createMicrosandboxNetworkSandboxSession(options)` takes every option below; `resumeMicrosandboxNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and `brokerCredentials`.

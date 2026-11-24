@@ -30,6 +30,13 @@ export interface SessionSandboxes {
   ): Promise<SessionSandboxLease>;
   /** A suspended session is closed: free what it still keeps, its own sandbox for instance. */
   discard?(sessionId: string): Promise<void>;
+  /**
+   * Whether each session has a sandbox of its own, which `close()` of its lease and `discard()`
+   * delete whole, its files with it: a wrapper that keeps files of a session in its sandbox, as the
+   * checkout of `ai-sdk-harness-workspace`, need not take the sandbox back to remove them first.
+   * `true` for `sandboxPerSession()`.
+   */
+  readonly ownSandboxes?: boolean;
   /** The manager shuts down, its sessions suspended: stop what is still open. */
   shutdown?(): Promise<void>;
 }

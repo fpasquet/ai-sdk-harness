@@ -155,6 +155,14 @@ export interface SbxCreationSettings extends SbxConnectionSettings {
 export type SbxNetworkSandboxSessionCreateOptions =
   HarnessV1SandboxSessionCreateOptions<SbxCreationSettings>;
 
+/** Options of `deleteSbxSandbox()`: the sandbox, and the `sbx` it was created with. */
+export interface SbxSandboxDeletionSettings extends SbxConnectionSettings {
+  /** The id the sandbox was created with. */
+  sandboxId: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
+}
+
 /** Options of `resumeSbxNetworkSandboxSession()`. */
 export type SbxNetworkSandboxSessionResumeOptions =
   HarnessV1SandboxSessionResumeOptions<SbxConnectionSettings>;

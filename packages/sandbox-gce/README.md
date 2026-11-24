@@ -648,6 +648,8 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 `fork()` lets several harness sessions run side by side in one machine, each with a bridge on its own port, as with `ai-sdk-sandbox-cloud-run`.
 
+`deleteGceSandbox({ url, sandboxId })` deletes a sandbox by its id, its machine and its disk, without a session: a stopped one is deleted as it is, where `destroy()` needs a session, which resumes it, starting the machine for a minute only to delete it. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#sandboxes), for the sessions closed while suspended.
+
 ## Options
 
 `createGceNetworkSandboxSession(options)` takes every option below; `resumeGceNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.

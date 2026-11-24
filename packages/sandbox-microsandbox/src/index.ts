@@ -2,6 +2,7 @@ export { MicrosandboxCommandError } from './errors/microsandbox-command-error.js
 export { MicrosandboxSandboxNotFoundError } from './errors/microsandbox-sandbox-not-found-error.js';
 export {
   createMicrosandboxNetworkSandboxSession,
+  deleteMicrosandboxSandbox,
   resumeMicrosandboxNetworkSandboxSession,
 } from './lifecycle/create-session.js';
 export type { PruneMicrosandboxTemplatesOptions } from './lifecycle/sandbox-template.js';
@@ -11,6 +12,7 @@ export type {
   MicrosandboxCreationSettings,
   MicrosandboxNetworkSandboxSessionCreateOptions,
   MicrosandboxNetworkSandboxSessionResumeOptions,
+  MicrosandboxSandboxDeletionSettings,
 } from './microsandbox-settings.js';
 export { MICROSANDBOX_SANDBOX_PROVIDER_ID } from './provider-id.js';
 export { MicrosandboxNetworkSandboxSession } from './session/microsandbox-network-sandbox-session.js';

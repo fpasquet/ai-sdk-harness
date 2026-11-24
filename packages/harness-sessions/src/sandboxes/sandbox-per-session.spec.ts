@@ -56,6 +56,23 @@ describe('sandboxPerSession', () => {
     expect(events).toEqual(['create a', 'stop a', 'destroy a', 'resume b', 'destroy b']);
   });
 
+  it('deletes the sandbox of a session closed while suspended without reattaching to it, when it can', async () => {
+    const removed: string[] = [];
+    const sandboxes = sandboxPerSession({
+      create: () => Promise.reject(new Error('unused')),
+      resume: () => Promise.reject(new Error('a stopped machine would start')),
+      remove: (id) => {
+        removed.push(id);
+        return Promise.resolve();
+      },
+    });
+
+    await sandboxes.discard?.('b');
+
+    expect(removed).toEqual(['b']);
+    expect(sandboxes.ownSandboxes).toBe(true);
+  });
+
   it('takes any number of sessions unless told otherwise', () => {
     const sandboxes = sandboxPerSession({
       create: () => Promise.reject(new Error('unused')),

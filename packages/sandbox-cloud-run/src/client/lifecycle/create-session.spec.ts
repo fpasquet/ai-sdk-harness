@@ -16,6 +16,7 @@ import {
   CloudRunSandboxNotFoundError,
   CloudRunSandboxServiceError,
   createCloudRunNetworkSandboxSession,
+  deleteCloudRunSandbox,
   deleteCloudRunSandboxTemplate,
   resumeCloudRunNetworkSandboxSession,
 } from '../../index.js';
@@ -394,6 +395,27 @@ describe('the lifecycle of a Cloud Run sandbox', () => {
 
     expect(resumed.ports).toEqual([4000]);
     expect((await resumed.run({ command: 'echo ok' })).stdout).toBe('ok\n');
+  });
+
+  it('is deleted suspended without being restored, and a sandbox already gone is no error', async () => {
+    const session = await createCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    await session.stop();
+    const calls = fake.calls().length;
+
+    await deleteCloudRunSandbox({ ...options(), sandboxId: 'box' });
+
+    // Not a call of the sandbox CLI: nothing restored, nothing started.
+    expect(fake.calls().slice(calls)).toEqual([]);
+    expect(existsSync(join(fake.snapshots, 'snapshots/box.tar.gz'))).toBe(false);
+    await expect(
+      resumeCloudRunNetworkSandboxSession({ ...options(), sandboxId: 'box' }),
+    ).rejects.toBeInstanceOf(CloudRunSandboxNotFoundError);
+    await expect(
+      deleteCloudRunSandbox({ ...options(), sandboxId: 'box' }),
+    ).resolves.toBeUndefined();
+    await expect(deleteCloudRunSandbox({ ...options(), sandboxId: 'Bad_Name' })).rejects.toThrow(
+      'Invalid sandbox id',
+    );
   });
 
   it('cannot resume a sandbox that does not exist', async () => {

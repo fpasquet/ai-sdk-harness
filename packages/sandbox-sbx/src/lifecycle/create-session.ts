@@ -3,9 +3,11 @@ import { randomBytes } from 'node:crypto';
 import type {
   SbxNetworkSandboxSessionCreateOptions,
   SbxNetworkSandboxSessionResumeOptions,
+  SbxSandboxDeletionSettings,
 } from '../sbx-settings.js';
 import type { SbxNetworkSandboxSession } from '../session/sbx-network-sandbox-session.js';
 
+import { SbxError } from '../errors/sbx-error.js';
 import { applyNetworkPolicy } from '../network/network-policy.js';
 import { SbxCli } from '../transport/sbx-cli.js';
 import { assertSandboxName, assertSettingsFit, createArgs } from './create-args.js';
@@ -116,4 +118,24 @@ export async function resumeSbxNetworkSandboxSession(
   const cli = new SbxCli(options.binary, options.cloud ?? false, options);
   await assertSandboxExists(cli, options.sandboxId, options.abortSignal);
   return openSandbox(cli, options.sandboxId, options);
+}
+
+/**
+ * Removes the sandbox `sandboxId`, with its filesystem and the secrets scoped to it, without
+ * starting it: a stopped sandbox, which `destroy()` of a session would first have to resume, its
+ * microVM booted only to be removed. Removing a sandbox that does not exist, or no longer does, is
+ * no error. The `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions
+ * closed while suspended.
+ */
+export async function deleteSbxSandbox(options: SbxSandboxDeletionSettings): Promise<void> {
+  const { sandboxId, abortSignal } = options;
+  abortSignal?.throwIfAborted();
+  const cloud = options.cloud ?? false;
+  assertSandboxName(sandboxId, cloud);
+  const cli = new SbxCli(options.binary, cloud, options);
+  const args = ['rm', '--force', sandboxId];
+  const result = await cli.run(args, { abortSignal });
+  if (result.exitCode === 0) return;
+  // `sbx rm` fails on a sandbox it does not know: gone, as asked.
+  if ((await listSandboxes(cli, abortSignal)).has(sandboxId)) throw new SbxError(args, result);
 }
