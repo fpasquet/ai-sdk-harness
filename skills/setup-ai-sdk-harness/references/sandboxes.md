@@ -20,12 +20,13 @@ Every sandbox package gives `agent.createSession({ sandboxSession })` the same t
 
 ## The sandbox of each package
 
-Every sandbox of the Claude Code harness needs:
+What the sandbox needs depends on where the harness runs:
 
-- `ports: [4000]`: its bridge listens there, inside the sandbox.
-- `template: await agent.getSandboxTemplate()`: the harness installs its runtime once, in an image or snapshot every later sandbox starts from. The first creation takes a minute or two.
-- pnpm, with which the Claude Code bridge installs its dependencies: `setup: ['npm install --global --silent pnpm@10']` on `sbx` and `microsandbox`; on the host's `PATH` for `runtime`; already in the Cloud Run and Compute Engine images.
-- Node.js and git in any image of the user's, beside the project's toolchain: the bridge runs on Node.js, and `ai-sdk-harness-workspace` fetches repositories with git.
+- **A bridge in the sandbox** (Claude Code, Codex, OpenCode, Deep Agents, Grok Build, GitHub Copilot, Cursor): `ports: [4000]`, the port its bridge listens on inside the sandbox, the same for every harness.
+- **On the app's server** (Pi, fx): the sandbox is their file system and shell only. No port, no bridge, no template.
+- `template: await agent.getSandboxTemplate()` for a bridge-backed harness: it installs its runtime once, in an image or snapshot every later sandbox starts from. The first creation takes a minute or two.
+- pnpm, with which the Claude Code and Codex bridges install their dependencies: `setup: ['npm install --global --silent pnpm@10']` on `sbx` and `microsandbox`; on the host's `PATH` for `runtime`; already in the Cloud Run and Compute Engine images.
+- Node.js and git in any image of the user's, beside the project's toolchain: the bridge runs on Node.js, and `ai-sdk-harness-workspace` fetches repositories with git. `sbx` and `gce` check them once `setup` ran and fail the creation with `SbxSandboxImageError` or `GceSandboxImageError`, naming what is missing: add it to the image or to `setup`, don't empty `requiredCommands`.
 
 Name the sandbox (`sandboxId`), and **resume it** on the next run rather than creating one each time: creation never resumes, an existing name is a conflict.
 
@@ -114,9 +115,15 @@ const settings = {
   ports: [4000],
   allowedHosts: ['registry.npmjs.org'],
 };
+
+// The first time:
+const sandboxSession = await createGceNetworkSandboxSession({
+  ...settings,
+  template: await agent.getSandboxTemplate(),
+});
 ```
 
-Then as on Cloud Run: `createGceNetworkSandboxSession({ ...settings, template })` the first time, `resumeGceNetworkSandboxSession(settings)` after, with the same settings on every resume. `image` names one of the images the service offers (`SANDBOX_IMAGES`), for a project in another language. A stopped sandbox keeps its disk; a resume boots the machine again. Its deployment is longer (a VPC, an egress proxy, images, the service): follow its README step by step, with the user.
+Then as on Cloud Run: `resumeGceNetworkSandboxSession(settings)` after, with the same settings on every resume. Tests that run `docker compose` pull their images: add the registries to `allowedHosts` (`allowedHosts(trustedHosts('docker-hub'))`, or `'containers'` for every registry). `image` names one of the images the service offers (`SANDBOX_IMAGES`), for a project in another language. A stopped sandbox keeps its disk; a resume boots the machine again. Its deployment is longer (a VPC, an egress proxy, images, the service): follow its README step by step, with the user.
 
 ## Next.js
 
@@ -126,8 +133,8 @@ The harnesses read their bridge from files next to their module, which a bundle 
 const config: NextConfig = {
   serverExternalPackages: [
     '@ai-sdk/harness',
-    '@ai-sdk/harness-claude-code',
-    'ai-sdk-sandbox-sbx',
+    '@ai-sdk/harness-claude-code', // the adapter the app uses: '@ai-sdk/harness-codex'…
+    'ai-sdk-sandbox-sbx', // the sandbox package it uses
     // and, when used: 'ai-sdk-harness-sessions', 'ai-sdk-harness-workspace',
     // 'ai-sdk-sandbox-microsandbox' with 'microsandbox',
     // 'ai-sdk-sandbox-runtime' with '@anthropic-ai/sandbox-runtime'

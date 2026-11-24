@@ -17,7 +17,7 @@ try {
   }
 } finally {
   await session.destroy();
-  // Keeps the files; destroy() would remove the sandbox.
+  // Keeps the sandbox and its files for the next run; sandboxSession.destroy() would remove them.
   await sandboxSession.stop();
 }
 ```
@@ -58,6 +58,8 @@ if ((await sessions.get(id)) === undefined) {
 const turn = await sessions.send(id, { message: messages.at(-1), abortSignal: request.signal });
 return turn.toUIMessageStreamResponse();
 ```
+
+`agent` and `openSandbox` are those of the harness and the sandbox chosen: a Codex agent, a Cloud Run `openSandbox()`, nothing else changes.
 
 Ask the user:
 

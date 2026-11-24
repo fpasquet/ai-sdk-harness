@@ -24,7 +24,7 @@ A `HarnessAgent` of `@ai-sdk/harness` drives a coding-agent runtime (Claude Code
 Before changing anything, gather:
 
 - **Package manager**, from the lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`). Use it for every install command.
-- **Node.js ≥ 24** (`node --version`, `engines`, `.nvmrc`, the Dockerfile, CI) and **ESM**: every package is ESM-only. **This is a gate**: on an older Node.js, or a CommonJS project, stop before installing anything, say what has to change (Node.js 24; `"type": "module"`, or `await import()` from CommonJS), and ask before changing it.
+- **Node.js ≥ 24** (`node --version`, `engines`, `.nvmrc`, the Dockerfile, CI) and **ESM**: every package is ESM-only. **This is a gate**: on an older Node.js, or a CommonJS project (no `"type": "module"` in its `package.json`, `require()` in its code), stop before installing anything, say what has to change (Node.js 24; `"type": "module"`, or `await import()` from CommonJS), and ask before changing it.
 - **What already exists**: `@ai-sdk/harness`, a `@ai-sdk/harness-*` adapter, `ai`, a sandbox package, `HarnessAgent` in the code. Extend what is there; don't add a second agent.
 - **The app's shape**: a script or CLI, a server (Express, Hono, Fastify), or **Next.js** (`next.config.*`), which needs `serverExternalPackages` (see [references/sandboxes.md](references/sandboxes.md)).
 - **The project the agent works on**: its languages (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`…), which decide the sandbox image and the registries to open, and whether its tests need `docker compose`.
@@ -44,7 +44,7 @@ Ask which coding agent, unless the user named one or one is already installed. C
 
 - **Credential.** Add the variable to `.env.example`, never a value, and check `.env` is ignored by Git.
 - **Approvals differ.** Claude Code can ask before its commands and edits (`permissionMode: 'allow-reads'`). Codex cannot ask before its own tools yet: its adapter takes `permissionMode: 'allow-all'` only ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). Any harness asks before the app's own tools, through `toolApproval`. Say so when the user wants a person in the loop.
-- **Brokering.** Every sandbox package hands the sandbox a **placeholder** of the credential and swaps the real value in outside it, on the way to the provider. Never turn it off (`brokerCredentials: false` and the like): the agent could then read the real credential.
+- **Brokering.** Every sandbox package hands the sandbox a **placeholder** of the credential and swaps the real value in outside it, on the way to the provider. Never turn it off (`brokerCredentials: false` and the like): the agent could then read the real credential. On Cloud Run and Compute Engine it is the service's egress proxy, and cannot be turned off.
 - **When the harness cannot authenticate**, check in this order: the variable is set in the application's process (not only in a shell, or in a `.env` nothing loads); the provider's host is in the sandbox's network policy; one `@ai-sdk/harness` is installed (below). Never pass the credential into the sandbox to get around it.
 - **One release wave.** An adapter pins its `@ai-sdk/harness` exactly. Install the adapter and `@ai-sdk/harness` together, at their latest versions, and check one copy is installed (`npm ls @ai-sdk/harness`, `pnpm why @ai-sdk/harness`): two copies and the types no longer match.
 
@@ -64,7 +64,7 @@ Cloud Run and Compute Engine need a **sandbox service** deployed first (the `gcl
 
 ## Close the network
 
-By default the sandbox packages differ: Docker Sandboxes and microsandbox reach the public internet, srt a short default list, Cloud Run and Compute Engine the service's hosts plus the `allowedHosts` given. Propose a closed policy built with `ai-sdk-harness-network`: the harness's hosts, the registries of the project's languages, and the user's own. Follow [references/network.md](references/network.md); its main trap is the template, built under the same network.
+By default the sandbox packages differ: Docker Sandboxes applies the machine's policy (`sbx policy ls`), often open to the public internet, microsandbox reaches the public internet, srt a short default list, Cloud Run and Compute Engine the service's hosts plus the `allowedHosts` given. Propose a closed policy built with `ai-sdk-harness-network`: the harness's hosts, the registries of the project's languages, and the user's own. Follow [references/network.md](references/network.md); its main trap is the template, built under the same network.
 
 ## Choose how sessions live
 
@@ -78,5 +78,5 @@ Follow [references/sessions.md](references/sessions.md) for both.
 - Type-check (`tsc --noEmit` or the project's script).
 - Run **one real turn** with a short prompt (`Write a script that prints the first ten primes, then run it.`). The first run builds the template (a minute or two); say so before running it. A second run should resume the sandbox in seconds.
 - With a closed network, a refused host shows in the error of the template build, or in the turn: add it to the policy if the project needs it, don't open everything.
-- Clean up what the check left: `sbx rm <name>`, `sandboxSession.destroy()`.
+- Clean up what the check left, and only that: `sandboxSession.destroy()` (or `sbx rm <name>`) removes the sandbox and its files for good, so never run it on the sandbox the app resumes by name.
 - Point the user at the next steps that fit their app: plugins (`ai-sdk-harness-plugins`), a Git checkout per session (`ai-sdk-harness-workspace`), approvals of the agent's commands (`ai-sdk-harness-approval`), all documented on https://ai-sdk-harness.pages.dev.
