@@ -217,7 +217,7 @@ importers:
         specifier: ^0.3.1
         version: link:../../packages/harness-plugins
       ai-sdk-harness-sessions:
-        specifier: ^0.4.2
+        specifier: ^0.4.3
         version: link:../../packages/harness-sessions
       ai-sdk-harness-workspace:
         specifier: ^0.1.3
