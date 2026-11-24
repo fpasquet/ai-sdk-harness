@@ -1,7 +1,12 @@
 export const SITE_NAME = 'ai-sdk-harness';
 export const SITE_TAGLINE = 'Community packages for AI SDK harnesses';
+/**
+ * The meta description of the site: one sentence of at most ~155 characters,
+ * as search engines cut it there. It names the need, not the packages, so
+ * that adding a package does not leave it out of date.
+ */
 export const SITE_DESCRIPTION =
-  'Open-source packages for the Vercel AI SDK harnesses: run Claude Code, Codex and other coding agents in a local Docker Sandbox microVM with ai-sdk-sandbox-sbx, in a microsandbox microVM booted from any OCI image with ai-sdk-sandbox-microsandbox, in a Cloud Run sandbox on Google Cloud with ai-sdk-sandbox-cloud-run, or on your machine behind Anthropic Sandbox Runtime with ai-sdk-sandbox-runtime, extend them with plugins with ai-sdk-harness-plugins, manage their sessions with ai-sdk-harness-sessions, give each session a Git checkout of its own with ai-sdk-harness-workspace, keep a person in the loop with ai-sdk-harness-approval, and close the network of their sandbox to all but the hosts they need with ai-sdk-harness-network.';
+  'Run Claude Code, Codex and other coding agents in a sandbox with the Vercel AI SDK, locally or in the cloud, with sessions, plugins and approvals.';
 export const GITHUB_URL = 'https://github.com/fpasquet/ai-sdk-harness';
 export const AUTHOR_NAME = 'Fabien Pasquet';
 export const AUTHOR_URL = 'https://github.com/fpasquet';
