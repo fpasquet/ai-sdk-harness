@@ -70,7 +70,7 @@ One-time setup:
 
 To replace the key, generate another one on the App's page, set the secret again, then delete the old key there.
 
-Without `RELEASE_APP_CLIENT_ID`, the workflow warns and falls back to `GITHUB_TOKEN`. Close and reopen the version PR by hand before merging it, for all of its checks to run.
+The workflow has no other token to fall back to: without the variable, the secret or the App's installation, the release fails at `Create the release token`, before anything is published.
 
 ### Service images
 
@@ -128,7 +128,7 @@ There is no alpha or beta channel: the 0.x series is where the packages get trie
 
 - **Settings → General**: allow squash merging only, with the PR title as the commit message; enable auto-merge and automatic deletion of head branches.
 - **Settings → Rules**: a ruleset on `main` requiring the status checks above and a pull request.
-- **Settings → Actions → General**: workflow permissions _Read and write_, and _Allow GitHub Actions to create and approve pull requests_ (the approval of Dependabot's, and the release PR when no App opens it).
+- **Settings → Actions → General**: workflow permissions _Read and write_, and _Allow GitHub Actions to create and approve pull requests_ (the approval of Dependabot's).
 - **A GitHub App** for the release PR: see [Release token](#release-token).
 - **Settings → Secrets**: `CODECOV_TOKEN`, optional (the coverage upload is skipped without it); `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the docs deployment (see [Docs deployment](#docs-deployment)).
 

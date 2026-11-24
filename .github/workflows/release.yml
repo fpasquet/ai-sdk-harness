@@ -4,9 +4,10 @@ on:
   push:
     branches: ['main']
 
+# Of the GITHUB_TOKEN, which only checks the repository out: the release PR, the tags and the
+# releases are made with the release token.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   # Required for npm trusted publishing (OIDC), no NPM_TOKEN needed. Also covers provenance.
   id-token: write
 
@@ -56,7 +57,6 @@ jobs:
       # See "Release token" in MAINTAINERS.md.
       - name: Create the release token
         id: release-token
-        if: vars.RELEASE_APP_CLIENT_ID != ''
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -65,17 +65,13 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - name: Warn that the release PR will lack its checks
-        if: vars.RELEASE_APP_CLIENT_ID == ''
-        run: echo "::warning::RELEASE_APP_CLIENT_ID is not set, the release PR is opened with GITHUB_TOKEN. Close and reopen it to start its required checks, see MAINTAINERS.md."
-
       - name: Create release PR or publish
         id: changesets
         uses: changesets/action@v2
         with:
           # v2 reads the token from this input only; the GITHUB_TOKEN env var is ignored.
           # It opens the PR, commits, tags and creates the releases, through the GitHub API.
-          github-token: ${{ steps.release-token.outputs.token || secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.release-token.outputs.token }}
           version-script: pnpm version-packages
           publish-script: pnpm release
           # Conventional-Commit message/title for the changeset-release PR so the
