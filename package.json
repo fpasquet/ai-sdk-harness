@@ -44,7 +44,7 @@
     "test:cov": "turbo run test:cov",
     "test:e2e": "turbo run test:e2e",
     "typecheck": "turbo run typecheck",
-    "version-packages": "changeset version && pnpm readme-versions",
+    "version-packages": "changeset version && pnpm install --lockfile-only && pnpm readme-versions",
     "prepare": "husky"
   },
   "devDependencies": {
