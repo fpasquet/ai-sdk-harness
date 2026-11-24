@@ -2,6 +2,7 @@ export { SrtError } from './client/errors/srt-error.js';
 export { SrtSandboxNotFoundError } from './client/errors/srt-sandbox-not-found-error.js';
 export {
   createSrtNetworkSandboxSession,
+  deleteSrtSandbox,
   resumeSrtNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';
 export { SRT_SANDBOX_PROVIDER_ID } from './client/provider-id.js';
@@ -13,5 +14,6 @@ export type {
   SrtCreationSettings,
   SrtNetworkSandboxSessionCreateOptions,
   SrtNetworkSandboxSessionResumeOptions,
+  SrtSandboxDeletionSettings,
 } from './client/srt-settings.js';
 export type { SrtRuntimeSettings } from './client/transport/srt-runtime.js';

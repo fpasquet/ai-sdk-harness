@@ -340,7 +340,7 @@ const sandboxes = sandboxPerSession({
 });
 ```
 
-A session closed while it was suspended leaves a stopped sandbox, which `discard` deletes. Give `remove(sessionId)` to delete it as it is: without it, the sandbox is resumed, then destroyed, and a stopped Compute Engine machine is started for a minute only to be deleted. `remove` takes a sandbox already gone as no error. `deleteGceSandbox()` of `ai-sdk-sandbox-gce` is one:
+A session closed while it was suspended leaves a stopped sandbox, which `discard` deletes. Give `remove(sessionId)` to delete it as it is: without it, the sandbox is resumed, then destroyed, and a stopped Compute Engine machine is started for a minute only to be deleted. `remove` takes a sandbox already gone as no error. Each sandbox package has one, `deleteGceSandbox()`, `deleteCloudRunSandbox()`, `deleteSbxSandbox()`, `deleteMicrosandboxSandbox()` and `deleteSrtSandbox()` ([below](#opening-the-sandbox)); on Compute Engine:
 
 ```ts
 import {
@@ -365,12 +365,13 @@ const sandboxes = sandboxPerSession({
 
 The package imports no sandbox package: the `open()` of `sharedSandbox()`, and the `create()` and `resume()` of `sandboxPerSession()`, are functions you write with the sandbox package of your choice. Throughout this documentation, `openSandbox` is the function of [The manager](#the-manager): it finds the sandbox again when it exists, and creates it otherwise. To run the sessions somewhere else, change that function and nothing else:
 
-| Sandbox package                                                                                      | Its functions                                                                            | `sharedSandbox()`      | `sandboxPerSession()` |
-| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------- | --------------------- |
-| [`ai-sdk-sandbox-sbx`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx)                   | `createSbxNetworkSandboxSession()`, `resumeSbxNetworkSandboxSession()`                   | Yes                    | Yes                   |
-| [`ai-sdk-sandbox-cloud-run`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-cloud-run)       | `createCloudRunNetworkSandboxSession()`, `resumeCloudRunNetworkSandboxSession()`         | Yes                    | Yes                   |
-| [`ai-sdk-sandbox-runtime`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-runtime)           | `createSrtNetworkSandboxSession()`, `resumeSrtNetworkSandboxSession()`                   | Yes                    | Yes                   |
-| [`ai-sdk-sandbox-microsandbox`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-microsandbox) | `createMicrosandboxNetworkSandboxSession()`, `resumeMicrosandboxNetworkSandboxSession()` | No: it has no `fork()` | Yes                   |
+| Sandbox package                                                                                      | Its functions                                                                            | `sharedSandbox()`      | `sandboxPerSession()`, its `remove` |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------- |
+| [`ai-sdk-sandbox-sbx`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx)                   | `createSbxNetworkSandboxSession()`, `resumeSbxNetworkSandboxSession()`                   | Yes                    | Yes, `deleteSbxSandbox()`           |
+| [`ai-sdk-sandbox-cloud-run`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-cloud-run)       | `createCloudRunNetworkSandboxSession()`, `resumeCloudRunNetworkSandboxSession()`         | Yes                    | Yes, `deleteCloudRunSandbox()`      |
+| [`ai-sdk-sandbox-gce`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-gce)                   | `createGceNetworkSandboxSession()`, `resumeGceNetworkSandboxSession()`                   | Yes                    | Yes, `deleteGceSandbox()`           |
+| [`ai-sdk-sandbox-runtime`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-runtime)           | `createSrtNetworkSandboxSession()`, `resumeSrtNetworkSandboxSession()`                   | Yes                    | Yes, `deleteSrtSandbox()`           |
+| [`ai-sdk-sandbox-microsandbox`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-microsandbox) | `createMicrosandboxNetworkSandboxSession()`, `resumeMicrosandboxNetworkSandboxSession()` | No: it has no `fork()` | Yes, `deleteMicrosandboxSandbox()`  |
 
 The same `openSandbox` on Cloud Run, through the sandbox service you deployed:
 

@@ -419,6 +419,8 @@ const second = await agent.createSession({ sandboxSession: sandbox.fork({ ports:
 
 A view starts its own processes and hands its own credentials to the service, and its `release()` only touches them: releasing one session leaves the others running. Its `setRequestTransformations()` replaces its own credentials only. `stop()` and `destroy()` act on the whole sandbox, from any view: suspend it once no session uses it. [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions) hands out the ports, releases the views and suspends the sandbox for you.
 
+`deleteCloudRunSandbox({ url, sandboxId })` deletes a sandbox by its id, and its snapshot, without a session: a suspended one is deleted as it is, where `destroy()` needs a session, which resumes it, restoring its snapshot onto a billed instance only to delete it. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#sandboxes), for the sessions closed while suspended.
+
 ## Options
 
 `createCloudRunNetworkSandboxSession(options)` takes every option below; `resumeCloudRunNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.

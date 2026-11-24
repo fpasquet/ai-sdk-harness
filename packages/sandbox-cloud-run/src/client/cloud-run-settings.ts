@@ -87,6 +87,14 @@ export interface CloudRunCreationSettings extends CloudRunConnectionSettings {
   setup?: readonly string[];
 }
 
+/** Options of `deleteCloudRunSandbox()`: the sandbox, and the service it was created through. */
+export interface CloudRunSandboxDeletionSettings extends CloudRunConnectionSettings {
+  /** The id the sandbox was created with. */
+  sandboxId: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
+}
+
 /** Options of `deleteCloudRunSandboxTemplate()`: the template, as the sandboxes made from it were. */
 export interface CloudRunTemplateDeletionSettings extends CloudRunConnectionSettings {
   /** The template the sandboxes were created from, `await agent.getSandboxTemplate()`. */

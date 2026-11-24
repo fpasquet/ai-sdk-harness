@@ -94,5 +94,19 @@ export type SrtNetworkSandboxSessionCreateOptions =
   HarnessV1SandboxSessionCreateOptions<SrtCreationSettings>;
 
 /** Options of `resumeSrtNetworkSandboxSession()`. */
+/** Options of `deleteSrtSandbox()`. */
+export interface SrtSandboxDeletionSettings {
+  /** The id the sandbox was created with. */
+  sandboxId: string;
+  /**
+   * Where the sandboxes live, as they were created with.
+   *
+   * @defaultValue `~/.ai-sdk-sandbox-runtime`
+   */
+  directory?: string;
+  /** Aborts the call. */
+  abortSignal?: AbortSignal;
+}
+
 export type SrtNetworkSandboxSessionResumeOptions =
   HarnessV1SandboxSessionResumeOptions<SrtConnectionSettings>;

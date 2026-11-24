@@ -96,9 +96,9 @@ export class SandboxServiceClient {
     await this.call('POST', `v1/sandboxes/${name}/suspend`);
   }
 
-  /** Deletes the sandbox, its snapshot included. */
-  async remove(name: string): Promise<void> {
-    await this.call('DELETE', `v1/sandboxes/${name}`);
+  /** Deletes the sandbox, its snapshot included, running or suspended: one that does not exist is fine. */
+  async remove(name: string, abortSignal?: AbortSignal): Promise<void> {
+    await this.call('DELETE', `v1/sandboxes/${name}`, { abortSignal });
   }
 
   /**

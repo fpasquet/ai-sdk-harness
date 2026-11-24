@@ -267,6 +267,8 @@ A resumed sandbox has the files and the rules it was created with. Not its proce
 
 `fork()` and `release()` are what `sharedSandbox()` of [`ai-sdk-harness-sessions`](https://www.npmjs.com/package/ai-sdk-harness-sessions) needs to run several conversations in one sandbox.
 
+`deleteSrtSandbox({ sandboxId, directory })` removes a sandbox by its id, its directory with its home and working directory, never the `workspace`, without a session: where `destroy()` needs a session, which resumes it, starting its supervisor only to stop it. Stop the sessions on it first. A sandbox that does not exist, or no longer does, is no error; a directory that holds no sandbox is refused. It is the `remove` of `sandboxPerSession()` of [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#sandboxes), for the sessions closed while suspended.
+
 ## Options
 
 `createSrtNetworkSandboxSession(options)` takes every option below; `resumeSrtNetworkSandboxSession(options)` takes `sandboxId` (required), `abortSignal` and the connection settings.

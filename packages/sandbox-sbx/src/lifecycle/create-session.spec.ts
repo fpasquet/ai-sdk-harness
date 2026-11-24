@@ -8,6 +8,7 @@ import type { FakeSbx } from '../../test/fake-sbx.js';
 import { createFakeSbx } from '../../test/fake-sbx.js';
 import {
   createSbxNetworkSandboxSession,
+  deleteSbxSandbox,
   resumeSbxNetworkSandboxSession,
   SbxSandboxImageError,
   SbxSandboxNotFoundError,
@@ -366,6 +367,34 @@ describe('resumeSbxNetworkSandboxSession', () => {
         sandboxId: 'box',
         abortSignal: AbortSignal.abort(),
       }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('deleteSbxSandbox', () => {
+  let sbx: FakeSbx;
+
+  beforeEach(() => {
+    sbx = createFakeSbx();
+  });
+  afterEach(() => sbx.dispose());
+
+  it('removes a stopped sandbox without starting it, and a sandbox already gone is no error', async () => {
+    sbx.addSandbox('box');
+    sbx.update((state) => {
+      if (state.sandboxes['box']) state.sandboxes['box'].status = 'stopped';
+    });
+
+    await deleteSbxSandbox({ binary: sbx.binary, sandboxId: 'box' });
+
+    expect(sbx.state().sandboxes['box']).toBeUndefined();
+    // Only `rm`: no `exec`, which would boot the microVM, nor `run`.
+    expect(sbx.calls().map((args) => args.find((arg) => !arg.startsWith('-')))).toEqual(['rm']);
+    await expect(
+      deleteSbxSandbox({ binary: sbx.binary, sandboxId: 'box' }),
+    ).resolves.toBeUndefined();
+    await expect(
+      deleteSbxSandbox({ binary: sbx.binary, sandboxId: 'box', abortSignal: AbortSignal.abort() }),
     ).rejects.toThrow();
   });
 });

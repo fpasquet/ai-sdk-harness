@@ -301,6 +301,8 @@ A host no rule allows also waits for an answer in `sbx policy approval ls`, whic
 
 `restricted()` returns an `Experimental_SandboxSession`: it can run commands and read and write files, but cannot stop the sandbox, publish ports or touch credentials. Pass it to AI SDK tools that accept `experimental_sandbox`.
 
+`deleteSbxSandbox({ sandboxId })` removes a sandbox by its id, with its files and its secrets, without a session: a stopped one is removed as it is, where `destroy()` needs a session, which resumes it, booting the microVM only to remove it. Pass `cloud: true` for a cloud sandbox. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/packages/harness-sessions#sandboxes), for the sessions closed while suspended.
+
 ## Several sessions in one sandbox
 
 A bridge-backed harness, Claude Code or Codex, listens on the first port of the sandbox session it is given. To run several harness sessions side by side in one sandbox, give each its own view with `fork({ ports })`: the same microVM and files, and a port of its own for its bridge.

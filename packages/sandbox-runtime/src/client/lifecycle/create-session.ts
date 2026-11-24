@@ -1,12 +1,13 @@
 import type { HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 
 import { randomBytes } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 
 import type {
   SrtConnectionSettings,
   SrtNetworkSandboxSessionCreateOptions,
   SrtNetworkSandboxSessionResumeOptions,
+  SrtSandboxDeletionSettings,
 } from '../srt-settings.js';
 import type { LinkChannel } from '../transport/supervisor-link.js';
 import type { SandboxLayout, SandboxRecord } from './sandbox-directory.js';
@@ -121,4 +122,22 @@ export async function resumeSrtNetworkSandboxSession(
   const record = await readSandboxRecord(layout);
   if (record === undefined) throw new SrtSandboxNotFoundError(options.sandboxId);
   return open({ id: options.sandboxId, layout, record }, options);
+}
+
+/**
+ * Removes the sandbox `sandboxId`, its directory with its home and working directory, without
+ * starting it: a stopped sandbox, which `destroy()` of a session would first have to resume, its
+ * supervisor started only to be stopped. Stop the sessions on it first: the supervisor of a
+ * running one is this process's. Removing a sandbox that does not exist, or no longer does, is no
+ * error; a directory that holds no sandbox is refused. The `remove` of `sandboxPerSession()` of
+ * `ai-sdk-harness-sessions`, for the sessions closed while suspended.
+ */
+export async function deleteSrtSandbox(options: SrtSandboxDeletionSettings): Promise<void> {
+  options.abortSignal?.throwIfAborted();
+  const layout = layoutOf(options.directory ?? defaultDirectory(), options.sandboxId);
+  if ((await readSandboxRecord(layout)) === undefined) {
+    if ((await stat(layout.base).catch(() => undefined)) === undefined) return;
+    throw new SrtError(`${layout.base} holds no sandbox: it is left as it is.`);
+  }
+  await rm(layout.base, { recursive: true, force: true });
 }

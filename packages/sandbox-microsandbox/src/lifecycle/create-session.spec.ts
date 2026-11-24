@@ -18,6 +18,7 @@ import {
 } from '../transport/sandbox-scripts.js';
 import {
   createMicrosandboxNetworkSandboxSession,
+  deleteMicrosandboxSandbox,
   resumeMicrosandboxNetworkSandboxSession,
 } from './create-session.js';
 import { DOCKER_HUB_HOSTS } from './sandbox-spec.js';
@@ -448,6 +449,25 @@ describe('resumeMicrosandboxNetworkSandboxSession', () => {
         sandboxId: 'box',
         abortSignal: AbortSignal.abort(),
       }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('deleteMicrosandboxSandbox', () => {
+  it('removes a stopped sandbox without starting it, and a sandbox already gone is no error', async () => {
+    const created = await createMicrosandboxNetworkSandboxSession({ sandboxId: 'box' });
+    await created.stop();
+    const box = fake.sandbox('box');
+
+    await deleteMicrosandboxSandbox({ sandboxId: 'box' });
+
+    expect(fake.sandboxes.has('box')).toBe(false);
+    // Removed as it was: never started again on the way.
+    expect(box.starts).toBe(0);
+    expect(box.status).toBe('stopped');
+    await expect(deleteMicrosandboxSandbox({ sandboxId: 'box' })).resolves.toBeUndefined();
+    await expect(
+      deleteMicrosandboxSandbox({ sandboxId: 'box', abortSignal: AbortSignal.abort() }),
     ).rejects.toThrow();
   });
 });

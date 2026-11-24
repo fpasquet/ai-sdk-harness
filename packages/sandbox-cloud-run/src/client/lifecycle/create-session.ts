@@ -5,6 +5,7 @@ import type {
   CloudRunConnectionSettings,
   CloudRunNetworkSandboxSessionCreateOptions,
   CloudRunNetworkSandboxSessionResumeOptions,
+  CloudRunSandboxDeletionSettings,
   CloudRunTemplateDeletionSettings,
 } from '../cloud-run-settings.js';
 
@@ -103,6 +104,21 @@ export async function deleteCloudRunSandboxTemplate(
   const source = { template, setup };
   forgetTemplate(client, source);
   await client.deleteTemplate(templateId(source), abortSignal);
+}
+
+/**
+ * Deletes the sandbox `sandboxId` and its snapshot, without restoring it: a suspended sandbox,
+ * which `destroy()` of a session would first have to resume onto a billed instance. Deleting a
+ * sandbox that does not exist, or no longer does, is no error. The `remove` of
+ * `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while suspended.
+ */
+export async function deleteCloudRunSandbox(
+  options: CloudRunSandboxDeletionSettings,
+): Promise<void> {
+  const { sandboxId, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  await clientOf(options).remove(sandboxId, abortSignal);
 }
 
 /**

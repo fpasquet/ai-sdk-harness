@@ -5,6 +5,7 @@ export { SbxSandboxNotFoundError } from './errors/sbx-sandbox-not-found-error.js
 export { SbxTimeoutError } from './errors/sbx-timeout-error.js';
 export {
   createSbxNetworkSandboxSession,
+  deleteSbxSandbox,
   resumeSbxNetworkSandboxSession,
 } from './lifecycle/create-session.js';
 export type { SbxBlockedRequest, SbxBlockedRequestsOptions } from './network/blocked-requests.js';
@@ -14,6 +15,7 @@ export type {
   SbxCreationSettings,
   SbxNetworkSandboxSessionCreateOptions,
   SbxNetworkSandboxSessionResumeOptions,
+  SbxSandboxDeletionSettings,
 } from './sbx-settings.js';
 export { SbxNetworkSandboxSession } from './session/sbx-network-sandbox-session.js';
 export { SbxSandboxSession } from './session/sbx-sandbox-session.js';

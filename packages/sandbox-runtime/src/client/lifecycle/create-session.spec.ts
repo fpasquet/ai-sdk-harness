@@ -1,7 +1,7 @@
 import type { HarnessV1SandboxTemplate } from '@ai-sdk/harness';
 
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ import { SrtSandboxNotFoundError } from '../errors/srt-sandbox-not-found-error.j
 import { SrtRuntime } from '../transport/srt-runtime.js';
 import {
   createSrtNetworkSandboxSession,
+  deleteSrtSandbox,
   resumeSrtNetworkSandboxSession,
 } from './create-session.js';
 
@@ -118,5 +119,28 @@ describe('resumeSrtNetworkSandboxSession', () => {
     await expect(resumeSrtNetworkSandboxSession({ sandboxId: 'none', directory })).rejects.toThrow(
       SrtSandboxNotFoundError,
     );
+  });
+});
+
+describe('deleteSrtSandbox', () => {
+  it('removes a stopped sandbox without starting it, and a sandbox already gone is no error', async () => {
+    const created = await createSrtNetworkSandboxSession({ sandboxId: 'gone', directory });
+    await created.stop();
+    const started = manager.wrapped.length;
+
+    await deleteSrtSandbox({ sandboxId: 'gone', directory });
+
+    // srt never wrapped a supervisor again: the sandbox was not started on the way.
+    expect(manager.wrapped).toHaveLength(started);
+    expect(existsSync(join(directory, 'gone'))).toBe(false);
+    await expect(deleteSrtSandbox({ sandboxId: 'gone', directory })).resolves.toBeUndefined();
+  });
+
+  it('leaves a directory that holds no sandbox', async () => {
+    await mkdir(join(directory, 'mine'));
+
+    await expect(deleteSrtSandbox({ sandboxId: 'mine', directory })).rejects.toThrow(SrtError);
+    expect(existsSync(join(directory, 'mine'))).toBe(true);
+    await expect(deleteSrtSandbox({ sandboxId: '../up', directory })).rejects.toThrow(SrtError);
   });
 });
