@@ -222,7 +222,9 @@ describe('plugins on real runtimes', () => {
     expect(inputs.filter((input) => input.includes('oracle.'))).toEqual([]);
   });
 
-  it.each(['claude-code', 'codex'] as const)(
+  // Codex only: `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude Code with the user's
+  // settings alone, so it never reads the session's `.claude/settings.local.json` (vercel/ai#21714).
+  it.each(['codex'] as const)(
     '%s runs the hook of a plugin, which blocks a command',
     async (runtime) => {
       const { text, outputs } = await turn(

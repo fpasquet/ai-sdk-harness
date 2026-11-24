@@ -31,11 +31,6 @@ export interface RuntimeAdapterSettings {
 export interface PluginRuntime {
   readonly harnessId: string;
   readonly supports: Readonly<Record<PluginFeature, boolean>>;
-  /**
-   * Where the rules go: in files the runtime reads (`layout` writes them), or in the agent's
-   * instructions, which every runtime takes.
-   */
-  readonly rules: 'files' | 'instructions';
   readonly mcpServer: (server: ResolvedMcpServer) => unknown;
   /**
    * What the runtime reads from the session's working directory, besides the plugins' own files.

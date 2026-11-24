@@ -92,16 +92,17 @@ export const acme = definePlugin({
 | --------------- | ---------------------------- | :---------: | :---: |
 | **tools**       | on your server / the sandbox |     ✅      |  ✅   |
 | **skills**      | in the sandbox               |     ✅      |  ✅   |
-| **rules**       | read by the agent            |     ✅      | ✅ ¹  |
+| **rules**       | read by the agent            |    ✅ ¹     | ✅ ¹  |
 | **commands**    | expanded on your server      |     ✅      |  ✅   |
-| **hooks**       | in the sandbox               |     ✅      | ✅ ³  |
-| **subagents**   | in the sandbox               |     ✅      | ✅ ²  |
+| **hooks**       | in the sandbox               |    ⚠️ ⁴     | ✅ ³  |
+| **subagents**   | in the sandbox               |    ⚠️ ⁴     | ✅ ²  |
 | **MCP servers** | connected by your server     |     ✅      |  ✅   |
 | **files**       | in the sandbox               |     ✅      |  ✅   |
 
-¹ As instructions: only Claude Code loads a rule with `paths` once the agent works on a matching file.
+¹ As instructions, a rule with `paths` saying which files it is for.
 ² Without the subagent's `tools`: [Subagents on Codex](#subagents-on-codex).
 ³ Commands only, given to the adapter by `pluginHarnessSettings('codex', plugins)`: [Hooks on Codex](#hooks-on-codex).
+⁴ Written in the session's `.claude/`, which `@ai-sdk/harness-claude-code` 1.0.180 and later no longer has Claude Code read: see [Limitations](#limitations).
 
 **Secrets never appear in a plugin.** It holds a reference, `{ "secret": "LINEAR_TOKEN" }`, which your server resolves with `resolveSecret`: the value never reaches the configuration, a database or the sandbox.
 
@@ -492,10 +493,10 @@ const agent = new HarnessAgent(withPlugins({ harness }, plugins));
 
 ### Rules, commands, hooks, files
 
-- A rule without `paths` is always followed. With `paths`, globs from the session's working directory, Claude Code loads it once the agent reads or edits a matching file; other runtimes read every rule in the agent's instructions, each saying which files it is for.
+- Rules join the agent's instructions, on every runtime. A rule without `paths` is always followed; one with `paths`, globs from the session's working directory, says which files it is for.
 - In a command's `prompt`, `$ARGUMENTS` is everything after the name, `$1` to `$9` each argument; a prompt with neither gets the arguments appended. `argumentHint` announces them, each `<…>` or `[…]`, the last one taking the rest when it ends with `...`.
 - A hook's `command` runs in the sandbox with the event as JSON on its standard input; for `PreToolUse`, exit status `2` blocks the call. It guards against mistakes, not against a hostile agent: the sandbox stays the security boundary.
-- Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; hooks, subagents and rules go to `.claude/`, Codex's subagents to `.codex/agents/`. All of it is kept out of Git.
+- Files are written in `.ai-sdk-harness/plugins/<plugin>/` of the session's working directory; Claude Code's hooks and subagents go to `.claude/`, Codex's subagents to `.codex/agents/`. All of it is kept out of Git.
 - `${PLUGIN_ROOT}` is not an environment variable: in a hook's `command`, or the `command`, `args` and `env` of an MCP server run in the sandbox, the package replaces it with that directory of the plugin, `${CLAUDE_PLUGIN_ROOT}` as Claude Code plugins write it included. In a `sandbox-command`'s `command`, it is replaced with the copy of the files under the sandbox's `$HOME` (see [Tools](#tools)).
 
 ### Network
@@ -541,6 +542,7 @@ const sandbox = await createSbxNetworkSandboxSession({
 
 ## Limitations
 
+- **Claude Code runs neither the hooks nor the subagents of plugins** with `@ai-sdk/harness-claude-code` 1.0.180 and later. That adapter starts Claude Code with the user's settings alone (`settingSources: ['user']`), and Claude Code no longer reads the session's `.claude/`, where the package writes them: `withPlugins()` still writes them, for the adapters before 1.0.180 and for the day the adapter lets the setting be chosen ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)). Rules are not concerned: they go in the agent's instructions. On Codex, hooks and subagents run.
 - A Codex hook is trusted by the key and the hash Codex gives it, which the package computes as Codex 0.160.1 does: a Codex that changed either would skip the hook.
 - A tool working in the sandbox runs in its default working directory: the harness does not hand tools the session's own.
 

@@ -6,7 +6,6 @@ import { EMPTY_LAYOUT } from './plugin-runtime.js';
 export const genericRuntime = (harnessId: string): PluginRuntime => ({
   harnessId,
   supports: { hooks: false, mcpServers: false, subagents: false },
-  rules: 'instructions',
   mcpServer: (server) => server,
   layout: () => EMPTY_LAYOUT,
 });

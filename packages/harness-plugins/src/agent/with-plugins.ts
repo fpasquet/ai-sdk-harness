@@ -74,8 +74,7 @@ const SKILL_TOOL = 'Skill';
  *
  * - their **tools** join `tools` (and `activeTools`, when it is an allow-list);
  * - their **skills** join `skills`, written by the harness the way the runtime reads them;
- * - their **rules** are written where Claude Code reads them, and join `instructions` on the
- *   runtimes that have none;
+ * - their **rules** join `instructions`, each one with `paths` saying which files it is for;
  * - their **hooks**, **subagents** and **files** are written in each session's working directory
  *   by `sandboxConfig.onSession`, after your own, at creation and at every resume — so a resumed
  *   session runs with the plugins the agent has now;
@@ -99,10 +98,7 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
   reportUnsupported(runtime, plugins, options.onUnsupported ?? emitWarning);
   const tools = mergeTools(settings, plugins);
   const skills = mergeSkills(settings, plugins);
-  const instructions =
-    runtime.rules === 'instructions'
-      ? withRules(settings.instructions, rulesAsInstructions(plugins))
-      : undefined;
+  const instructions = withRules(settings.instructions, rulesAsInstructions(plugins));
   const toolFiles = toolFilesOfAll(tools);
   const onSession = settings.sandboxConfig?.onSession ?? settings.onSandboxSession;
   const { onSandboxSession: _deprecated, ...rest } = settings;
