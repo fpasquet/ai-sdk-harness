@@ -9,13 +9,13 @@ Every sandbox package gives `HarnessAgent.createSession({ sandboxSession })` the
 
 ## Where the sandbox runs
 
-| Package                                                            | Where                                | Isolation             | Docker and Compose  | Image per sandbox                         | Between turns                          |
-| ------------------------------------------------------------------ | ------------------------------------ | --------------------- | ------------------- | ----------------------------------------- | -------------------------------------- |
-| [ai-sdk-sandbox-sbx](/docs/packages/sandbox-sbx)                   | This host, or Docker Sandboxes Cloud | A microVM             | Yes                 | Yes, `image`                              | Stopped, its files kept                |
-| [ai-sdk-sandbox-microsandbox](/docs/packages/sandbox-microsandbox) | This host                            | A microVM             | Yes, `docker: true` | Yes, any OCI image (`node:24` by default) | Stopped, its disk kept                 |
-| [ai-sdk-sandbox-runtime](/docs/packages/sandbox-runtime)           | This host                            | srt: processes fenced | No                  | No: the host's own tools                  | Processes ended, its files kept        |
-| [ai-sdk-sandbox-cloud-run](/docs/packages/sandbox-cloud-run)       | Google Cloud, Cloud Run              | gVisor                | No                  | No: the service's image, shared           | Saved to Cloud Storage, nothing billed |
-| [ai-sdk-sandbox-gce](/docs/packages/sandbox-gce)                   | Google Cloud, Compute Engine         | A virtual machine     | Yes                 | Yes, among the images the service offers  | Machine stopped, its disk kept         |
+| Package                                                            | Where                                | Isolation             | Docker and Compose  | Image per sandbox                         | Between turns                                   |
+| ------------------------------------------------------------------ | ------------------------------------ | --------------------- | ------------------- | ----------------------------------------- | ----------------------------------------------- |
+| [ai-sdk-sandbox-sbx](/docs/packages/sandbox-sbx)                   | This host, or Docker Sandboxes Cloud | A microVM             | Yes                 | Yes, `image`                              | Stopped, its files kept                         |
+| [ai-sdk-sandbox-microsandbox](/docs/packages/sandbox-microsandbox) | This host                            | A microVM             | Yes, `docker: true` | Yes, any OCI image (`node:24` by default) | Stopped, its disk kept                          |
+| [ai-sdk-sandbox-runtime](/docs/packages/sandbox-runtime)           | This host                            | srt: processes fenced | No                  | No: the host's own tools                  | Processes ended, its files kept                 |
+| [ai-sdk-sandbox-cloud-run](/docs/packages/sandbox-cloud-run)       | Google Cloud, Cloud Run              | gVisor                | No                  | No: the service's image, shared           | Saved to Cloud Storage, only its storage billed |
+| [ai-sdk-sandbox-gce](/docs/packages/sandbox-gce)                   | Google Cloud, Compute Engine         | A virtual machine     | Yes                 | Yes, among the images the service offers  | Machine stopped, its disk kept                  |
 
 - **On a developer's machine**: `sbx` or `microsandbox`, which run Docker in the sandbox; `runtime` when neither is available and the project needs no containers.
 - **On Google Cloud**: `cloud-run` when the agent only edits code and runs plain processes, scaled to zero and cheap; `gce` when the project's tests need `docker compose`, a database, or a machine of their own.

@@ -128,7 +128,7 @@ function agentFor(
  *   per conversation instead, since a new credential restarts it.
  * - A conversation idle for `EXAMPLE_SUSPEND_AFTER_MS` is suspended: its harness session stops and
  *   its port is freed. The next message resumes it. On Cloud Run, the sandbox itself is suspended
- *   once no conversation holds it: nothing runs, nothing is billed.
+ *   once no conversation holds it: nothing runs, only its storage is billed.
  * - They are kept in `.data/sessions` (`EXAMPLE_SESSIONS_DIR`), so they outlive the dev server:
  *   stopping it suspends them, and the next start resumes them on their next message.
  */

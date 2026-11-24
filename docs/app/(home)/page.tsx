@@ -83,7 +83,7 @@ const FEATURES: Feature[] = [
     icon: Moon,
     title: 'Scale to zero',
     description:
-      'A suspended Cloud Run sandbox waits as a snapshot on Cloud Storage: nothing runs, nothing is billed between turns.',
+      'A suspended Cloud Run sandbox waits as a snapshot on Cloud Storage: nothing runs between turns, and only its storage is billed.',
   },
 ];
 
@@ -523,7 +523,7 @@ const sandboxSession = await createCloudRunNetworkSandboxSession({
 const session = await agent.createSession({ sandboxSession });
 
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });
-await sandboxSession.stop(); // suspended to Cloud Storage: nothing billed until it resumes`;
+await sandboxSession.stop(); // suspended to Cloud Storage: only its storage is billed until it resumes`;
 
 const USAGE_SRT = `import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';

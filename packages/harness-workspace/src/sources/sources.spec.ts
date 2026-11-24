@@ -59,7 +59,9 @@ describe('workspace sources', () => {
         credentials: () => Promise.resolve({ token: 'real-token' }),
       });
 
-      // No such server: the fetch fails, after the credential is brokered.
+      // The fetch fails after the credential is brokered, on a proxy that refuses the connection:
+      // looking up the host would wait for the DNS of the machine that runs the tests.
+      await git(repository, 'config', 'http.proxy', 'http://127.0.0.1:1');
       await expect(fetch(from)).rejects.toThrow(WorkspaceError);
 
       const [transformation] = host.transformations;

@@ -1,6 +1,7 @@
 # ai-sdk-harness
 
 <p align="center">
+  <a href="https://ai-sdk-harness.pages.dev/"><img alt="Documentation" src="https://img.shields.io/badge/docs-ai--sdk--harness.pages.dev-0a7ea4" /></a>
   <a href="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/quality.yml"><img alt="Quality" src="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/quality.yml/badge.svg" /></a>
   <img alt="Node &gt;= 24" src="https://img.shields.io/badge/node-%3E%3D24-3c873a" />
@@ -9,6 +10,8 @@
 </p>
 
 Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent), the `HarnessAgent` that drives Claude Code, Codex, OpenCode and other coding-agent runtimes from your application.
+
+**[Read the documentation](https://ai-sdk-harness.pages.dev/docs)**, or go straight to [Getting started](https://ai-sdk-harness.pages.dev/docs/getting-started).
 
 ![The Next.js example: Claude Code, running in a Docker Sandbox, wrote a script, ran it and answered with a table](docs/public/screenshots/next-chat/conversation.png)
 
@@ -39,6 +42,28 @@ const sandboxSession = await createSbxNetworkSandboxSession({
 const session = await agent.createSession({ sandboxSession });
 const { text } = await agent.generate({ session, prompt: 'Write fizzbuzz in Rust and run it' });
 ```
+
+## Why
+
+The AI SDK has two sandbox packages of its own. [`@ai-sdk/sandbox-vercel`](https://www.npmjs.com/package/@ai-sdk/sandbox-vercel) runs the harnesses in Vercel's cloud. [`@ai-sdk/sandbox-just-bash`](https://www.npmjs.com/package/@ai-sdk/sandbox-just-bash) simulates a shell in your Node.js process: it exposes no port, so it cannot run the harnesses that need a bridge in the sandbox, Claude Code and Codex among them.
+
+The packages here run those harnesses on your own machine or in your own Google Cloud project:
+
+| Package                       | Where                                | Isolation                              | What a stopped sandbox costs                      |
+| ----------------------------- | ------------------------------------ | -------------------------------------- | ------------------------------------------------- |
+| `@ai-sdk/sandbox-vercel`      | Vercel's cloud                       | A Firecracker microVM                  | Its snapshot's storage                            |
+| `@ai-sdk/sandbox-just-bash`   | Your Node.js process                 | A simulated shell, no VM               | Nothing, but its files are gone                   |
+| `ai-sdk-sandbox-sbx`          | This host, or Docker Sandboxes Cloud | A microVM                              | On this host, its disk space                      |
+| `ai-sdk-sandbox-microsandbox` | This host                            | A microVM                              | Its disk space on this host                       |
+| `ai-sdk-sandbox-runtime`      | This host                            | Fenced processes, on the host's kernel | Its disk space on this host                       |
+| `ai-sdk-sandbox-cloud-run`    | Your Google Cloud project            | gVisor                                 | Its snapshot's storage                            |
+| `ai-sdk-sandbox-gce`          | Your Google Cloud project            | A virtual machine                      | Its disk, and the egress proxy if it is always on |
+
+- **Local or cloud**: prefer `sbx`, `microsandbox` or `runtime` to develop on your machine, with no sandbox to pay for (`sbx` asks for a Docker sign-in). Prefer `cloud-run` or `gce` to run the sandboxes in a Google Cloud project of yours. Prefer `@ai-sdk/sandbox-vercel` when you are on Vercel already, or want a hosted sandbox with no infrastructure of your own to deploy.
+- **Isolation**: prefer a microVM or a virtual machine for code you do not trust. `sbx`, `microsandbox` (`docker: true`) and `gce` run Docker and Compose in the sandbox too. `runtime` needs no VM nor container, but shares the host's kernel and lets the agent read the host outside your home directory. `just-bash` is enough for a host-side harness such as Pi that only needs a shell and files.
+- **Cost between two turns**: a running sandbox takes resources even when nobody writes to it, so it has to be stopped. [`ai-sdk-harness-sessions`](packages/harness-sessions) stops it once its sessions are idle and resumes it on the next message, with `sandboxPerSession()`, or with `sharedSandbox()` and its `stopWhenUnused` option.
+
+[Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
 
 ## Repository layout
 
