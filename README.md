@@ -85,7 +85,7 @@ packages/
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
   starter-next/       the same as a Next.js chat, its conversations kept by ai-sdk-harness-sessions
-  next-chat/          a Next.js useChat page talking to every official harness, Claude Code, Codex, OpenCode and others, in a Docker Sandbox, a microsandbox, a Cloud Run sandbox or behind srt
+  next-chat/          the demonstration and integration app: every package, every official harness and every sandbox together, against this repository's code; the source of the docs' screenshots and UI registry
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```
