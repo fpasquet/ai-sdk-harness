@@ -14,6 +14,7 @@ import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
 import { takesHook } from '../runtimes/plugin-runtime.js';
 import { rulesAsInstructions } from '../runtimes/rules.js';
 import { runtimeFor } from '../runtimes/runtime-for.js';
+import { syncHomeFiles } from '../session/sync-home-files.js';
 import { STATE_DIR, syncSessionFiles } from '../session/sync-session-files.js';
 import { syncToolFiles } from '../session/sync-tool-files.js';
 
@@ -77,7 +78,9 @@ const SKILL_TOOL = 'Skill';
  * - their **rules** join `instructions`, each one with `paths` saying which files it is for;
  * - their **hooks**, **subagents** and **files** are written in each session's working directory
  *   by `sandboxConfig.onSession`, after your own, at creation and at every resume — so a resumed
- *   session runs with the plugins the agent has now;
+ *   session runs with the plugins the agent has now. Claude Code's subagents go under the
+ *   sandbox's `$HOME` instead, the only place it reads them: the sessions of a sandbox share them,
+ *   the last one to start or resume deciding which there are;
  * - the **files** of a plugin whose `sandbox-command` tool cites `${PLUGIN_ROOT}` are written
  *   under the sandbox's `$HOME` too, in a directory named after their content: a tool runs in
  *   the sandbox's default working directory, and never learns the session's.
@@ -115,24 +118,28 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
       ...settings.sandboxConfig,
       onSession: async (input) => {
         await onSession?.(input);
-        await syncSessionFiles({
-          ...input,
-          layout: layoutOf(runtime, plugins, input.sessionWorkDir),
-        });
+        const layout = layoutOf(runtime, plugins, input.sessionWorkDir);
+        await syncSessionFiles({ ...input, layout });
+        if (layout.homeFiles !== undefined) {
+          await syncHomeFiles({ ...input, files: layout.homeFiles });
+        }
         await syncToolFiles({ ...input, tools: toolFiles });
       },
     },
   } as WithPlugins<SETTINGS>;
 }
 
-/** What the runtime reads in a session's working directory, the plugins' own files included. */
+/**
+ * What the runtime reads in a session's working directory, the plugins' own files included, and
+ * under the sandbox's `$HOME`.
+ */
 function layoutOf(
   runtime: PluginRuntime,
   plugins: readonly Plugin[],
   sessionWorkDir: string,
 ): SessionLayout {
   const relativeRoot = (plugin: string): string => posix.join(STATE_DIR, 'plugins', plugin);
-  const { files, hookGroups } = runtime.layout(plugins, (plugin) =>
+  const { files, homeFiles, hookGroups } = runtime.layout(plugins, (plugin) =>
     posix.join(sessionWorkDir, relativeRoot(plugin)),
   );
   const supported = plugins.flatMap((plugin) =>
@@ -141,7 +148,11 @@ function layoutOf(
       path: posix.join(relativeRoot(plugin.name), file.path),
     })),
   );
-  return { files: [...supported, ...files], hookGroups };
+  return {
+    files: [...supported, ...files],
+    hookGroups,
+    ...(homeFiles !== undefined && { homeFiles }),
+  };
 }
 
 /** The files the `sandbox-command` tools reach through `${PLUGIN_ROOT}`. */

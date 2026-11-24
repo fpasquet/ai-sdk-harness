@@ -105,6 +105,8 @@ const manifests = [
         description:
           'Knows the secret word of the team, which nobody else knows. Delegate to it any question about that word.',
         instructions: `Whatever you are asked, answer with one line: \`ORACLE=${oracleWord}\`.`,
+        // Without the MCP servers of the vault, which have secret words of their own.
+        tools: ['Read'],
       },
     ],
   },
@@ -209,18 +211,21 @@ describe('plugins on real runtimes', () => {
     },
   );
 
-  // Codex only: Claude Code runs a subagent in the background, and its turn ends before the answer.
-  it.each(['codex'] as const)('%s delegates to the subagent of a plugin', async (runtime) => {
-    const { text, inputs } = await turn(
-      runtime,
-      resolved.plugins,
-      'Delegate to the oracle subagent: spawn it and ask it for the secret word of the team, then wait for its answer. Do not guess the word, and read no file. Reply with the exact line it gave you.',
-    );
+  it.each(['claude-code', 'codex'] as const)(
+    '%s delegates to the subagent of a plugin',
+    async (runtime) => {
+      const { text, inputs } = await turn(
+        runtime,
+        resolved.plugins,
+        // In the foreground: Claude Code may run a subagent in the background, and end its turn first.
+        'Delegate to the oracle subagent: spawn it in the foreground, not in the background, and ask it for the secret word of the team, then wait for its answer. Do not guess the word, and read no file. Reply with the exact line it gave you.',
+      );
 
-    // Only the subagent's instructions hold the word, and the agent did not read their file.
-    expect(text).toContain(`ORACLE=${oracleWord}`);
-    expect(inputs.filter((input) => input.includes('oracle.'))).toEqual([]);
-  });
+      // Only the subagent's instructions hold the word, and the agent did not read their file.
+      expect(text).toContain(`ORACLE=${oracleWord}`);
+      expect(inputs.filter((input) => input.includes('oracle.'))).toEqual([]);
+    },
+  );
 
   // Codex only: `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude Code with the user's
   // settings alone, so it never reads the session's `.claude/settings.local.json` (vercel/ai#21714).

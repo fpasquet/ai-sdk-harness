@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 export interface HostSandbox {
   session: SandboxSession;
   directory: string;
+  /** The sandbox's `$HOME`: a temporary directory of its own, never the host's. */
+  home: string;
   commands: string[];
 }
 
@@ -19,12 +21,11 @@ const notImplemented = (): never => {
   throw new Error('Not used by the plugins.');
 };
 
-/** With `home`, the sandbox's `$HOME` is a `home` directory of its own rather than the host's. */
-export async function createHostSandbox({ home = false } = {}): Promise<HostSandbox> {
+export async function createHostSandbox(): Promise<HostSandbox> {
   const directory = await mkdtemp(join(tmpdir(), 'harness-plugins-'));
+  const home = await mkdtemp(join(tmpdir(), 'harness-plugins-home-'));
   const commands: string[] = [];
-  const homeEnv = home ? { HOME: join(directory, 'home') } : {};
-  if (home) await mkdir(homeEnv.HOME ?? '', { recursive: true });
+  const homeEnv = { HOME: home };
   const session: SandboxSession = {
     description: 'A temporary directory on this host.',
     run: ({ command, workingDirectory, env = {} }) => {
@@ -59,5 +60,5 @@ export async function createHostSandbox({ home = false } = {}): Promise<HostSand
     writeBinaryFile: notImplemented,
     spawn: notImplemented,
   };
-  return { session, directory, commands };
+  return { session, directory, home, commands };
 }

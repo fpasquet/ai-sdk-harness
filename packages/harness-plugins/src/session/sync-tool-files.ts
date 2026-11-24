@@ -5,7 +5,7 @@ import { posix } from 'node:path';
 
 import type { PluginFile } from '../definitions/plugin.js';
 
-import { FINISH, PREPARE, runScript } from './sandbox-shell.js';
+import { FINISH, homeOf, PREPARE, runScript } from './sandbox-shell.js';
 import { STATE_DIR } from './sync-session-files.js';
 
 /**
@@ -85,16 +85,4 @@ export async function syncToolFiles({
     );
     await session.writeTextFile({ path: complete, content: '', abortSignal });
   }
-}
-
-/** The sandbox's `$HOME`, where a tool's command finds the files too. */
-async function homeOf(session: SandboxSession, abortSignal?: AbortSignal): Promise<string> {
-  const result = await session.run({ command: 'printf "%s" "$HOME"', abortSignal });
-  const home = result.stdout.trim();
-  if (result.exitCode !== 0 || !posix.isAbsolute(home)) {
-    throw new Error(
-      `The sandbox has no absolute $HOME for the files of the plugins' tools: ${result.stderr.trim() || home}`,
-    );
-  }
-  return home;
 }

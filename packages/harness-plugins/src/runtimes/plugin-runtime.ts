@@ -3,16 +3,22 @@ import type { Plugin, PluginHook, ResolvedMcpServer } from '../definitions/plugi
 /** What a plugin can hold that not every runtime can take. */
 export type PluginFeature = 'hooks' | 'mcpServers' | 'subagents';
 
-/** A file to write in the session's working directory, at `path` relative to it. */
+/** A file to write, at `path` relative to the session's working directory or to `$HOME`. */
 export interface SessionFile {
   path: string;
   content: string;
   executable?: boolean;
 }
 
-/** What a runtime needs written in a session's working directory before it starts. */
+/** What a runtime needs written for a session before it starts. */
 export interface SessionLayout {
   files: SessionFile[];
+  /**
+   * Files to write under the sandbox's `$HOME`, at `path` relative to it, for what the runtime
+   * reads only there. Every session of the sandbox shares them. Absent for a runtime that reads
+   * nothing there: its sessions then leave alone what another runtime's wrote.
+   */
+  homeFiles?: SessionFile[];
   /** Claude Code hook groups by event, merged into `.claude/settings.local.json`. */
   hookGroups: Record<string, unknown[]>;
 }
@@ -33,7 +39,8 @@ export interface PluginRuntime {
   readonly supports: Readonly<Record<PluginFeature, boolean>>;
   readonly mcpServer: (server: ResolvedMcpServer) => unknown;
   /**
-   * What the runtime reads from the session's working directory, besides the plugins' own files.
+   * What the runtime reads from the session's working directory, or the sandbox's `$HOME`, besides
+   * the plugins' own files.
    * `pluginRoot` is the absolute path, in the sandbox, of a plugin's directory.
    */
   readonly layout: (
