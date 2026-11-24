@@ -1,5 +1,13 @@
 # ai-sdk-sandbox-gce
 
+## 0.5.1
+
+### Patch Changes
+
+- bbd3d89: The egress proxy keeps an idle connection open for 120 seconds rather than Node.js's 5, longer than the runtimes' clients keep theirs: Codex's keeps an idle connection for 90 seconds, and Claude Code reused one after 34. A request a runtime sent on a connection just as the proxy closed it was reset (`ECONNRESET`).
+- c2420ee: The egress proxy has a total limit of connections, for all its sandboxes: `SANDBOX_PROXY_TOTAL_CONNECTIONS`, by default what its file descriptors allow (two for each connection, 1024 kept apart: 32256 under `LimitNOFILE=65536`). Without it, once the descriptors ran out, the system reset every sandbox's new connections before the proxy saw them, and nothing was logged. Beyond the limit, a connection is now refused with a `503` that says the proxy is full, and a tenth of the total is kept for the base URL routes. The proxy logs when it reaches its limit, with the three sandboxes that hold the most connections, and when it goes back under.
+- 9a9a524: The egress proxy keeps connections for the base URL routes: the runtime reaches its model provider while the commands of its sandbox hold every connection they may. `SANDBOX_PROXY_MAX_CONNECTIONS` (128) now bounds the commands' tunnels and plain HTTP requests, and `SANDBOX_PROXY_ROUTE_CONNECTIONS` (32) gives the routes that many more; no machine holds more than both together. A command refused at its limit gets a `503` that says why, rather than a reset connection. The proxy logs a warning when a sandbox reaches a limit, and a line when it goes back under, with how many connections it refused meanwhile. A tunnel whose client ends it before its TLS ClientHello now frees its connection at once, rather than after 10 seconds.
+
 ## 0.5.0
 
 ### Minor Changes
