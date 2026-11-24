@@ -210,7 +210,8 @@ Environment=SANDBOX_PROXY_IDLE_EXIT_MINUTES=10
 RestartPreventExitStatus=100
 ExecStopPost=+/bin/sh -c 'if [ "$$EXIT_STATUS" = 100 ]; then systemctl poweroff; fi'
 DynamicUser=yes
-# Every sandbox holds up to SANDBOX_PROXY_MAX_CONNECTIONS (128) connections at once.
+# Every sandbox holds up to 160 connections at once: SANDBOX_PROXY_MAX_CONNECTIONS (128) for its
+# commands, SANDBOX_PROXY_ROUTE_CONNECTIONS (32) more for its base URL routes.
 LimitNOFILE=65536
 
 [Install]
@@ -602,6 +603,18 @@ The machine has no external address, and the VPC firewall, applied outside the g
 
 Docker pulls images from Docker Hub through the proxy: allow `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` and `production.cloudfront.docker.com` (Docker Hub serves layers from either), or [`ai-sdk-harness-network`](https://ai-sdk-harness.pages.dev/docs/packages/harness-network)'s presets.
 
+### Connections
+
+The proxy counts the connections each sandbox's machine holds open through it, so that no sandbox takes the sockets of the others:
+
+- **Its commands** — the tunnels of `HTTPS_PROXY` and the plain requests of `HTTP_PROXY` — hold up to `SANDBOX_PROXY_MAX_CONNECTIONS` (128) at once: package managers, test suites and their keep-alive pools. One more is refused with `503 Service Unavailable`, and a message that says so.
+- **Its base URL routes** — the runtime's way to its model provider — always find a connection: they may take `SANDBOX_PROXY_ROUTE_CONNECTIONS` (32) more, which the commands never do. A command that calls a base URL route itself counts there too.
+- A connection counts from the moment it opens, before it says what it carries: no machine holds more than both together, 160. One more is cut.
+
+The proxy logs a warning when a sandbox reaches a limit, with what it holds, and a line when it goes back under three quarters of it, with how many connections it refused meanwhile: `box reached its limit: its commands hold 128 connections, …`, then `box is back under its limit: …; 412 refused meanwhile`. A turn that fails while the sandbox is at its limit is told apart from an outage of the provider.
+
+To raise them, add `Environment=SANDBOX_PROXY_MAX_CONNECTIONS=256` (and `SANDBOX_PROXY_ROUTE_CONNECTIONS`) to the `[Service]` section of the proxy's unit, in its startup script, and restart the proxy. Its `LimitNOFILE` (65536) bounds them all: two sockets for each connection, one to the sandbox and one onward.
+
 ### Node.js and the proxy
 
 Package managers, git, curl and the harnesses (Claude Code, Codex) read `HTTPS_PROXY` themselves. Node.js's own `fetch` and `http` only do with `NODE_USE_ENV_PROXY=1`, which the sandbox does not set by default: with it, a test suite that mocks `fetch` with [MSW](https://mswjs.io) 3 sees its requests leave for the proxy, which refuses them (`fetch failed`, `Failed to establish tunnel … 403`), MSW's `onUnhandledRequest` saying nothing. MSW 3 catches a request at its socket, and Node.js then opens that socket to the proxy, with a `CONNECT`, rather than to the host the suite mocks.
@@ -694,14 +707,15 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 ### The proxy (`proxy`)
 
-| Variable                        | Default   | Description                                                                                                        |
-| ------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
-| `SANDBOX_PROXY_TOKEN`           | required  | The token the service proves itself with, 16 characters at least                                                   |
-| `SANDBOX_PROXY_PORT`            | `3128`    | The port the sandboxes reach                                                                                       |
-| `SANDBOX_PROXY_ADMIN_PORT`      | `3129`    | The port of the administration API                                                                                 |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK` | `false`   | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                                |
-| `SANDBOX_PROXY_MAX_CONNECTIONS` | `128`     | The most connections a sandbox holds open through the proxy at once: one more is cut, and the first one cut logged |
-| `HOST`, `LOG_FORMAT`            | `0.0.0.0` | Where it listens; `text` for plain logs                                                                            |
+| Variable                          | Default   | Description                                                                                                     |
+| --------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_PROXY_TOKEN`             | required  | The token the service proves itself with, 16 characters at least                                                |
+| `SANDBOX_PROXY_PORT`              | `3128`    | The port the sandboxes reach                                                                                    |
+| `SANDBOX_PROXY_ADMIN_PORT`        | `3129`    | The port of the administration API                                                                              |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK`   | `false`   | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                             |
+| `SANDBOX_PROXY_MAX_CONNECTIONS`   | `128`     | The most connections the commands of a sandbox hold open through the proxy at once: [Connections](#connections) |
+| `SANDBOX_PROXY_ROUTE_CONNECTIONS` | `32`      | The connections a sandbox holds beyond those, for its base URL routes alone: [Connections](#connections)        |
+| `HOST`, `LOG_FORMAT`              | `0.0.0.0` | Where it listens; `text` for plain logs                                                                         |
 
 ### The agent (`agent`)
 

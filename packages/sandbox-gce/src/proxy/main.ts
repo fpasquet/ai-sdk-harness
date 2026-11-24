@@ -1,7 +1,7 @@
 import { createLogger } from '../common/logger.js';
 import { DEFAULT_PROXY_ADMIN_PORT, DEFAULT_PROXY_PORT } from '../protocol/proxy.js';
 import { createAdminServer } from './admin-server.js';
-import { DEFAULT_MAX_CONNECTIONS, EgressProxy } from './egress-proxy.js';
+import { DEFAULT_MAX_CONNECTIONS, DEFAULT_ROUTE_CONNECTIONS, EgressProxy } from './egress-proxy.js';
 import { IDLE_EXIT_CODE, watchIdle } from './idle-exit.js';
 import { SandboxRegistry } from './registry.js';
 
@@ -16,6 +16,7 @@ export function proxyConfig(env: Environment): {
   idleExitMs?: number;
   maxConnections: number;
   port: number;
+  routeConnections: number;
   token: string;
 } {
   const token = env['SANDBOX_PROXY_TOKEN'];
@@ -32,7 +33,14 @@ export function proxyConfig(env: Environment): {
     ),
     host: env['HOST'] ?? '0.0.0.0',
     allowPrivateNetwork: env['SANDBOX_ALLOW_PRIVATE_NETWORK'] === 'true',
-    maxConnections: maxConnections(env['SANDBOX_PROXY_MAX_CONNECTIONS']),
+    maxConnections: connectionCount('SANDBOX_PROXY_MAX_CONNECTIONS', env, {
+      fallback: DEFAULT_MAX_CONNECTIONS,
+      min: 1,
+    }),
+    routeConnections: connectionCount('SANDBOX_PROXY_ROUTE_CONNECTIONS', env, {
+      fallback: DEFAULT_ROUTE_CONNECTIONS,
+      min: 0,
+    }),
     idleExitMs: idleExitMs(env['SANDBOX_PROXY_IDLE_EXIT_MINUTES']),
     token,
   };
@@ -48,12 +56,18 @@ function idleExitMs(value: string | undefined): number | undefined {
   return parsed * 60_000;
 }
 
-/** `SANDBOX_PROXY_MAX_CONNECTIONS`, a positive integer: {@link DEFAULT_MAX_CONNECTIONS} when unset. */
-function maxConnections(value: string | undefined): number {
-  if (value === undefined || value === '') return DEFAULT_MAX_CONNECTIONS;
+/** A number of connections the variable `name` sets, an integer from `min`: `fallback` when unset. */
+function connectionCount(
+  name: string,
+  env: Environment,
+  { fallback, min }: { fallback: number; min: number },
+): number {
+  const value = env[name];
+  if (value === undefined || value === '') return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`SANDBOX_PROXY_MAX_CONNECTIONS: \`${value}\` is not a positive integer.`);
+  if (!Number.isInteger(parsed) || parsed < min) {
+    const kind = min === 0 ? 'a non-negative integer' : 'a positive integer';
+    throw new Error(`${name}: \`${value}\` is not ${kind}.`);
   }
   return parsed;
 }
@@ -70,6 +84,7 @@ export function main(env: Environment): void {
   const registry = new SandboxRegistry(config.allowPrivateNetwork);
   const proxy = new EgressProxy((address) => registry.policyFor(address), logger, {
     maxConnections: config.maxConnections,
+    routeConnections: config.routeConnections,
   });
   const admin = createAdminServer({ registry, token: config.token, logger });
   proxy.server.listen(config.port, config.host, () =>

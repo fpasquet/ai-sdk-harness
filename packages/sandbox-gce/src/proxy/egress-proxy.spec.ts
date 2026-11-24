@@ -1,6 +1,6 @@
 import type { AddressInfo, Socket } from 'node:net';
 
-import { request } from 'node:http';
+import { createServer as createHttpServer, request } from 'node:http';
 import { connect, createServer } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -172,9 +172,13 @@ describe('the egress proxy', () => {
     );
   });
 
-  it('cuts the connections of a sandbox beyond its limit, and logs it once', async () => {
-    const info = vi.fn();
-    proxy = new EgressProxy(() => policy, { ...silentLogger, info }, { maxConnections: 2 });
+  it('cuts the connections of a sandbox beyond both its limits, and logs it once', async () => {
+    const warn = vi.fn();
+    proxy = new EgressProxy(
+      () => policy,
+      { ...silentLogger, warn },
+      { maxConnections: 1, routeConnections: 1 },
+    );
     await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve));
     const { port } = proxy.server.address() as AddressInfo;
     /** A connection to the proxy: whether it is still open once the proxy saw it. */
@@ -200,12 +204,131 @@ describe('the egress proxy', () => {
       true,
       false,
     ]);
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(info).toHaveBeenCalledWith(
-      'Refused ? to box: 2 connections are open already, the most a sandbox holds at once.',
+    // Connections that sent nothing yet count against both limits together.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      'box reached its limit: 2 connections are open, base URL routes included, the most it may. More are refused until some close: 1 for the commands, and 1 more for the base URL routes.',
     );
     second?.end();
     after.end();
+  });
+
+  describe('at the limit of a sandbox', () => {
+    const upstream = createHttpServer((_req, res) => res.end('ok'));
+    let port: number;
+    let upstreamPort: number;
+    const limitPolicy: EgressPolicy = {
+      ...policy,
+      allowedHosts: ['127.0.0.1'],
+      allowPrivateNetwork: true,
+    };
+    const held: Socket[] = [];
+
+    afterEach(async () => {
+      for (const socket of held.splice(0)) socket.destroy();
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    });
+
+    async function listen(proxyOf: (upstreamPort: number) => EgressProxy): Promise<void> {
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      upstreamPort = (upstream.address() as AddressInfo).port;
+      proxy = proxyOf(upstreamPort);
+      await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve));
+      port = (proxy.server.address() as AddressInfo).port;
+    }
+
+    /** A tunnel a command opens and keeps: the status of its `CONNECT`. */
+    const tunnel = (): Promise<number | undefined> =>
+      new Promise((resolve, reject) => {
+        request({ host: '127.0.0.1', port, method: 'CONNECT', path: '127.0.0.1:443', agent: false })
+          .on('connect', (response, socket: Socket) => {
+            held.push(socket);
+            resolve(response.statusCode);
+          })
+          .on('error', reject)
+          .end();
+      });
+
+    /** A request of the runtime to its provider, through its base URL route. */
+    const route = (): Promise<number | string> =>
+      new Promise((resolve) => {
+        request(
+          {
+            host: '127.0.0.1',
+            port,
+            path: `/http/127.0.0.1:${upstreamPort}/v1/messages`,
+            agent: false,
+          },
+          (response) => {
+            response.resume();
+            resolve(response.statusCode ?? 0);
+          },
+        )
+          .on('error', (error: NodeJS.ErrnoException) => resolve(error.code ?? error.message))
+          .end();
+      });
+
+    it('reaches the base URLs while the commands hold every connection they may', async () => {
+      await listen(
+        (tunnelPort) =>
+          new EgressProxy(() => limitPolicy, silentLogger, { maxConnections: 2, tunnelPort }),
+      );
+      expect([await tunnel(), await tunnel()]).toEqual([200, 200]);
+
+      expect(await route()).toBe(200);
+    });
+
+    it('refuses a command beyond its limit, says why, and logs when the sandbox reaches it and goes back under', async () => {
+      const logger = { ...silentLogger, info: vi.fn(), warn: vi.fn() };
+      await listen(
+        (tunnelPort) =>
+          new EgressProxy(() => limitPolicy, logger, { maxConnections: 2, tunnelPort }),
+      );
+      /** A plain HTTP request a command sends through `HTTP_PROXY`. */
+      const plain = (): Promise<{ status?: number; body: string }> =>
+        new Promise((resolve, reject) => {
+          request(
+            {
+              host: '127.0.0.1',
+              port,
+              path: `http://127.0.0.1:${upstreamPort}/package.tgz`,
+              agent: false,
+            },
+            (response) => {
+              let body = '';
+              response.on('data', (chunk: Buffer) => (body += chunk.toString()));
+              response.on('end', () => resolve({ status: response.statusCode, body }));
+            },
+          )
+            .on('error', reject)
+            .end();
+        });
+
+      expect([await tunnel(), await tunnel(), await tunnel()]).toEqual([200, 200, 503]);
+      expect(await plain()).toEqual({
+        status: 503,
+        body: 'The sandbox holds the most connections its commands may: 2. Close some and try again.\n',
+      });
+      expect(await route()).toBe(200);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'box reached its limit: its commands hold 2 connections, the most it may. More are refused until some close: 2 for the commands, and 32 more for the base URL routes.',
+      );
+
+      // Its tunnels close: back under three quarters of its limit, the refusals counted, once.
+      for (const socket of held.splice(0)) socket.destroy();
+      await vi.waitFor(() =>
+        expect(logger.info).toHaveBeenCalledWith(
+          'box is back under its limit: 1 connection open, 1 of its commands; 2 refused meanwhile.',
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(
+        logger.info.mock.calls.filter(([message]) => String(message).includes('back under')),
+      ).toHaveLength(1);
+      expect(await tunnel()).toBe(200);
+    });
   });
 
   it('logs a machine it serves no sandbox for, and the host alone of a plain request', async () => {
