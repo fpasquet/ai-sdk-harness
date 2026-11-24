@@ -13,7 +13,7 @@ Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-
 
 **[Read the documentation](https://ai-sdk-harness.pages.dev/docs)**, or go straight to [Getting started](https://ai-sdk-harness.pages.dev/docs/getting-started).
 
-![The Next.js example: Claude Code, running in a Docker Sandbox, wrote a script, ran it and answered with a table](docs/public/screenshots/next-chat/conversation.png)
+![The Next.js starter: Claude Code, running in a Docker Sandbox, wrote a script, ran it and answered with a table](docs/public/screenshots/next-chat/conversation.png)
 
 | Package                                                        | What it does                                                                                                                                                     | npm                                                                                                                           |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -84,7 +84,7 @@ packages/
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
-  next-chat/          the demonstration and integration app: every package and every sandbox together, with a harness of each kind, against this repository's code; the source of the docs' screenshots and UI registry
+  starter-next/       the Next.js starter, fetched without this repository too: every package and every sandbox together, with a harness of each kind and a marketplace; in the monorepo, the integration app run against this repository's code, and the source of the docs' screenshots and UI registry
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```
@@ -100,15 +100,17 @@ cp .env.example .env   # set CLAUDE_CODE_OAUTH_TOKEN
 npm start
 ```
 
-To work on the monorepo, and run the Next.js example:
+The [Next.js starter](examples/starter-next) is every package in one app: several conversations with Claude Code, Codex or Pi, an approval policy, a closed network, a repository and its changes as a patch, and a marketplace of plugins. Fetch `examples/starter-next` the same way, then `npm run dev`.
+
+To work on the monorepo, and run the Next.js starter against its code:
 
 Prerequisites: Node.js ≥ 24, pnpm ≥ 10, and [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/get-started/) (`sbx`) to run the example and the e2e tests — or, on Linux, `bubblewrap`, `socat` and `ripgrep` to run them with srt instead (`EXAMPLE_SANDBOX=srt`, see [`ai-sdk-sandbox-runtime`](packages/sandbox-runtime#linux)).
 
 ```bash
 pnpm install
 pnpm build
-cp examples/next-chat/.env.example examples/next-chat/.env.local   # set CLAUDE_CODE_OAUTH_TOKEN
-pnpm example:dev                                                   # http://localhost:3000
+cp examples/starter-next/.env.example examples/starter-next/.env.local   # set CLAUDE_CODE_OAUTH_TOKEN
+pnpm example:dev                                                         # http://localhost:3000
 ```
 
 ## Common commands
@@ -121,7 +123,7 @@ pnpm test             # unit tests, against a fake sbx, a fake microsandbox SDK,
 pnpm test:e2e         # e2e tests, against the real sbx and srt, microsandbox when the host has KVM, and a deployed Cloud Run service when CLOUD_RUN_SANDBOX_URL is set
 pnpm build            # every package, the example and the docs
 pnpm docs:dev         # the documentation site on http://localhost:3002
-pnpm example:dev      # the Next.js example on http://localhost:3000
+pnpm example:dev      # the Next.js starter on http://localhost:3000
 pnpm screenshots      # regenerate the screenshots of the example (a real Claude Code and Codex turn)
 pnpm changeset        # describe a change to a published package
 ```

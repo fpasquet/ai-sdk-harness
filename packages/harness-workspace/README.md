@@ -10,7 +10,7 @@
 
 Git workspaces for [AI SDK harness agents](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent): your repository — or your repositories, an API, a web app and services side by side — checked out for each session of Claude Code, Codex and the other runtimes `HarnessAgent` drives, **a worktree of its own for each session**, so that several of them work side by side on one repository in one sandbox, and **what each agent changed, read back as a patch**. On any sandbox, and with your Git credentials kept out of it.
 
-![A conversation of the Next.js example on a repository: the files its agent changed in its checkout, and the patch](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/workspace.png)
+![A conversation of the Next.js starter on a repository: the files its agent changed in its checkout, and the patch](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/workspace.png)
 
 ## At a glance
 

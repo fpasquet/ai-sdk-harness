@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Screenshots of the Next.js example, for the docs site and the READMEs.
+ * Screenshots of the Next.js starter, for the docs site and the READMEs.
  *
  * Builds and starts the example, opens it in headless Chrome, sends one prompt to Claude Code
  * running in a Docker Sandbox, then one to Codex, and captures the empty chat with its plugins, the
@@ -159,7 +159,7 @@ function run(command: string, args: string[]): void {
 
 /** Starts `next start` for the example, in a process group of its own so it can be stopped whole. */
 function startExample(): ChildProcess {
-  return spawn('pnpm', ['--filter', 'example-next-chat', 'start'], {
+  return spawn('pnpm', ['--filter', 'example-starter-next', 'start'], {
     detached: true,
     env: {
       ...process.env,
@@ -503,7 +503,7 @@ async function shootPage(page: Page): Promise<void> {
 
 async function main(): Promise<void> {
   mkdirSync(OUT_DIR, { recursive: true });
-  if (!skip('SKIP_BUILD')) run('pnpm', ['--filter', 'example-next-chat...', 'build']);
+  if (!skip('SKIP_BUILD')) run('pnpm', ['--filter', 'example-starter-next...', 'build']);
   const app = skip('SKIP_APP') ? undefined : startExample();
   let browser: Browser | undefined;
   try {

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(import.meta.dirname, '..');
-const MARKETPLACE = join(ROOT, '../../examples/next-chat/marketplace');
+const MARKETPLACE = join(ROOT, '../../examples/starter-next/marketplace');
 
 /** The JSON blocks of the README, parsed. */
 const blocks = [
@@ -22,7 +22,7 @@ const stored = (directory: string) =>
   }));
 
 describe('the README', () => {
-  // Its screenshots come from the Next.js example: the JSON beside them must be the example's.
+  // Its screenshots come from the Next.js starter: the JSON beside them must be the example's.
   it.each([...stored('plugins'), ...stored('items')])(
     'shows $file as the example keeps it',
     ({ json }) => {

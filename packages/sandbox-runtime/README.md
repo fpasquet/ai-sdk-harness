@@ -136,7 +136,7 @@ try {
 
 The caller owns the sandbox: ending the harness session leaves it in place. `stop()` ends its processes and keeps its files; `destroy()` removes its directory. `destroy()` never touches the `workspace`, which is yours.
 
-`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) runs in one with `EXAMPLE_SANDBOX=srt`.
+`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) runs in one with `EXAMPLE_SANDBOX=srt`.
 
 In a Next.js application, keep the package and srt out of the server bundle: srt finds its helpers next to its own files.
 

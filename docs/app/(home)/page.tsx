@@ -283,11 +283,11 @@ interface Shot {
   how: string;
 }
 
-/** The sessions of the Next.js example, captured from real turns. */
+/** The sessions of the Next.js starter, captured from real turns. */
 const SESSION_SHOTS: Shot[] = [
   {
     src: '/screenshots/next-chat/sessions.png',
-    alt: 'Two conversations of the Next.js example working at once, the others ready or suspended',
+    alt: 'Two conversations of the Next.js starter working at once, the others ready or suspended',
     title: 'Two conversations at once',
     shows:
       'Two conversations work at the same time in the one Docker Sandbox; the list follows each session as the server changes it.',
@@ -295,7 +295,7 @@ const SESSION_SHOTS: Shot[] = [
   },
   {
     src: '/screenshots/next-chat/approval.png',
-    alt: 'A shell command waiting for approval in the Next.js example, the conversation marked "Needs you"',
+    alt: 'A shell command waiting for approval in the Next.js starter, the conversation marked "Needs you"',
     title: 'A command waiting for approval',
     shows:
       'Claude Code asks before running a command: the conversation needs you, and the turn waits for the answer.',
@@ -311,7 +311,7 @@ const SESSION_SHOTS: Shot[] = [
   },
 ];
 
-/** The approval policy of the Next.js example, captured from real turns. */
+/** The approval policy of the Next.js starter, captured from real turns. */
 const APPROVAL_SHOTS: Shot[] = [
   {
     src: '/screenshots/next-chat/policy.png',
@@ -332,7 +332,7 @@ const APPROVAL_SHOTS: Shot[] = [
 ];
 
 /**
- * The plugins at work in the Next.js example, captured from real turns: a whole plugin, then an
+ * The plugins at work in the Next.js starter, captured from real turns: a whole plugin, then an
  * item of each kind, every one of them JSON.
  */
 const PLUGIN_SHOTS: Shot[] = [
@@ -785,7 +785,7 @@ export default function LandingPage() {
           A chat with Claude Code or Codex, in a sandbox, with plugins
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-fd-muted-foreground">
-          The Next.js example: <code className="text-sm">useChat</code> on one side, a{' '}
+          The Next.js starter: <code className="text-sm">useChat</code> on one side, a{' '}
           <code className="text-sm">HarnessAgent</code> running Claude Code or Codex in a Docker
           Sandbox, a microsandbox or a Cloud Run sandbox, on the other. Every command the agent
           runs, it runs in the sandbox. Sandbox, or a Cloud Run sandbox, on the other, with the
@@ -793,10 +793,10 @@ export default function LandingPage() {
         </p>
         <Link
           className="mt-10 block overflow-hidden rounded-xl border border-fd-border shadow-sm"
-          href="/docs/examples/next-chat"
+          href="/docs/examples/starter-next"
         >
           <Image
-            alt="The Next.js example: Claude Code wrote a script, ran it with its bash tool in the sandbox, and answered with a table"
+            alt="The Next.js starter: Claude Code wrote a script, ran it with its bash tool in the sandbox, and answered with a table"
             className="h-auto w-full"
             height={1000}
             priority

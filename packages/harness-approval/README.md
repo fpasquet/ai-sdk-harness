@@ -10,7 +10,7 @@
 
 A person in the loop of [AI SDK harness agents](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent): **an approval policy** for Claude Code, Codex and the other runtimes `HarnessAgent` drives. What looks around runs at once, what you forbid is refused with a reason the agent reads, the rest waits for a person — who can **always allow** it for the rest of the session. And the agent's questions, answered from a form.
 
-![A conversation of the Next.js example: one command allowed by the policy, one refused, one waiting for approval with "Always allow"](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/policy.png)
+![A conversation of the Next.js starter: one command allowed by the policy, one refused, one waiting for approval with "Always allow"](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/policy.png)
 
 ## At a glance
 
