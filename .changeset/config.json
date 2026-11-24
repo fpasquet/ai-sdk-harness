@@ -12,7 +12,7 @@
   },
   "ignore": [
     "docs",
-    "example-next-chat",
+    "example-starter-next",
     "@repo/build",
     "@repo/eslint-config",
     "@repo/prettier-config",

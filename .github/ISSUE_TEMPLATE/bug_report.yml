@@ -17,7 +17,7 @@ body:
         - 'ai-sdk-harness-workspace'
         - 'ai-sdk-harness-approval'
         - 'ai-sdk-harness-network'
-        - 'example-next-chat'
+        - 'example-starter-next'
         - 'Documentation'
         - 'Other'
     validations:

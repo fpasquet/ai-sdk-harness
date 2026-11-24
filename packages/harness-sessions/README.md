@@ -10,7 +10,7 @@
 
 Sessions for [AI SDK harness agents](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent): the whole lifecycle of your users' conversations with Claude Code, Codex and the other runtimes `HarnessAgent` drives. One turn at a time, **suspended when idle and resumed on the next message**, kept across restarts of your server, waiting for an approval as long as it takes, and **several of them side by side in one sandbox**.
 
-![Two conversations of the Next.js example working at once in one Docker Sandbox, the others ready or suspended](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/sessions.png)
+![Two conversations of the Next.js starter working at once in one Docker Sandbox, the others ready or suspended](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/sessions.png)
 
 ## At a glance
 
@@ -210,7 +210,7 @@ if (isToolUIPart(part) && isTaskToolName(getToolName(part))) return null;
 
 The [`AgentTasks` component](https://ai-sdk-harness.pages.dev/docs/ui-components) shows it: how many are done, the task in progress, the done ones struck through.
 
-![The task list Claude Code keeps, above the prompt of the Next.js example](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/tasks.png)
+![The task list Claude Code keeps, above the prompt of the Next.js starter](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/tasks.png)
 
 A server that reads the turn's chunks rather than its messages follows the list with `createTaskList()`: pass each tool call to `call()` and its output to `result()`, with the same list for every turn of the session; each returns the whole list when it changed.
 
@@ -264,7 +264,7 @@ A session that fails to resume stays `suspended`, with the reason in its `error`
 
 A suspended session costs nothing but its record: its harness session is stopped, and what it needs to pick the conversation up is kept in the store. On the next message, the manager reattaches to its sandbox, its files where it left them, and resumes its harness session, which carries on the conversation where it was:
 
-![A conversation of the Next.js example resumed after a suspension: the agent remembers what it did](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/resumed.png)
+![A conversation of the Next.js starter resumed after a suspension: the agent remembers what it did](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/resumed.png)
 
 **What it shows:** the conversation was suspended from the list ("Suspend now", `suspend(id)`), its port handed back. The next message resumed it, and Claude Code answered from the conversation it had before.
 
@@ -274,7 +274,7 @@ A suspended session costs nothing but its record: its harness session is stopped
 
 With `permissionMode: 'allow-reads'`, Claude Code asks before it edits a file or runs a command, and with `toolApproval` any runtime asks before it calls one of your tools. Codex does not ask before using its own tools yet: its harness adapter only takes `permissionMode: 'allow-all'` ([vercel/ai#22550](https://github.com/vercel/ai/issues/22550)). The turn pauses, and the session waits, `awaiting-input`, with what it waits for in `pendingInput`:
 
-![The Next.js example waiting for the approval of a shell command, the conversation marked "Needs you"](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/approval.png)
+![The Next.js starter waiting for the approval of a shell command, the conversation marked "Needs you"](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/approval.png)
 
 `continue()` answers it. It takes the answers as `HarnessAgent.continueStream()` does, or reads them from the last message `useChat` sends back once `addToolApprovalResponse()` filled them in:
 
@@ -380,7 +380,7 @@ async function openSandbox() {
 }
 ```
 
-The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) picks one of the four with an environment variable, `EXAMPLE_SANDBOX`: see its `lib/sandbox.ts`.
+The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) picks one of the four with an environment variable, `EXAMPLE_SANDBOX`: see its `lib/sandbox.ts`.
 
 ### How many sessions run at once
 
@@ -459,7 +459,7 @@ describe('the session store', () => {
 });
 ```
 
-The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions with `createFileSessionStore()`.
+The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) keeps its sessions with `createFileSessionStore()`.
 
 Keep one manager per store, unless the store gives leases (below): at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
 

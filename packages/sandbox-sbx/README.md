@@ -17,7 +17,7 @@ The package gives `HarnessAgent.createSession({ sandboxSession })` what it expec
 - **The harness is installed once**: pass `agent.getSandboxTemplate()` and the first sandbox is saved as a template image; every later one starts from it in seconds.
 - **Local or cloud**: the same API runs the sandbox on your machine, its ports on the loopback only, or in [Docker Sandboxes Cloud](#docker-sandboxes-cloud) with `cloud: true`.
 
-![Claude Code running in a Docker Sandbox, in the Next.js example of the repository](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/conversation.png)
+![Claude Code running in a Docker Sandbox, in the Next.js starter of the repository](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/conversation.png)
 
 ## How it works
 
@@ -87,7 +87,7 @@ try {
 
 The caller owns the sandbox: ending the harness session leaves it running. `stop()` stops its microVM and keeps its files; `destroy()` removes it.
 
-`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) is a complete chat on top of it.
+`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) is a complete chat on top of it.
 
 ## Templates
 
@@ -277,7 +277,7 @@ const blocked = (await sandboxSession.blockedRequests?.({ since: policyChangedAt
 - **The log is kept by sandbox name, and outlives the sandbox**: a new sandbox of the same name inherits it, and a host stays listed once allowed. Pass `since`, the time of the last change of policy for instance, to leave older refusals out.
 - **Local sandboxes only**: absent in the cloud, like `setNetworkPolicy`.
 
-![The Next.js example: the hosts the network policy refused to its Docker Sandbox, above the conversation that called one](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/blocked-hosts.png)
+![The Next.js starter: the hosts the network policy refused to its Docker Sandbox, above the conversation that called one](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/blocked-hosts.png)
 
 The example lists them above the conversation. Besides the host the agent called, Claude Code sends its telemetry (`http-intake.logs.us5.datadoghq.com`): refusing it does not stop a turn.
 

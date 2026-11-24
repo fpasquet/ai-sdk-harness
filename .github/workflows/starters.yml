@@ -21,7 +21,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        starter: [starter]
+        include:
+          - starter: starter
+            check: typecheck
+          - starter: starter-next
+            check: build
     defaults:
       run:
         working-directory: examples/${{ matrix.starter }}
@@ -37,5 +41,5 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Check the starter
+        run: npm run ${{ matrix.check }}

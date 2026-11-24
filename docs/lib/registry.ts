@@ -5,7 +5,7 @@ import { SITE_URL } from '@/lib/constants';
 
 /**
  * The components of the registry, served at `/r/<name>.json` for `npx shadcn add`. Their source is
- * the Next.js example's, where they run against real sessions: what you install is what it shows.
+ * the Next.js starter's, where they run against real sessions: what you install is what it shows.
  */
 interface RegistryComponent {
   name: string;
@@ -18,7 +18,7 @@ interface RegistryComponent {
   registryDependencies: string[];
 }
 
-const EXAMPLE_DIR = join(process.cwd(), '..', 'examples', 'next-chat');
+const EXAMPLE_DIR = join(process.cwd(), '..', 'examples', 'starter-next');
 
 export const REGISTRY_COMPONENTS: RegistryComponent[] = [
   {

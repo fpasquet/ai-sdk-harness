@@ -6,6 +6,10 @@ packages:
   - '!examples/starter'
   - 'docs'
 
+# A dependency of a workspace package on another, by version range, links it rather than install it
+# from npm: examples/starter-next, fetched on its own too, depends on the packages by version.
+linkWorkspacePackages: true
+
 allowBuilds:
   '@google/genai': false
   '@parcel/watcher': true

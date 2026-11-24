@@ -89,7 +89,7 @@ try {
 
 The caller owns the sandbox: it runs detached, and ending the harness session, or this process, leaves it running. `stop()` stops its microVM and keeps its disk; `destroy()` removes it.
 
-`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) is a complete chat on top of it, with `EXAMPLE_SANDBOX=microsandbox`.
+`agent.stream()` works the same way, and its result's `toUIMessageStreamResponse()` feeds `useChat` straight away. The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) is a complete chat on top of it, with `EXAMPLE_SANDBOX=microsandbox`.
 
 ## Images and users
 

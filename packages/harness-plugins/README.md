@@ -12,7 +12,7 @@ Plugins for [AI SDK harness agents](https://ai-sdk.dev/docs/ai-sdk-harnesses/har
 
 ## At a glance
 
-A plugin brings any of these, and `withPlugins()` gives them to an agent. `acme` is a sketch of every part; the plugin and the items further down are those of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat), each with a screenshot of a real turn.
+A plugin brings any of these, and `withPlugins()` gives them to an agent. `acme` is a sketch of every part; the plugin and the items further down are those of the [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next), each with a screenshot of a real turn.
 
 ```ts
 import { tool } from 'ai';
@@ -146,7 +146,7 @@ await close(); // closes the MCP clients, once the agent is done
 
 ### A plugin in JSON
 
-Everything above can be JSON — a file, a database row —, checked by the same `definePlugin()`, whose `InvalidPluginError` lists every mistake by field; `pluginJsonSchema()` is its JSON Schema, for an editor or a form. This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) brings a command and the MCP server it relies on:
+Everything above can be JSON — a file, a database row —, checked by the same `definePlugin()`, whose `InvalidPluginError` lists every mistake by field; `pluginJsonSchema()` is its JSON Schema, for an editor or a form. This plugin of the [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) brings a command and the MCP server it relies on:
 
 ```json
 {
@@ -187,7 +187,7 @@ lintPlugin({
 // [{ path: ['commands', 0, 'prompt'], code: 'argument-beyond-hint', message: 'reads $2, but the hint announces 1 argument' }, …]
 ```
 
-The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) has a page that checks a plugin, and one that checks an item, as you edit its JSON, each mistake and each warning at its field:
+The [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) has a page that checks a plugin, and one that checks an item, as you edit its JSON, each mistake and each warning at its field:
 
 ![The example's page that checks a plugin: accepted, with a property its command never reads and arguments its commands drop or append.](https://raw.githubusercontent.com/fpasquet/ai-sdk-harness/main/docs/public/screenshots/next-chat/plugin-check.png)
 
@@ -199,7 +199,7 @@ The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examp
 
 An item is one part of a plugin on its own — a tool, a skill, a rule, a command, a hook, a subagent or an MCP server —, written as it would be in a plugin, with its `kind` and its `name`. A catalog offers items one by one, and each agent picks the ones it needs: a marketplace where adding a tool is adding a JSON document.
 
-Here is one item of each kind, as the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps it in `marketplace/items/`, and a real turn of Claude Code with it.
+Here is one item of each kind, as the [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) keeps it in `marketplace/items/`, and a real turn of Claude Code with it.
 
 ### A tool
 
@@ -414,7 +414,7 @@ deselect(description, selection, 'tool:npm-latest'); // catalog.deselect(selecti
 
 A plugin can `requires` too, at its top: what it uses outside itself — an item on its own, an item of another plugin, a whole plugin —, by the same ids. Selecting the plugin (`plugin:<name>`) selects them, and what they require in turn; each is delivered as the item it is, never copied into the plugin, so the plugin follows the edits of an item published on its own. Selecting one item of the plugin brings only what that item requires. A plugin cannot require itself nor one of its own items, which come with it: in its `requires`, `<kind>:<name>` always names an item on its own, where an item's `requires` looks within its plugin first.
 
-This plugin of the [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) brings a skill, and the `npm-latest` tool above, as it is published. Its skill installs packages in the sandbox, so it declares the npm registry in `network.hosts` ([Network](#network)):
+This plugin of the [Next.js starter](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/starter-next) brings a skill, and the `npm-latest` tool above, as it is published. Its skill installs packages in the sandbox, so it declares the npm registry in `network.hosts` ([Network](#network)):
 
 ```json
 {

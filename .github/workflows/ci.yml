@@ -145,8 +145,9 @@ jobs:
           done
 
   # The starters are fetched and installed on their own, with npm. Checked as a user installs
-  # them, with the packages of this commit in place of the published ones: packed as npm would
-  # publish them, as the `images` job does. starters.yml checks them against npm.
+  # them, copied out of the repository, with the packages of this commit in place of the published
+  # ones: packed as npm would publish them, as the `images` job does. starters.yml checks them
+  # against npm.
   starters:
     name: Starter (${{ matrix.starter }}, this commit)
     runs-on: ubuntu-latest
@@ -154,7 +155,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        starter: [starter]
+        include:
+          - starter: starter
+            check: typecheck
+          - starter: starter-next
+            check: build
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -184,15 +189,21 @@ jobs:
             (cd "packages/${package#ai-sdk-}" && pnpm pack --pack-destination "$RUNNER_TEMP/packages")
           done
 
+      # Out of the workspace, as giget fetches it: none of its pnpm links, nothing above it.
+      - name: Fetch the starter
+        run: |
+          mkdir -p "$RUNNER_TEMP/app"
+          tar -C "examples/${{ matrix.starter }}" --exclude node_modules --exclude .next -cf - . | tar -C "$RUNNER_TEMP/app" -xf -
+
       - name: Install the starter with them
-        working-directory: examples/${{ matrix.starter }}
+        working-directory: ${{ runner.temp }}/app
         run: |
           npm install --no-audit --no-fund
           npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/packages/*.tgz
 
-      - name: Typecheck
-        working-directory: examples/${{ matrix.starter }}
-        run: npm run typecheck
+      - name: Check the starter
+        working-directory: ${{ runner.temp }}/app
+        run: npm run ${{ matrix.check }}
 
   commitlint:
     name: Validate commit messages

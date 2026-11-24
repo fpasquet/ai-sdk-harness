@@ -39,7 +39,7 @@ The [AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent) d
     description="Keep the API keys and subscription tokens of the harnesses safe, in your application and at rest."
   />
   <Card
-    href="/docs/examples/next-chat"
+    href="/docs/examples/starter-next"
     title="Next.js chat"
     description="A useChat page talking to Claude Code, Codex and every other AI SDK harness in a sandbox, with plugins and a slash-completing prompt."
   />
@@ -71,21 +71,21 @@ A sandbox package gives `HarnessAgent.createSession({ sandboxSession })` what it
 | **subagents**   | Specialists the agent delegates to                                   |     ✅      |  ✅   |
 | **MCP servers** | Connected by your server, or run by the runtime in the sandbox       |     ✅      |  ✅   |
 
-![A hook at work in the Next.js example: the agent may not read the .env file](/screenshots/next-chat/item-hook.png)
+![A hook at work in the Next.js starter: the agent may not read the .env file](/screenshots/next-chat/item-hook.png)
 
-A hook at work in the [Next.js example](/docs/examples/next-chat): written in JSON with its script, it runs in the sandbox before each read or shell command of Claude Code. It blocked the reading of `.env`, and told the agent why.
+A hook at work in the [Next.js starter](/docs/examples/starter-next): written in JSON with its script, it runs in the sandbox before each read or shell command of Claude Code. It blocked the reading of `.env`, and told the agent why.
 
 ## Sessions
 
 [`ai-sdk-harness-sessions`](/docs/packages/harness-sessions) (Preview, 0.x) runs the sessions of a `HarnessAgent` for you, whatever the runtime and the sandbox: one turn at a time per session, several sessions side by side in one sandbox (each in a view of it, `fork()`), a session suspended when nobody writes to it and resumed on the next message, a turn paused until the user approves a command, and every session suspended when your server stops, to be resumed after it starts again.
 
-![Two conversations of the Next.js example working at once in one Docker Sandbox](/screenshots/next-chat/sessions.png)
+![Two conversations of the Next.js starter working at once in one Docker Sandbox](/screenshots/next-chat/sessions.png)
 
 ## Workspaces
 
 [`ai-sdk-harness-workspace`](/docs/packages/harness-workspace) (Preview, 0.x) puts your repository in the sandbox: each session works in a checkout of its own, a Git worktree on a branch of its own, so several agents work side by side on one repository, and what each one changed comes back as a patch your server applies. The code comes from a Git server, its token brokered rather than handed to the sandbox, from your server as Git bundles, or from the sandbox itself.
 
-![A conversation of the Next.js example on a repository: the files its agent changed, and the patch](/screenshots/next-chat/workspace.png)
+![A conversation of the Next.js starter on a repository: the files its agent changed, and the patch](/screenshots/next-chat/workspace.png)
 
 ## Approvals
 
