@@ -195,11 +195,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/app"
           tar -C "examples/${{ matrix.starter }}" --exclude node_modules --exclude .next -cf - . | tar -C "$RUNNER_TEMP/app" -xf -
 
+      # Its dependencies on them point at their tarballs before anything is installed: on a release
+      # pull request, the starter asks for the versions it is about to publish, not on npm yet.
       - name: Install the starter with them
         working-directory: ${{ runner.temp }}/app
         run: |
+          set -euo pipefail
+          for tarball in "$RUNNER_TEMP"/packages/*.tgz; do
+            name=$(tar -xOzf "$tarball" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")
+            npm pkg set "dependencies.$name=file:$tarball"
+          done
           npm install --no-audit --no-fund
-          npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/packages/*.tgz
 
       - name: Check the starter
         working-directory: ${{ runner.temp }}/app
