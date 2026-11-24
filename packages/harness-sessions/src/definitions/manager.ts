@@ -120,6 +120,18 @@ export interface TurnRetryOptions {
 export const TURN_RETRY_CHUNK = 'data-turn-retry';
 
 /**
+ * The type of the chunk a retried turn sends its client when its sandbox was lost — a machine
+ * stopped or preempted — and is resumed first: a minute or so, before the turn runs again.
+ */
+export const SANDBOX_RESUME_CHUNK = 'data-sandbox-resume';
+
+/** The data of a `data-sandbox-resume` chunk, sent `transient`. */
+export interface SandboxResumeData {
+  /** The retry that resumes the sandbox, counted from 1. */
+  attempt: number;
+}
+
+/**
  * The data of a `data-turn-retry` chunk, sent `transient`: the client may show it, the
  * conversation does not keep it.
  */

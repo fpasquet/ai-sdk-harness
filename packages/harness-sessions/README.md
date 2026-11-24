@@ -165,6 +165,8 @@ const { messages } = useChat({
 
 `isTransient` judges the errors (default: `isTransientError`, exported for the applications that retry on their own), `delayMs` sets the waits, a number or a function of the retry, and `prompt` what the agent is told. Each retry goes to `onError` (`action: 'retry turn'`); `TurnReport.retries` counts them. A rate limit, a quota, credentials refused, an abort and any error `isTransientError` does not recognise are never retried; nor is a turn that cannot start: `send()` rejects, and the session stays ready. A harness session that cannot be stopped to start again leaves the session `interrupted`, as after a turn cut short.
 
+A sandbox lost with its machine — stopped, or a Spot VM preempted, its disk kept — cannot take the harness session back. The retry then hands the sandbox back and acquires it again as after a suspension (`acquire(id, { resume: true })`), which starts a stopped machine of `sandboxPerSession()`, and starts the harness session there from where it stopped: the agent's files are as it left them, committed or not. The client gets a `data-sandbox-resume` chunk (`SANDBOX_RESUME_CHUNK`, data `{ attempt }`, `transient`) first, since a machine takes a minute or so to start. A sandbox that cannot be resumed leaves the session `suspended`, with the reason: the next message resumes it.
+
 ### Showing the conversations again
 
 ```ts
