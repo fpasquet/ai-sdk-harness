@@ -559,6 +559,9 @@ importers:
       ai:
         specifier: ^7.0.172
         version: 7.0.172(zod@4.6.7)
+      ai-sdk-sandbox-gce:
+        specifier: workspace:*
+        version: link:../sandbox-gce
       ai-sdk-sandbox-sbx:
         specifier: workspace:*
         version: link:../sandbox-sbx
