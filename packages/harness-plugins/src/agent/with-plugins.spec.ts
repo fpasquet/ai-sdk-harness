@@ -307,9 +307,11 @@ describe('the session files', () => {
         Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is the work done?' }] }],
       },
     });
-    expect(await read('.claude/agents/critic.md')).toBe(
+    // Under $HOME: Claude Code reads the user's settings alone.
+    expect(await readFile(join(sandbox.home, '.claude/agents/critic.md'), 'utf8')).toBe(
       '---\nname: "critic"\ndescription: "Criticises."\ntools: "Read"\nmodel: "haiku"\n---\n\nFind the flaws.\n',
     );
+    expect(await exists(join(sandbox.directory, '.claude/agents'))).toBe(false);
     await expect(read('.claude/rules/reviewer/tone.md')).rejects.toThrow();
     expect(await read('.ai-sdk-harness/plugins/guard/guard.sh')).toBe('#!/bin/sh\nexit 0\n');
     expect((await stat(join(root, 'guard.sh'))).mode & 0o111).not.toBe(0);
@@ -336,11 +338,11 @@ describe('the session files', () => {
     expect(await exists(join(sandbox.directory, '.ai-sdk-harness/plugins/guard/guard.sh'))).toBe(
       false,
     );
-    expect(await exists(join(sandbox.directory, '.claude/agents/critic.md'))).toBe(true);
+    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(true);
 
     // Resumed with no plugin: the critic goes as well; the file keeps the developer's settings.
     await onSession([]);
-    expect(await exists(join(sandbox.directory, '.claude/agents/critic.md'))).toBe(false);
+    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(false);
     expect(JSON.parse(await read('.claude/settings.local.json'))).toEqual(own);
   });
 
@@ -405,7 +407,7 @@ describe('the session files', () => {
     expect(status).toBe('');
     await onSession([guard, reviewer]);
     const exclude = await read('.git/info/exclude');
-    expect(exclude.match(/\/\.claude\/agents\/critic\.md/g)).toHaveLength(1);
+    expect(exclude.match(/\/\.ai-sdk-harness\/plugins\/guard\/guard\.sh/g)).toHaveLength(1);
   });
 
   it('starts over from a manifest it cannot read', async () => {
@@ -416,14 +418,78 @@ describe('the session files', () => {
     await onSession([reviewer]);
     expect(JSON.parse(await read('.ai-sdk-harness/manifest.json'))).toEqual({
       version: 1,
-      files: ['.claude/agents/critic.md'],
+      files: [],
       createdSettings: false,
       hookGroups: [],
     });
   });
 
+  it('shares the Claude Code subagents between the sessions of a sandbox, the last one deciding', async () => {
+    const homeAgent = (name: string) => join(sandbox.home, '.claude/agents', name);
+    const sessionIn = async (
+      directory: string,
+      plugins: Plugin[],
+      harness: PluginAgentSettings['harness'] = claudeCode,
+    ) => {
+      const sessionWorkDir = join(sandbox.directory, directory);
+      await mkdir(sessionWorkDir, { recursive: true });
+      await withPlugins({ harness }, plugins, {
+        onUnsupported: () => undefined,
+      }).sandboxConfig.onSession?.({ session: sandbox.session, sessionWorkDir });
+    };
+    const planner: Plugin = {
+      name: 'planner',
+      description: '',
+      subagents: [{ name: 'planner', description: 'Plans.', instructions: 'Plan.' }],
+    };
+
+    await sessionIn('one', [reviewer, planner]);
+    expect(await exists(homeAgent('critic.md'))).toBe(true);
+    expect(await exists(homeAgent('planner.md'))).toBe(true);
+
+    // Another session, without the planner: its subagent goes for every session of the sandbox.
+    await sessionIn('two', [reviewer]);
+    expect(await exists(homeAgent('critic.md'))).toBe(true);
+    expect(await exists(homeAgent('planner.md'))).toBe(false);
+
+    // A Codex session reads nothing there, and leaves the Claude Code subagents alone.
+    await sessionIn('three', [planner], codex);
+    expect(await exists(homeAgent('critic.md'))).toBe(true);
+    expect(
+      JSON.parse(await readFile(join(sandbox.home, '.ai-sdk-harness/home-manifest.json'), 'utf8')),
+    ).toEqual({
+      version: 1,
+      files: ['.claude/agents/critic.md'],
+    });
+
+    // A Claude Code session without subagents takes back the last one.
+    await sessionIn('four', []);
+    expect(await readdir(join(sandbox.home, '.claude/agents'))).toEqual([]);
+  });
+
+  it('takes back the subagents written in the session by an earlier version', async () => {
+    await mkdir(join(sandbox.directory, '.claude/agents'), { recursive: true });
+    await writeFile(join(sandbox.directory, '.claude/agents/critic.md'), 'old');
+    await mkdir(join(sandbox.directory, '.ai-sdk-harness'), { recursive: true });
+    await writeFile(
+      join(sandbox.directory, '.ai-sdk-harness/manifest.json'),
+      JSON.stringify({ version: 1, files: ['.claude/agents/critic.md'] }),
+    );
+    await onSession([reviewer]);
+    expect(await exists(join(sandbox.directory, '.claude/agents/critic.md'))).toBe(false);
+    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(true);
+  });
+
+  it('never overwrites a subagent of $HOME it did not write', async () => {
+    await mkdir(join(sandbox.home, '.claude/agents'), { recursive: true });
+    await writeFile(join(sandbox.home, '.claude/agents/critic.md'), 'mine');
+    await expect(onSession([reviewer])).rejects.toThrow(
+      '$HOME/.claude/agents/critic.md is already in the sandbox, and the plugins did not write it',
+    );
+    expect(await readFile(join(sandbox.home, '.claude/agents/critic.md'), 'utf8')).toBe('mine');
+  });
+
   it('runs a script of the plugin from a sandbox-command, through ${PLUGIN_ROOT}', async () => {
-    sandbox = await createHostSandbox({ home: true });
     const counter: Plugin = {
       name: 'counter',
       description: '',
@@ -461,7 +527,7 @@ describe('the session files', () => {
         ),
       ).toEqual({ exitCode: 0, stdout: '3\n', stderr: '' });
     }
-    const roots = await readdir(join(sandbox.directory, 'home/.ai-sdk-harness/plugin-files'));
+    const roots = await readdir(join(sandbox.home, '.ai-sdk-harness/plugin-files'));
     expect(roots).toEqual([expect.stringMatching(/^counter-[0-9a-f]{16}$/)]);
 
     // Another session of the sandbox finds them written: nothing is written twice.

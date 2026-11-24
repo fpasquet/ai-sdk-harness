@@ -1,6 +1,7 @@
 import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/provider-utils';
 
 import { shellQuote } from '@ai-sdk/harness/utils';
+import { posix } from 'node:path';
 
 /**
  * Runs `script` in the sandbox, in `directory`, with `args` as its positional parameters: what
@@ -43,3 +44,15 @@ export const FINISH = [
   '  grep -qxF -- "$line" "$exclude" 2>/dev/null || printf "%s\\n" "$line" >> "$exclude"',
   'done',
 ].join('\n');
+
+/** The sandbox's `$HOME`: where the files go that every session of the sandbox reads. */
+export async function homeOf(session: SandboxSession, abortSignal?: AbortSignal): Promise<string> {
+  const result = await session.run({ command: 'printf "%s" "$HOME"', abortSignal });
+  const home = result.stdout.trim();
+  if (result.exitCode !== 0 || !posix.isAbsolute(home)) {
+    throw new Error(
+      `The sandbox has no absolute $HOME for the files of the plugins: ${result.stderr.trim() || home}`,
+    );
+  }
+  return home;
+}

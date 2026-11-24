@@ -84,10 +84,11 @@ Ask the agent to read `.env`: Claude Code runs the hook's script before the read
 ![The hook blocks the agent from reading the .env file](/screenshots/next-chat/item-hook.png)
 
 <Callout type="warn">
-  With `@ai-sdk/harness-claude-code` 1.0.180 and later, Claude Code runs neither the hooks nor the
-  subagents of plugins: the adapter has it read the user's settings alone, not the session's
-  `.claude/` where they are written ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)).
-  Codex runs them. See the package's [limitations](/docs/packages/harness-plugins#limitations).
+  With `@ai-sdk/harness-claude-code` 1.0.180 and later, Claude Code does not run the hooks of
+  plugins: the adapter has it read the user's settings alone, not the session's `.claude/` where
+  they are written ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)). Codex runs them.
+  Subagents run on both: on Claude Code, they go under the sandbox's `$HOME`, which its sessions
+  share. See the package's [limitations](/docs/packages/harness-plugins#limitations).
 </Callout>
 
 </Step>
