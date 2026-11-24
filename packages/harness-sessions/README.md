@@ -404,7 +404,18 @@ To run ten turns at the same time, give ten ports — `Array.from({ length: 10 }
 
 ## Keeping sessions
 
-The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, from `ai-sdk-harness-sessions/memory`, is the default: it keeps them in memory, lost with the process. To keep them across restarts, implement the five methods on your database:
+The manager writes every change to a `SessionStore`: the session with its conversation, and, while it is suspended, the state it resumes from. `createMemorySessionStore()`, from `ai-sdk-harness-sessions/memory`, is the default: it keeps them in memory, lost with the process. `createFileSessionStore(directory)`, from `ai-sdk-harness-sessions/file`, keeps them in JSON files, across restarts and with nothing to install, for a prototype or an application on one machine:
+
+```ts
+import { createFileSessionStore } from 'ai-sdk-harness-sessions/file';
+
+const sessions = createSessionManager<Metadata>({
+  // …
+  store: createFileSessionStore('.data/sessions'),
+});
+```
+
+It writes `<id>.json`, the session and its conversation, and `<id>.resume.json` while it is suspended, readable by their owner alone; each file whole, then renamed over the old one. It gives no lease methods: one manager per directory. To keep sessions in your database instead, implement the five methods:
 
 ```ts
 import type { SessionStore } from 'ai-sdk-harness-sessions';
@@ -448,7 +459,7 @@ describe('the session store', () => {
 });
 ```
 
-The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions in JSON files (`lib/session-store.ts`).
+The [Next.js example](https://github.com/fpasquet/ai-sdk-harness/tree/main/examples/next-chat) keeps its sessions with `createFileSessionStore()`.
 
 Keep one manager per store, unless the store gives leases (below): at its start, a manager takes the sessions the store holds as live for those of a process that crashed, and marks them `interrupted`.
 
