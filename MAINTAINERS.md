@@ -52,6 +52,26 @@ Packages are versioned independently: only the packages that changed are release
 
 The READMEs name the version to install or deploy (`ai-sdk-sandbox-gce@0.3.1`, an image tag, the proxy's `VERSION=`): `pnpm version-packages` pins them to the version each package is about to be published at, so the release pull request carries them, and the CI fails when one names another version. Never edit them by hand; `pnpm readme-versions` fixes them.
 
+### Release token
+
+The release workflow opens the version PR with the token of a GitHub App, not with `GITHUB_TOKEN`: GitHub starts no `pull_request_target` workflow (`Semantic PR title`, a required check) on the events `GITHUB_TOKEN` causes, and holds the `pull_request` ones (CI, Quality, CodeQL) for a maintainer's approval. The App's token is made for each run, scoped to this repository, and revoked when the job ends. The App also authors the version commit, the tags and the GitHub releases. npm does not use it: the publish authenticates through trusted publishing (OIDC).
+
+One-time setup:
+
+1. On GitHub, **Settings → Developer settings → GitHub Apps → New GitHub App**, from the `fpasquet` account. Turn the webhook off, and give it two repository permissions: **Contents: Read and write** and **Pull requests: Read and write**. Let it be installed on this account only.
+2. On the App's page, note its **Client ID** (not its App ID), and generate a **private key**: a `.pem` file is downloaded.
+3. **Install App**, on this repository only.
+4. Give the repository the variable `RELEASE_APP_CLIENT_ID` and the secret `RELEASE_APP_PRIVATE_KEY`, the whole file, its `BEGIN` and `END` lines included. Then delete the file.
+
+   ```bash
+   gh variable set RELEASE_APP_CLIENT_ID --body <client-id>
+   gh secret set RELEASE_APP_PRIVATE_KEY < release-app.private-key.pem
+   ```
+
+To replace the key, generate another one on the App's page, set the secret again, then delete the old key there.
+
+The workflow has no other token to fall back to: without the variable, the secret or the App's installation, the release fails at `Create the release token`, before anything is published.
+
 ### Service images
 
 A release of `ai-sdk-sandbox-gce` or `ai-sdk-sandbox-cloud-run` also publishes its service's image to Docker Hub, `<namespace>/<package>:<version>` and `latest`, built from the version on npm by `images.yml` with a provenance attestation. The `Dockerfile` of each package is built on every pull request too, from the package packed as npm would publish it, and run once.
@@ -108,7 +128,8 @@ There is no alpha or beta channel: the 0.x series is where the packages get trie
 
 - **Settings → General**: allow squash merging only, with the PR title as the commit message; enable auto-merge and automatic deletion of head branches.
 - **Settings → Rules**: a ruleset on `main` requiring the status checks above and a pull request.
-- **Settings → Actions → General**: workflow permissions _Read and write_, and _Allow GitHub Actions to create and approve pull requests_ (the release PR).
+- **Settings → Actions → General**: workflow permissions _Read and write_, and _Allow GitHub Actions to create and approve pull requests_ (the approval of Dependabot's).
+- **A GitHub App** for the release PR: see [Release token](#release-token).
 - **Settings → Secrets**: `CODECOV_TOKEN`, optional (the coverage upload is skipped without it); `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` for the docs deployment (see [Docs deployment](#docs-deployment)).
 
 ### Labels (declarative, auto-synced)
