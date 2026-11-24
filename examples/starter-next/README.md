@@ -2,7 +2,7 @@
 
 A chat with a coding agent, in the smallest Next.js app that runs one: **Claude Code**, in a local [Docker Sandbox](https://docs.docker.com/ai/sandboxes/) through [`ai-sdk-sandbox-sbx`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx), its conversations kept by [`ai-sdk-harness-sessions`](https://ai-sdk-harness.pages.dev/docs/managing-sessions). A `useChat` page, one route, a `.env.local` file, and packages from npm. No clone of the monorepo.
 
-The page is built with [AI Elements](https://ai-sdk.dev/elements): the conversation, the agent's answers rendered as Markdown while they stream in, and every tool it runs in the sandbox, with its input and output.
+The page is one file: the agent's answers rendered as Markdown while they stream in, by [Streamdown](https://streamdown.ai), and every tool it runs in the sandbox, with its input and output. For a richer interface, [AI Elements](https://ai-sdk.dev/elements) installs chat components into the project, as the [Next.js example](https://ai-sdk-harness.pages.dev/docs/examples/next-chat) uses them.
 
 ## Run it
 
@@ -27,7 +27,6 @@ Left empty, `.env.local` falls back to the login of the `claude` CLI on this mac
 | `lib/sessions.ts`       | The `HarnessAgent` (Claude Code), the sandbox all conversations share (`ai-sdk-harness-starter-next`, created once and resumed afterwards), and the session manager: four conversations live at once, each suspended after 15 idle minutes and resumed on its next message. |
 | `app/api/chat/route.ts` | One turn: the first message of a conversation opens its session, each message sends a turn and streams it back. The stop button aborts it.                                                                                                                                  |
 | `app/page.tsx`          | The `useChat` page.                                                                                                                                                                                                                                                         |
-| `components/`           | The AI Elements and shadcn/ui components the page uses, as `npx shadcn add` installs them: yours to change.                                                                                                                                                                 |
 
 The conversations are kept in memory: a restart of the server forgets them, while the sandbox and its files stay. `sbx rm ai-sdk-harness-starter-next` removes it.
 
