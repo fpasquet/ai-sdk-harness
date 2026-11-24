@@ -36,19 +36,28 @@ With `ai-sdk-harness-workspace` and `ai-sdk-harness-plugins`, merge their hosts 
 | `ai-sdk-sandbox-cloud-run`    | `allowedHosts: allowedHosts(...)`, on top of the service's `SANDBOX_ALLOWED_HOSTS`, at each resume; `setNetworkPolicy()` while it runs |
 | `ai-sdk-sandbox-gce`          | `allowedHosts: allowedHosts(...)`, on top of the service's `SANDBOX_ALLOWED_HOSTS`, at each resume; `setNetworkPolicy()` while it runs |
 
-```ts
-// ai-sdk-sandbox-sbx (and microsandbox): the policy, at creation.
-await createSbxNetworkSandboxSession({ ...settings, networkPolicy: policy, template });
+On `sbx` and `microsandbox`, the policy goes in the **create** call of `openSandbox()` ([sandboxes.md](sandboxes.md)): a resume takes none and keeps the policy the sandbox was created with. To change it on a running `sbx` sandbox, `setNetworkPolicy()`; a microsandbox one must be created again.
 
-// ai-sdk-sandbox-cloud-run and -gce: the hosts, in the settings passed on create and on every resume.
+```ts
+return createSbxNetworkSandboxSession({
+  ...settings,
+  networkPolicy: policy,
+  setup: ['npm install --global --silent pnpm@10'],
+  template: await agent.getSandboxTemplate(),
+});
+```
+
+On Cloud Run and Compute Engine, the model's API goes through the service, which routes `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` itself (`baseUrls` for another one): leave the provider out, and give the install registry and the project's hosts, in the `settings` passed on create **and** on every resume.
+
+```ts
 const settings = {
   url,
   ports: [4000],
-  allowedHosts: allowedHosts(harnessHosts('claude-code'), trustedHosts('github')),
+  allowedHosts: allowedHosts(['registry.npmjs.org'], trustedHosts('github', 'javascript')),
 };
 ```
 
-In Docker Sandboxes Cloud, the account's policy and `allowNetwork` decide instead. Cloud Run and Compute Engine reach nothing but the service's hosts and the ones given: the model's API goes through the service's base URLs, so `harnessHosts()` there mostly adds the install registry.
+In Docker Sandboxes Cloud, the account's policy and `allowNetwork` decide instead.
 
 ## The template is built under the same network
 

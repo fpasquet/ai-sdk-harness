@@ -26,7 +26,7 @@ What the sandbox needs depends on where the harness runs:
 - **On the app's server** (Pi, fx): the sandbox is their file system and shell only. No port, no bridge, no template.
 - `template: await agent.getSandboxTemplate()` for a bridge-backed harness: it installs its runtime once, in an image or snapshot every later sandbox starts from. The first creation takes a minute or two.
 - pnpm, with which the Claude Code and Codex bridges install their dependencies: `setup: ['npm install --global --silent pnpm@10']` on `sbx` and `microsandbox`; on the host's `PATH` for `runtime`; already in the Cloud Run and Compute Engine images.
-- Node.js and git in any image of the user's, beside the project's toolchain: the bridge runs on Node.js, and `ai-sdk-harness-workspace` fetches repositories with git. `sbx` and `gce` check them once `setup` ran and fail the creation with `SbxSandboxImageError` or `GceSandboxImageError`, naming what is missing: add it to the image or to `setup`, don't empty `requiredCommands`.
+- Node.js and git, for the bridge and for `ai-sdk-harness-workspace`. The default images have both: the kits of Docker Sandboxes, `node:24` of microsandbox, and the images the Cloud Run and Compute Engine READMEs build. Only an image of the user's, for another toolchain, must add them beside it. `sbx` and `gce` check them once `setup` ran and fail the creation with `SbxSandboxImageError` or `GceSandboxImageError`, naming what is missing: add it to the image or to `setup`, don't empty `requiredCommands`.
 
 Name the sandbox (`sandboxId`), and **resume it** on the next run rather than creating one each time: creation never resumes, an existing name is a conflict.
 
@@ -94,9 +94,22 @@ const settings = {
   // The bridge installs its dependencies from npm.
   allowedHosts: ['registry.npmjs.org'],
 };
+
+// The same shape as on sbx: resumed when it exists, created otherwise. `agent` is the HarnessAgent.
+export async function openSandbox() {
+  try {
+    return await resumeCloudRunNetworkSandboxSession(settings);
+  } catch (error) {
+    if (!(error instanceof CloudRunSandboxNotFoundError)) throw error;
+  }
+  return createCloudRunNetworkSandboxSession({
+    ...settings,
+    template: await agent.getSandboxTemplate(),
+  });
+}
 ```
 
-`createCloudRunNetworkSandboxSession({ ...settings, template })` the first time, `resumeCloudRunNetworkSandboxSession(settings)` after. The service keeps neither `ports` nor `allowedHosts` across a suspension: pass the same settings on every resume. The sandbox service is deployed first, from the package's README (image, bucket, service account, `gcloud run deploy`), with the image pinned to the version of the package the app depends on.
+The service keeps neither `ports` nor `allowedHosts` across a suspension: the same settings go to every resume, as above. The sandbox service is deployed first, from the package's README (image, bucket, service account, `gcloud run deploy`), with the image pinned to the version of the package the app depends on.
 
 ### `ai-sdk-sandbox-gce`
 
@@ -116,14 +129,20 @@ const settings = {
   allowedHosts: ['registry.npmjs.org'],
 };
 
-// The first time:
-const sandboxSession = await createGceNetworkSandboxSession({
-  ...settings,
-  template: await agent.getSandboxTemplate(),
-});
+export async function openSandbox() {
+  try {
+    return await resumeGceNetworkSandboxSession(settings);
+  } catch (error) {
+    if (!(error instanceof GceSandboxNotFoundError)) throw error;
+  }
+  return createGceNetworkSandboxSession({
+    ...settings,
+    template: await agent.getSandboxTemplate(),
+  });
+}
 ```
 
-Then as on Cloud Run: `resumeGceNetworkSandboxSession(settings)` after, with the same settings on every resume. Tests that run `docker compose` pull their images: add the registries to `allowedHosts` (`allowedHosts(trustedHosts('docker-hub'))`, or `'containers'` for every registry). `image` names one of the images the service offers (`SANDBOX_IMAGES`), for a project in another language. A stopped sandbox keeps its disk; a resume boots the machine again. Its deployment is longer (a VPC, an egress proxy, images, the service): follow its README step by step, with the user.
+`agent` is the `HarnessAgent` of the app, as on sbx. The same settings go to every resume. Tests that run `docker compose` pull their images: add the registries to `allowedHosts` (`allowedHosts(trustedHosts('docker-hub'))`, or `'containers'` for every registry). `image` names one of the images the service offers (`SANDBOX_IMAGES`), for a project in another language. A stopped sandbox keeps its disk; a resume boots the machine again. Its deployment is longer (a VPC, an egress proxy, images, the service): follow its README step by step, with the user.
 
 ## Next.js
 
