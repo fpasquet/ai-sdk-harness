@@ -217,25 +217,25 @@ importers:
         specifier: ^0.3.1
         version: link:../../packages/harness-plugins
       ai-sdk-harness-sessions:
-        specifier: ^0.4.3
+        specifier: ^0.4.4
         version: link:../../packages/harness-sessions
       ai-sdk-harness-workspace:
-        specifier: ^0.1.3
+        specifier: ^0.1.4
         version: link:../../packages/harness-workspace
       ai-sdk-sandbox-cloud-run:
-        specifier: ^0.4.0
+        specifier: ^0.4.2
         version: link:../../packages/sandbox-cloud-run
       ai-sdk-sandbox-gce:
-        specifier: ^0.5.0
+        specifier: ^0.5.2
         version: link:../../packages/sandbox-gce
       ai-sdk-sandbox-microsandbox:
-        specifier: ^0.1.3
+        specifier: ^0.1.4
         version: link:../../packages/sandbox-microsandbox
       ai-sdk-sandbox-runtime:
-        specifier: ^0.1.3
+        specifier: ^0.1.4
         version: link:../../packages/sandbox-runtime
       ai-sdk-sandbox-sbx:
-        specifier: ^0.2.4
+        specifier: ^0.2.5
         version: link:../../packages/sandbox-sbx
       class-variance-authority:
         specifier: ^0.7.1

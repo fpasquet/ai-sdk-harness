@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-runtime
 
+## 0.1.4
+
+### Patch Changes
+
+- 455efc2: `deleteSrtSandbox()` removes a sandbox by its id, its directory with its home and working directory, without starting its supervisor; a directory that holds no sandbox is refused. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while suspended.
+
 ## 0.1.3
 
 ### Patch Changes

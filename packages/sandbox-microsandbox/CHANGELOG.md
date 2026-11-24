@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-microsandbox
 
+## 0.1.4
+
+### Patch Changes
+
+- 455efc2: `deleteMicrosandboxSandbox()` removes a sandbox by its id, with its disk and its secrets, without starting it: `destroy()` needs a session, which resumes a stopped sandbox, booting its microVM only to remove it. A sandbox that does not exist, or no longer does, is no error. It is the `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while suspended.
+
 ## 0.1.3
 
 ### Patch Changes
