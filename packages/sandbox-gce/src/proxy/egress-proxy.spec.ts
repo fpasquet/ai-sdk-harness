@@ -364,6 +364,100 @@ describe('the egress proxy', () => {
     });
   });
 
+  describe('at the limit of the proxy', () => {
+    const upstream = createHttpServer((_req, res) => res.end('ok'));
+    const held: Socket[] = [];
+
+    afterEach(async () => {
+      for (const socket of held.splice(0)) socket.destroy();
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    });
+
+    it('refuses with a reason beyond its total, keeps a share for the routes, and logs it', async () => {
+      await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+      const upstreamPort = (upstream.address() as AddressInfo).port;
+      const logger = { ...silentLogger, info: vi.fn(), warn: vi.fn() };
+      // 4 connections for the whole proxy, 1 of them kept for the routes; the sandbox's own
+      // limits well above.
+      proxy = new EgressProxy(
+        () => ({ ...policy, allowedHosts: ['127.0.0.1'], allowPrivateNetwork: true }),
+        logger,
+        { maxConnections: 100, totalConnections: 4, tunnelPort: upstreamPort },
+      );
+      await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve));
+      const { port } = proxy.server.address() as AddressInfo;
+      /** A tunnel a command opens: its status and the first line of its body; kept when open. */
+      const tunnel = (): Promise<string> =>
+        new Promise((resolve, reject) => {
+          request({
+            host: '127.0.0.1',
+            port,
+            method: 'CONNECT',
+            path: '127.0.0.1:443',
+            agent: false,
+          })
+            .on('connect', (response, socket: Socket, head: Buffer) => {
+              held.push(socket);
+              // What came after the status line: the reason of a refusal.
+              const reason = head.toString().trim();
+              resolve(
+                reason === '' ? String(response.statusCode) : `${response.statusCode} ${reason}`,
+              );
+            })
+            .on('error', reject)
+            .end();
+        });
+      const route = (): Promise<number | undefined> =>
+        new Promise((resolve, reject) => {
+          request(
+            { host: '127.0.0.1', port, path: `/http/127.0.0.1:${upstreamPort}/v1`, agent: false },
+            (response) => {
+              response.resume();
+              resolve(response.statusCode);
+            },
+          )
+            .on('error', reject)
+            .end();
+        });
+      /** A connection that says nothing: what the proxy writes to it before closing it, if anything. */
+      const silent = (): Promise<string> =>
+        new Promise((resolve) => {
+          const socket = connect({ host: '127.0.0.1', port });
+          held.push(socket);
+          let text = '';
+          socket.on('data', (chunk: Buffer) => (text += chunk.toString()));
+          socket.once('close', () => resolve(text));
+          setTimeout(() => resolve('open'), 200);
+        });
+
+      expect([await tunnel(), await tunnel(), await tunnel()]).toEqual(['200', '200', '200']);
+      // The commands of all sandboxes hold their 3: the fourth goes to the routes alone.
+      expect(await tunnel()).toBe(
+        '503 The proxy holds the most connections it may, for all its sandboxes. Try again in a moment.',
+      );
+      // Once the proxy closed the refused tunnel's connection, the route has its share.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(await route()).toBe(200);
+      expect(await silent()).toBe('open');
+      // All 4 are open: one more is refused, with the reason, before it says anything.
+      expect(await silent()).toMatch(
+        /^HTTP\/1\.1 503 Service Unavailable\r\n[^]*The proxy holds the most/,
+      );
+
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'The proxy reached its limit: the commands of its sandboxes hold 3 connections, the most it may for all its sandboxes (4, 3 of them for the commands). More are refused until some close. Holding the most: box (4).',
+      );
+      for (const socket of held.splice(0)) socket.destroy();
+      await vi.waitFor(() =>
+        expect(logger.info).toHaveBeenCalledWith(
+          expect.stringMatching(/^The proxy is back under its limit: .*; 2 refused meanwhile\.$/),
+        ),
+      );
+    });
+  });
+
   it('logs a machine it serves no sandbox for, and the host alone of a plain request', async () => {
     const info = vi.fn();
     proxy = new EgressProxy(() => undefined, { ...silentLogger, info });

@@ -610,12 +610,13 @@ The proxy counts the connections each sandbox's machine holds open through it, s
 - **Its commands** — the tunnels of `HTTPS_PROXY` and the plain requests of `HTTP_PROXY` — hold up to `SANDBOX_PROXY_MAX_CONNECTIONS` (128) at once: package managers, test suites and their keep-alive pools. One more is refused with `503 Service Unavailable`, and a message that says so.
 - **Its base URL routes** — the runtime's way to its model provider — always find a connection: they may take `SANDBOX_PROXY_ROUTE_CONNECTIONS` (32) more, which the commands never do. A command that calls a base URL route itself counts there too.
 - A connection counts from the moment it opens, before it says what it carries: no machine holds more than both together, 160. One more is cut.
+- **The proxy as a whole** holds up to `SANDBOX_PROXY_TOTAL_CONNECTIONS` at once, for all its sandboxes: by default what its descriptors allow, two for each connection, with 1024 kept apart — 32256 under `LimitNOFILE=65536`. Beyond it, a connection is refused with a `503` that says the proxy is full. Without this limit the system would reset it before the proxy saw it, for every sandbox alike and with nothing logged. A tenth of the total is kept for the base URL routes: the commands of all sandboxes together never take it.
 
-The proxy logs a warning when a sandbox reaches a limit, with what it holds, and a line when it goes back under three quarters of it, with how many connections it refused meanwhile: `box reached its limit: its commands hold 128 connections, …`, then `box is back under its limit: …; 412 refused meanwhile`. A turn that fails while the sandbox is at its limit is told apart from an outage of the provider.
+The proxy logs a warning when a sandbox reaches a limit, with what it holds, and a line when it goes back under three quarters of it, with how many connections it refused meanwhile: `box reached its limit: its commands hold 128 connections, …`, then `box is back under its limit: …; 412 refused meanwhile`. It does the same for its own limit, naming the three sandboxes that hold the most: `The proxy reached its limit: … Holding the most: box (160), …`. A turn that fails while the sandbox or the proxy is at its limit is told apart from an outage of the provider.
 
 The proxy keeps an idle connection open for 120 seconds, longer than the runtimes' clients keep theirs (Codex's, 90 seconds): the client always closes it first, so that no request is sent on it just as the proxy closes it, and reset. An idle connection still counts against the limits until then.
 
-To raise them, add `Environment=SANDBOX_PROXY_MAX_CONNECTIONS=256` (and `SANDBOX_PROXY_ROUTE_CONNECTIONS`) to the `[Service]` section of the proxy's unit, in its startup script, and restart the proxy. Its `LimitNOFILE` (65536) bounds them all: two sockets for each connection, one to the sandbox and one onward.
+To raise them, add `Environment=SANDBOX_PROXY_MAX_CONNECTIONS=256` (and `SANDBOX_PROXY_ROUTE_CONNECTIONS`) to the `[Service]` section of the proxy's unit, in its startup script, and restart the proxy. For more sandboxes on one proxy, raise its `LimitNOFILE` instead: the total follows it. Set `SANDBOX_PROXY_TOTAL_CONNECTIONS` only to hold the proxy below what its descriptors allow.
 
 ### Node.js and the proxy
 
@@ -709,15 +710,16 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 ### The proxy (`proxy`)
 
-| Variable                          | Default   | Description                                                                                                     |
-| --------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------- |
-| `SANDBOX_PROXY_TOKEN`             | required  | The token the service proves itself with, 16 characters at least                                                |
-| `SANDBOX_PROXY_PORT`              | `3128`    | The port the sandboxes reach                                                                                    |
-| `SANDBOX_PROXY_ADMIN_PORT`        | `3129`    | The port of the administration API                                                                              |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK`   | `false`   | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                             |
-| `SANDBOX_PROXY_MAX_CONNECTIONS`   | `128`     | The most connections the commands of a sandbox hold open through the proxy at once: [Connections](#connections) |
-| `SANDBOX_PROXY_ROUTE_CONNECTIONS` | `32`      | The connections a sandbox holds beyond those, for its base URL routes alone: [Connections](#connections)        |
-| `HOST`, `LOG_FORMAT`              | `0.0.0.0` | Where it listens; `text` for plain logs                                                                         |
+| Variable                          | Default            | Description                                                                                                          |
+| --------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_PROXY_TOKEN`             | required           | The token the service proves itself with, 16 characters at least                                                     |
+| `SANDBOX_PROXY_PORT`              | `3128`             | The port the sandboxes reach                                                                                         |
+| `SANDBOX_PROXY_ADMIN_PORT`        | `3129`             | The port of the administration API                                                                                   |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK`   | `false`            | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                                  |
+| `SANDBOX_PROXY_MAX_CONNECTIONS`   | `128`              | The most connections the commands of a sandbox hold open through the proxy at once: [Connections](#connections)      |
+| `SANDBOX_PROXY_ROUTE_CONNECTIONS` | `32`               | The connections a sandbox holds beyond those, for its base URL routes alone: [Connections](#connections)             |
+| `SANDBOX_PROXY_TOTAL_CONNECTIONS` | from `LimitNOFILE` | The most connections the proxy holds for all its sandboxes, a tenth kept for the routes: [Connections](#connections) |
+| `HOST`, `LOG_FORMAT`              | `0.0.0.0`          | Where it listens; `text` for plain logs                                                                              |
 
 ### The agent (`agent`)
 

@@ -1,14 +1,27 @@
+import { readFileSync } from 'node:fs';
+
 import { createLogger } from '../common/logger.js';
 import { DEFAULT_PROXY_ADMIN_PORT, DEFAULT_PROXY_PORT } from '../protocol/proxy.js';
 import { createAdminServer } from './admin-server.js';
-import { DEFAULT_MAX_CONNECTIONS, DEFAULT_ROUTE_CONNECTIONS, EgressProxy } from './egress-proxy.js';
+import {
+  DEFAULT_MAX_CONNECTIONS,
+  DEFAULT_ROUTE_CONNECTIONS,
+  DEFAULT_TOTAL_CONNECTIONS,
+  EgressProxy,
+} from './egress-proxy.js';
 import { IDLE_EXIT_CODE, watchIdle } from './idle-exit.js';
 import { SandboxRegistry } from './registry.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-/** The proxy's settings, from its environment, which the systemd unit of its machine sets. */
-export function proxyConfig(env: Environment): {
+/**
+ * The proxy's settings, from its environment, which the systemd unit of its machine sets.
+ * `limits` is the text of `/proc/self/limits`, for the total of connections by default.
+ */
+export function proxyConfig(
+  env: Environment,
+  limits: string | undefined = readLimits(),
+): {
   adminPort: number;
   allowPrivateNetwork: boolean;
   host: string;
@@ -18,6 +31,7 @@ export function proxyConfig(env: Environment): {
   port: number;
   routeConnections: number;
   token: string;
+  totalConnections: number;
 } {
   const token = env['SANDBOX_PROXY_TOKEN'];
   if (token === undefined || token.length < 16) {
@@ -41,6 +55,10 @@ export function proxyConfig(env: Environment): {
       fallback: DEFAULT_ROUTE_CONNECTIONS,
       min: 0,
     }),
+    totalConnections: connectionCount('SANDBOX_PROXY_TOTAL_CONNECTIONS', env, {
+      fallback: totalConnectionsFor(limits),
+      min: 1,
+    }),
     idleExitMs: idleExitMs(env['SANDBOX_PROXY_IDLE_EXIT_MINUTES']),
     token,
   };
@@ -54,6 +72,28 @@ function idleExitMs(value: string | undefined): number | undefined {
     throw new Error(`SANDBOX_PROXY_IDLE_EXIT_MINUTES: \`${value}\` is not a positive integer.`);
   }
   return parsed * 60_000;
+}
+
+/** Descriptors kept apart from the connections: the proxy's own files, and upstream sockets kept alive. */
+const SPARE_DESCRIPTORS = 1024;
+
+/**
+ * The most connections the descriptors of the process allow, two for each, its soft `Max open
+ * files` in `limits` less {@link SPARE_DESCRIPTORS}: {@link DEFAULT_TOTAL_CONNECTIONS} when that
+ * limit is unknown or unlimited.
+ */
+export function totalConnectionsFor(limits: string | undefined): number {
+  const soft = /^Max open files\s+(\d+)/m.exec(limits ?? '')?.[1];
+  if (soft === undefined) return DEFAULT_TOTAL_CONNECTIONS;
+  return Math.max(1, Math.floor((Number(soft) - SPARE_DESCRIPTORS) / 2));
+}
+
+function readLimits(): string | undefined {
+  try {
+    return readFileSync('/proc/self/limits', 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** A number of connections the variable `name` sets, an integer from `min`: `fallback` when unset. */
@@ -85,6 +125,7 @@ export function main(env: Environment): void {
   const proxy = new EgressProxy((address) => registry.policyFor(address), logger, {
     maxConnections: config.maxConnections,
     routeConnections: config.routeConnections,
+    totalConnections: config.totalConnections,
   });
   const admin = createAdminServer({ registry, token: config.token, logger });
   proxy.server.listen(config.port, config.host, () =>
