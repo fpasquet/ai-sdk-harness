@@ -14,4 +14,24 @@ describe('the settings of the proxy', () => {
       proxyConfig({ SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_IDLE_EXIT_MINUTES: '0.5' }),
     ).toThrow('SANDBOX_PROXY_IDLE_EXIT_MINUTES: `0.5` is not a positive integer.');
   });
+
+  it('keeps connections for the base URL routes beyond those of the commands', () => {
+    expect(proxyConfig({ SANDBOX_PROXY_TOKEN: token })).toMatchObject({
+      maxConnections: 128,
+      routeConnections: 32,
+    });
+    expect(
+      proxyConfig({
+        SANDBOX_PROXY_TOKEN: token,
+        SANDBOX_PROXY_MAX_CONNECTIONS: '256',
+        SANDBOX_PROXY_ROUTE_CONNECTIONS: '0',
+      }),
+    ).toMatchObject({ maxConnections: 256, routeConnections: 0 });
+    expect(() =>
+      proxyConfig({ SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_MAX_CONNECTIONS: '0' }),
+    ).toThrow('SANDBOX_PROXY_MAX_CONNECTIONS: `0` is not a positive integer.');
+    expect(() =>
+      proxyConfig({ SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_ROUTE_CONNECTIONS: '-1' }),
+    ).toThrow('SANDBOX_PROXY_ROUTE_CONNECTIONS: `-1` is not a non-negative integer.');
+  });
 });

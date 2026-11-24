@@ -53,8 +53,17 @@ function reachability(
 
 const UNKNOWN = 'This machine is no sandbox the proxy serves.';
 
-/** The most connections a sandbox's machine holds open through the proxy at once, by default. */
+/**
+ * The most connections the commands of a sandbox hold open through the proxy at once, by default:
+ * its tunnels and plain HTTP requests.
+ */
 export const DEFAULT_MAX_CONNECTIONS = 128;
+
+/**
+ * The connections a sandbox holds beyond {@link DEFAULT_MAX_CONNECTIONS}, by default, for its base
+ * URL routes alone: the runtime's way to its model provider stays open whatever the commands hold.
+ */
+export const DEFAULT_ROUTE_CONNECTIONS = 32;
 
 /** The most bytes a ClientHello is read from: well over any real one. */
 const MAX_HELLO_BYTES = 64 * 1024;
@@ -78,6 +87,7 @@ function clientHello(
     const done = (hello?: ClientHello): void => {
       clearTimeout(timer);
       socket.off('data', received);
+      socket.off('end', closed);
       socket.off('close', closed);
       socket.pause();
       resolve({ bytes, hello });
@@ -94,6 +104,8 @@ function clientHello(
     const closed = (): void => done();
     const timer = setTimeout(done, HELLO_TIMEOUT_MS);
     socket.on('data', received);
+    // The server keeps a socket half open once its client ended it: no `close` would come.
+    socket.once('end', closed);
     socket.once('close', closed);
     if (bytes.length > 0) check();
   });
@@ -116,6 +128,21 @@ function helloRefusal(host: string, hello: ClientHello | undefined): string | un
   return named === undefined
     ? `A tunnel to ${host} must name it in its TLS (SNI).`
     : `A tunnel to ${host} may not name ${named} in its TLS.`;
+}
+
+const connections = (count: number): string => `${count} connection${count === 1 ? '' : 's'}`;
+
+/** What a connection carries, from its first request on: a command's traffic, or a route. */
+type ConnectionKind = 'command' | 'route';
+
+/** The connections a sandbox's machine holds open, and whether it is at one of its limits. */
+interface MachineConnections {
+  /** Every connection, whatever it carries, or nothing yet. */
+  open: number;
+  /** Those carrying a tunnel or a plain HTTP request: the commands' traffic. */
+  commands: number;
+  /** The connections refused since the machine reached a limit; `undefined` when it is under. */
+  refused?: number;
 }
 
 /** A connection or a request the proxy refused: from what machine and sandbox, to what, why. */
@@ -190,15 +217,20 @@ export class EgressProxy {
   readonly server: Server;
 
   /** The connections each machine holds open, by its address. */
-  private readonly open = new Map<string, number>();
-  /** The machines cut at their limit since they last went under it: logged once. */
-  private readonly capped = new Set<string>();
+  private readonly machines = new Map<string, MachineConnections>();
+  /** What each connection carries, once its first request said. */
+  private readonly kinds = new WeakMap<Socket, ConnectionKind>();
   private readonly maxConnections: number;
+  private readonly routeConnections: number;
   private readonly tunnelPort: number;
 
   /**
-   * @param options.maxConnections The most connections a sandbox's machine holds open at once:
-   *   one more is cut at once, so that no sandbox takes the sockets of the others.
+   * @param options.maxConnections The most connections the commands of a sandbox hold open at
+   *   once, its tunnels and plain HTTP requests: one more is refused, so that no sandbox takes the
+   *   sockets of the others.
+   * @param options.routeConnections The connections a sandbox holds beyond `maxConnections` for
+   *   its base URL routes alone, so that the runtime reaches its model provider whatever the
+   *   commands hold. A machine never holds more than both together.
    * @param options.tunnelPort The port a tunnel reaches on its host, whatever port its `CONNECT`
    *   names (443, the only one allowed). Tests only.
    */
@@ -207,10 +239,12 @@ export class EgressProxy {
     private readonly logger: Logger = silentLogger,
     {
       maxConnections = DEFAULT_MAX_CONNECTIONS,
+      routeConnections = DEFAULT_ROUTE_CONNECTIONS,
       tunnelPort = 443,
-    }: { maxConnections?: number; tunnelPort?: number } = {},
+    }: { maxConnections?: number; routeConnections?: number; tunnelPort?: number } = {},
   ) {
     this.maxConnections = maxConnections;
+    this.routeConnections = routeConnections;
     this.tunnelPort = tunnelPort;
     this.server = createServer((req, res) => this.forward(req, res));
     this.server.on('connection', (socket: Socket) => this.count(socket));
@@ -225,28 +259,83 @@ export class EgressProxy {
   }
 
   /**
-   * Counts the connections of a machine, and cuts the one beyond {@link maxConnections}: logged the
-   * first time only, until the machine goes under its limit again.
+   * Counts the connections of a machine, and cuts one beyond both its limits together: what it
+   * carries is not known yet, and no machine holds more.
    */
   private count(socket: Socket): void {
     const address = socket.remoteAddress ?? '';
-    const open = this.open.get(address) ?? 0;
-    if (open >= this.maxConnections) {
-      if (!this.capped.has(address)) {
-        this.capped.add(address);
-        const why = `${open} connections are open already, the most a sandbox holds at once.`;
-        this.refused({ address, policy: this.policyFor(address), why });
-      }
+    const machine = this.machines.get(address) ?? { open: 0, commands: 0 };
+    if (machine.open >= this.maxConnections + this.routeConnections) {
+      this.atLimit(
+        address,
+        machine,
+        `${connections(machine.open)} are open, base URL routes included`,
+      );
       socket.destroy();
       return;
     }
-    this.open.set(address, open + 1);
+    machine.open += 1;
+    this.machines.set(address, machine);
     socket.once('close', () => {
-      const left = (this.open.get(address) ?? 1) - 1;
-      if (left === 0) this.open.delete(address);
-      else this.open.set(address, left);
-      this.capped.delete(address);
+      machine.open -= 1;
+      if (this.kinds.get(socket) === 'command') machine.commands -= 1;
+      if (machine.open === 0) this.machines.delete(address);
+      this.underLimit(address, machine);
     });
+  }
+
+  /**
+   * Whether `socket` may carry a command's traffic: always once it does; otherwise while the
+   * machine's commands hold fewer than {@link maxConnections}, the connection then counted as theirs.
+   */
+  private admitsCommand(socket: Socket): boolean {
+    const kind = this.kinds.get(socket);
+    if (kind !== undefined) return true;
+    const address = socket.remoteAddress ?? '';
+    const machine = this.machines.get(address);
+    if (machine === undefined) return true;
+    if (machine.commands >= this.maxConnections) {
+      this.atLimit(address, machine, `its commands hold ${connections(machine.commands)}`);
+      return false;
+    }
+    machine.commands += 1;
+    this.kinds.set(socket, 'command');
+    return true;
+  }
+
+  /** A connection whose first request is a base URL route: never counted as a command's. */
+  private admitRoute(socket: Socket): void {
+    if (!this.kinds.has(socket)) this.kinds.set(socket, 'route');
+  }
+
+  /** Refuses a connection at a limit: the first refusal logged, until the machine goes under. */
+  private atLimit(address: string, machine: MachineConnections, state: string): void {
+    if (machine.refused === undefined) {
+      const who = this.policyFor(address)?.name ?? address;
+      this.logger.warn(
+        `${who} reached its limit: ${state}, the most it may. More are refused until some close: ${this.limits()}.`,
+      );
+    }
+    machine.refused = (machine.refused ?? 0) + 1;
+  }
+
+  /**
+   * Logs that a machine at a limit went back well under it, three quarters of its commands' limit:
+   * one connection closed, and the next refused, would otherwise log twice each time.
+   */
+  private underLimit(address: string, machine: MachineConnections): void {
+    if (machine.refused === undefined) return;
+    if (machine.commands > (this.maxConnections * 3) / 4) return;
+    if (machine.open > ((this.maxConnections + this.routeConnections) * 3) / 4) return;
+    const who = this.policyFor(address)?.name ?? address;
+    this.logger.info(
+      `${who} is back under its limit: ${connections(machine.open)} open, ${machine.commands} of its commands; ${machine.refused} refused meanwhile.`,
+    );
+    machine.refused = undefined;
+  }
+
+  private limits(): string {
+    return `${this.maxConnections} for the commands, and ${this.routeConnections} more for the base URL routes`;
   }
 
   private tunnel(req: IncomingMessage, socket: Socket, head: Buffer): void {
@@ -265,6 +354,10 @@ export class EgressProxy {
     if (refusal !== undefined) {
       this.refused({ address, policy, target: req.url, why: refusal });
       socket.end(`HTTP/1.1 403 Forbidden\r\n\r\n${refusal}\n`);
+      return;
+    }
+    if (!this.admitsCommand(socket)) {
+      socket.end(`HTTP/1.1 503 Service Unavailable\r\n\r\n${this.atLimitMessage()}\n`);
       return;
     }
     const upstream = connect(
@@ -311,6 +404,7 @@ export class EgressProxy {
       this.deny(res, { address, policy, target: route.host, why: refusal });
       return;
     }
+    this.admitRoute(req.socket);
     this.send(req, res, { policy, target: route, transformations: policy.transformations });
   }
 
@@ -318,12 +412,22 @@ export class EgressProxy {
   private forwardPlain(req: IncomingMessage, res: ServerResponse, policy: EgressPolicy): void {
     const plain = plainTarget(req.url ?? '');
     if (plain !== undefined && isListedHost(policy.allowedHosts, plain.hostname)) {
+      if (!this.admitsCommand(req.socket)) {
+        res.writeHead(503, { 'content-type': 'text/plain', connection: 'close' });
+        res.end(`${this.atLimitMessage()}\n`);
+        return;
+      }
       this.send(req, res, { policy, target: plain, transformations: [] });
       return;
     }
     // The host alone: a path or a query string may carry what is no business of the log.
     const why = routeRefusal(policy, undefined) ?? '';
     this.deny(res, { address: req.socket.remoteAddress, policy, target: plain?.host, why });
+  }
+
+  /** What a command refused at the limit is told. */
+  private atLimitMessage(): string {
+    return `The sandbox holds the most connections its commands may: ${this.maxConnections}. Close some and try again.`;
   }
 
   /** Refuses a plain request, and logs it. */
