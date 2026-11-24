@@ -75,7 +75,7 @@ describe('withPlugins', () => {
       },
       [reviewer],
     );
-    expect(settings.instructions).toBe('Be helpful.');
+    expect(settings.instructions).toMatch(/^Be helpful\.\n\n# Rules\n/);
     expect(Object.keys(settings.tools)).toEqual(['own', 'echo']);
     expect(settings.skills.map(({ name }) => name)).toEqual(['own-skill', 'review-style']);
     // What the head of a skill says besides is for the application, not the runtime.
@@ -234,7 +234,7 @@ describe('withPlugins', () => {
     );
   });
 
-  it('gives the rules to a runtime without rules of its own in its instructions, after the agent own', () => {
+  it('gives the rules in the instructions, after the agent own, on every runtime', () => {
     const rules =
       '# Rules\n\nFollow these rules of the project.\n\n## tone\n\nBe brief.\n\n## tests\n\nOnly for the files matching `src/**/*.ts`.\n\nWrite a test for each change.';
     const options = { onUnsupported: () => undefined };
@@ -250,10 +250,10 @@ describe('withPlugins', () => {
         options,
       ).instructions,
     ).toEqual({ role: 'system', content: `Be careful.\n\n${rules}` });
-    // Claude Code reads them from files: its instructions stay as they are.
+    // Claude Code too: the adapter has it read nothing of the session's `.claude/`.
     expect(
       withPlugins({ harness: claudeCode, instructions: 'Be careful.' }, [reviewer]).instructions,
-    ).toBe('Be careful.');
+    ).toBe(`Be careful.\n\n${rules}`);
     expect(withPlugins({ harness: codex }, [guard], options).instructions).toBeUndefined();
   });
 
@@ -310,10 +310,7 @@ describe('the session files', () => {
     expect(await read('.claude/agents/critic.md')).toBe(
       '---\nname: "critic"\ndescription: "Criticises."\ntools: "Read"\nmodel: "haiku"\n---\n\nFind the flaws.\n',
     );
-    expect(await read('.claude/rules/reviewer/tone.md')).toBe('Be brief.\n');
-    expect(await read('.claude/rules/reviewer/tests.md')).toBe(
-      '---\npaths: ["src/**/*.ts"]\n---\n\nWrite a test for each change.\n',
-    );
+    await expect(read('.claude/rules/reviewer/tone.md')).rejects.toThrow();
     expect(await read('.ai-sdk-harness/plugins/guard/guard.sh')).toBe('#!/bin/sh\nexit 0\n');
     expect((await stat(join(root, 'guard.sh'))).mode & 0o111).not.toBe(0);
     expect(await read('.ai-sdk-harness/.gitignore')).toBe('*\n');
@@ -419,11 +416,7 @@ describe('the session files', () => {
     await onSession([reviewer]);
     expect(JSON.parse(await read('.ai-sdk-harness/manifest.json'))).toEqual({
       version: 1,
-      files: [
-        '.claude/agents/critic.md',
-        '.claude/rules/reviewer/tone.md',
-        '.claude/rules/reviewer/tests.md',
-      ],
+      files: ['.claude/agents/critic.md'],
       createdSettings: false,
       hookGroups: [],
     });

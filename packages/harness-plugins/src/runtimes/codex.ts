@@ -59,7 +59,6 @@ const SESSION_FLAGS = '/<session-flags>/config.toml';
 export const codexRuntime: PluginRuntime = {
   harnessId: 'codex',
   supports: { hooks: true, mcpServers: true, subagents: true },
-  rules: 'instructions',
   mcpServer: (server) =>
     server.type === 'stdio'
       ? {

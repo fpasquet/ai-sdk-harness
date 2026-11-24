@@ -3,29 +3,27 @@ import type { PluginRuntime, SessionFile } from './plugin-runtime.js';
 
 import { PLUGIN_ROOT } from '../definitions/plugin.js';
 import { stringifyFrontmatter } from '../utils/frontmatter.js';
-import { ruleFile } from './rules.js';
 
 /** Where Claude Code reads the session's own settings, beside the project's `.claude/settings.json`. */
 export const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
 
 /**
- * Claude Code: everything. Hooks go in the session's `.claude/settings.local.json`, subagents in
- * its `.claude/agents/`, rules in its `.claude/rules/`: Claude Code runs in the session's working
- * directory and loads them, as it loads the project's own.
+ * Claude Code: everything. Hooks go in the session's `.claude/settings.local.json` and subagents in
+ * its `.claude/agents/`, where Claude Code reads the project's own. Rules go in the agent's
+ * instructions, as on every runtime: `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude
+ * Code with the user's settings alone (`settingSources: ['user']`), so it reads nothing of the
+ * session's `.claude/` — hooks and subagents included — until the adapter lets that be set
+ * (vercel/ai#21714).
  */
 export const claudeCodeRuntime: PluginRuntime = {
   harnessId: 'claude-code',
   supports: { hooks: true, mcpServers: true, subagents: true },
-  rules: 'files',
   mcpServer: (server) =>
     server.type === 'stdio'
       ? { type: 'stdio', command: server.command, args: server.args ?? [], env: server.env ?? {} }
       : { type: 'http', url: server.url, headers: server.headers ?? {} },
   layout: (plugins, pluginRoot) => ({
-    files: plugins.flatMap((plugin) => [
-      ...(plugin.subagents ?? []).map(subagentFile),
-      ...(plugin.rules ?? []).map((rule) => ruleFile(plugin.name, rule)),
-    ]),
+    files: plugins.flatMap((plugin) => (plugin.subagents ?? []).map(subagentFile)),
     hookGroups: hookGroupsOf(plugins, pluginRoot),
   }),
 };
