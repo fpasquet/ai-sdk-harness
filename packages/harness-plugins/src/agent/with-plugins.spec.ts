@@ -368,6 +368,8 @@ describe('the session files', () => {
           (error, _stdout, stderr) =>
             resolve({ code: typeof error?.code === 'number' ? error.code : 0, stderr }),
         );
+        // The gate of a session without the hook exits without reading the event: no EPIPE.
+        child.stdin?.on('error', () => undefined);
         child.stdin?.end(event);
       });
     };
