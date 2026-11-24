@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { proxyConfig } from './main.js';
+import { proxyConfig, totalConnectionsFor } from './main.js';
 
 describe('the settings of the proxy', () => {
   const token = 'a-token-of-sixteen-characters';
@@ -33,5 +33,21 @@ describe('the settings of the proxy', () => {
     expect(() =>
       proxyConfig({ SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_ROUTE_CONNECTIONS: '-1' }),
     ).toThrow('SANDBOX_PROXY_ROUTE_CONNECTIONS: `-1` is not a non-negative integer.');
+  });
+
+  it('holds, for all sandboxes, the connections its descriptors allow', () => {
+    const limits = (soft: string) =>
+      `Limit                     Soft Limit           Hard Limit           Units\nMax open files            ${soft}               524288               files\n`;
+    // Two descriptors for each connection, 1024 kept apart.
+    expect(totalConnectionsFor(limits('65536'))).toBe(32_256);
+    expect(totalConnectionsFor(limits('unlimited'))).toBe(32_256);
+    expect(totalConnectionsFor(undefined)).toBe(32_256);
+    expect(proxyConfig({ SANDBOX_PROXY_TOKEN: token }, limits('4096')).totalConnections).toBe(1536);
+    expect(
+      proxyConfig(
+        { SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_TOTAL_CONNECTIONS: '1000' },
+        limits('4096'),
+      ).totalConnections,
+    ).toBe(1000);
   });
 });
