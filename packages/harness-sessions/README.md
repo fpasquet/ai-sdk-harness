@@ -756,7 +756,18 @@ Each has an `isInstance()` that recognizes it whichever copy of the package thre
 
 ## Development
 
-`pnpm --filter ai-sdk-harness-sessions test:e2e` runs real Claude Code sessions in a Docker Sandbox: two side by side, suspended and resumed, across a restart, and waiting for an approval; it needs `sbx` signed in and a Claude credential. `ai-sdk-harness-approval`'s end-to-end tests cover `approve`. See [CONTRIBUTING.md](https://github.com/fpasquet/ai-sdk-harness/blob/main/CONTRIBUTING.md).
+`pnpm --filter ai-sdk-harness-sessions test:e2e` runs real Claude Code sessions in a Docker Sandbox: two side by side, suspended and resumed, across a restart, and waiting for an approval; it needs `sbx` signed in and a Claude credential. `ai-sdk-harness-approval`'s end-to-end tests cover `approve`.
+
+Another, `test/lost-sandbox.e2e-spec.ts`, needs a sandbox service of `ai-sdk-sandbox-gce` deployed on Google Cloud, and is skipped without it. It stops the Compute Engine machine of a sandbox in the middle of a turn, as a Spot VM is preempted, and checks that the turn retries, resumes the same machine on its disk and carries on. It costs a machine for some minutes, the template of Claude Code it boots from, both deleted at the end, and a few model calls; it never runs in CI:
+
+```bash
+GCE_SANDBOX_URL=https://… CLAUDE_CODE_OAUTH_TOKEN=… \
+  pnpm --filter ai-sdk-harness-sessions test:e2e test/lost-sandbox.e2e-spec.ts
+```
+
+`gcloud` must be signed in with `roles/run.invoker` on the service and the right to stop its instances; `GCE_SANDBOX_PROJECT` names their project when it is not gcloud's default, and `GCE_SANDBOX_SERVICE_TOKEN`, `GCE_SANDBOX_AUTH` and `GCE_SANDBOX_INSTANCE_PREFIX` match the service's. The credential is `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`: the login of the `claude` CLI would open a tunnel to Anthropic that the service's egress proxy refuses, where these go through its base URL route.
+
+See [CONTRIBUTING.md](https://github.com/fpasquet/ai-sdk-harness/blob/main/CONTRIBUTING.md).
 
 ## License
 
