@@ -613,6 +613,8 @@ The proxy counts the connections each sandbox's machine holds open through it, s
 
 The proxy logs a warning when a sandbox reaches a limit, with what it holds, and a line when it goes back under three quarters of it, with how many connections it refused meanwhile: `box reached its limit: its commands hold 128 connections, …`, then `box is back under its limit: …; 412 refused meanwhile`. A turn that fails while the sandbox is at its limit is told apart from an outage of the provider.
 
+The proxy keeps an idle connection open for 120 seconds, longer than the runtimes' clients keep theirs (Codex's, 90 seconds): the client always closes it first, so that no request is sent on it just as the proxy closes it, and reset. An idle connection still counts against the limits until then.
+
 To raise them, add `Environment=SANDBOX_PROXY_MAX_CONNECTIONS=256` (and `SANDBOX_PROXY_ROUTE_CONNECTIONS`) to the `[Service]` section of the proxy's unit, in its startup script, and restart the proxy. Its `LimitNOFILE` (65536) bounds them all: two sockets for each connection, one to the sandbox and one onward.
 
 ### Node.js and the proxy

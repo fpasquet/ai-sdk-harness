@@ -65,6 +65,14 @@ export const DEFAULT_MAX_CONNECTIONS = 128;
  */
 export const DEFAULT_ROUTE_CONNECTIONS = 32;
 
+/**
+ * How long the proxy keeps an idle connection of a base URL route open: longer than the runtimes'
+ * clients keep theirs, so that the client always closes first. Otherwise a request sent on it just
+ * as the proxy closes it is reset. Codex's client keeps an idle connection for 90 seconds; Claude
+ * Code's reused one after 34 seconds. Node's default, 5 seconds, is shorter than both.
+ */
+export const KEEP_ALIVE_MS = 120_000;
+
 /** The most bytes a ClientHello is read from: well over any real one. */
 const MAX_HELLO_BYTES = 64 * 1024;
 
@@ -247,6 +255,9 @@ export class EgressProxy {
     this.routeConnections = routeConnections;
     this.tunnelPort = tunnelPort;
     this.server = createServer((req, res) => this.forward(req, res));
+    this.server.keepAliveTimeout = KEEP_ALIVE_MS;
+    // Above the keep-alive: an idle connection is closed by it, never by the wait for headers.
+    this.server.headersTimeout = KEEP_ALIVE_MS + 1_000;
     this.server.on('connection', (socket: Socket) => this.count(socket));
     this.server.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) =>
       this.tunnel(req, socket, head),

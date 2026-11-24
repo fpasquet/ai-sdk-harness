@@ -160,6 +160,39 @@ describe('the egress proxy', () => {
     });
   });
 
+  it('keeps an idle connection open longer than the runtimes keep theirs', () => {
+    proxy = new EgressProxy(() => policy);
+
+    // Codex's client keeps an idle connection for 90 s: the proxy must not close it first.
+    expect(proxy.server.keepAliveTimeout).toBeGreaterThan(90_000);
+    expect(proxy.server.headersTimeout).toBeGreaterThan(proxy.server.keepAliveTimeout);
+  });
+
+  // Six real seconds: Node.js times an idle connection out on its socket, out of fake timers' reach.
+  it(
+    'serves a request on a connection idle past Node.js default keep-alive',
+    { timeout: 15_000 },
+    async () => {
+      proxy = new EgressProxy(() => policy);
+      await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve));
+      const { port } = proxy.server.address() as AddressInfo;
+      const socket = connect({ host: '127.0.0.1', port });
+      await new Promise((resolve) => socket.once('connect', resolve));
+      /** A plain request on that same connection: the status line it answers, or how it ended. */
+      const ask = (): Promise<string> =>
+        new Promise((resolve) => {
+          socket.once('data', (chunk: Buffer) => resolve(chunk.toString().split('\r\n')[0] ?? ''));
+          socket.once('close', () => resolve('closed'));
+          socket.write('GET /not-a-route HTTP/1.1\r\nHost: proxy\r\n\r\n');
+        });
+
+      expect(await ask()).toBe('HTTP/1.1 403 Forbidden');
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      expect(await ask()).toBe('HTTP/1.1 403 Forbidden');
+      socket.destroy();
+    },
+  );
+
   it('logs a host it refuses, with the sandbox that asked for it', async () => {
     const info = vi.fn();
     proxy = new EgressProxy(() => policy, { ...silentLogger, info });
