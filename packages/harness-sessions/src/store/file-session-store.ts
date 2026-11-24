@@ -17,9 +17,9 @@ const RESUME_STATE = '.resume.json';
  * machine.
  *
  * The directory is created at the first write, and it and its files are readable by their owner
- * alone (`0700`, `0600`): the conversations, and the resume states, which hold secrets. A file is written whole, then renamed over
- * the old one, so a process stopped in the middle leaves the previous version rather than half a
- * file. It gives no lease methods: one manager per directory.
+ * alone (`0700`, `0600`): the conversations, and the resume states, which hold secrets. A file is
+ * written whole, then renamed over the old one, so a process stopped in the middle leaves the
+ * previous version rather than half a file. It gives no lease methods: one manager per directory.
  */
 export function createFileSessionStore<METADATA = unknown>(
   directory: string,
