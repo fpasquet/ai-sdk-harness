@@ -154,7 +154,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        starter: [starter, starter-next]
+        starter: [starter]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -191,14 +191,8 @@ jobs:
           npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/packages/*.tgz
 
       - name: Typecheck
-        if: matrix.starter == 'starter'
-        working-directory: examples/starter
+        working-directory: examples/${{ matrix.starter }}
         run: npm run typecheck
-
-      - name: Build
-        if: matrix.starter == 'starter-next'
-        working-directory: examples/starter-next
-        run: npm run build
 
   commitlint:
     name: Validate commit messages

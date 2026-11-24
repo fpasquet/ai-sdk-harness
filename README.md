@@ -84,7 +84,6 @@ packages/
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
-  starter-next/       a Next.js chat with Claude Code on your repository: approvals, a closed network, its changes as a patch
   next-chat/          the demonstration and integration app: every package, every official harness and every sandbox together, against this repository's code; the source of the docs' screenshots and UI registry
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
@@ -100,8 +99,6 @@ cd my-agent && npm install
 cp .env.example .env   # set CLAUDE_CODE_OAUTH_TOKEN
 npm start
 ```
-
-The [Next.js starter](examples/starter-next) shows what the packages add, in a chat with Claude Code working on your repository: an approval policy, a closed network, its changes as a patch, a plugin and several conversations. Fetch `examples/starter-next` in place of `examples/starter`, then `npm run dev`.
 
 To work on the monorepo, and run the Next.js example:
 

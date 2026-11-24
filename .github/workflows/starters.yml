@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        starter: [starter, starter-next]
+        starter: [starter]
     defaults:
       run:
         working-directory: examples/${{ matrix.starter }}
@@ -38,9 +38,4 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Typecheck
-        if: matrix.starter == 'starter'
         run: npm run typecheck
-
-      - name: Build
-        if: matrix.starter == 'starter-next'
-        run: npm run build
