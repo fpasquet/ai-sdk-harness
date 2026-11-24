@@ -2,24 +2,12 @@ import type { HarnessAgentAdapter } from '@ai-sdk/harness/agent';
 
 import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
-import { createCursor } from '@ai-sdk/harness-cursor';
-import { createDeepAgents } from '@ai-sdk/harness-deepagents';
-import { createFx } from '@ai-sdk/harness-fx';
-import { createGitHubCopilot } from '@ai-sdk/harness-github-copilot';
-import { createGrokBuild } from '@ai-sdk/harness-grok-build';
-import { createOpenCode } from '@ai-sdk/harness-opencode';
 import { createPi } from '@ai-sdk/harness-pi';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type { HarnessAvailability, HarnessId } from '@/lib/harnesses';
-
-/** OpenRouter's OpenAI-compatible API, which most runtimes speak. */
-const OPENROUTER_API = 'https://openrouter.ai/api/v1';
-
-/** OpenRouter's Anthropic-compatible API: the Anthropic client adds `/v1/messages`. */
-const OPENROUTER_ANTHROPIC_API = 'https://openrouter.ai/api';
 
 const isSet = (name: string): boolean => (process.env[name] ?? '') !== '';
 
@@ -35,7 +23,7 @@ const claudeLogin = (): boolean =>
   ) ||
   (process.platform === 'darwin' && existsSync(join(homedir(), '.claude.json')));
 
-/** The login of the `codex` CLI on this machine, which Codex and fx run on. */
+/** The login of the `codex` CLI on this machine, which Codex runs on. */
 const codexLogin = (): boolean =>
   existsSync(join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'auth.json'));
 
@@ -44,17 +32,10 @@ const codexLogin = (): boolean =>
  * to `.env.local` shows once the server restarts, and a CLI login at once.
  */
 export function harnessAvailability(): HarnessAvailability {
-  const openRouter = isSet('OPENROUTER_API_KEY');
   return {
     'claude-code': isSet('CLAUDE_CODE_OAUTH_TOKEN') || isSet('ANTHROPIC_API_KEY') || claudeLogin(),
     codex: isSet('OPENAI_API_KEY') || isSet('CODEX_API_KEY') || codexLogin(),
-    opencode: openRouter,
-    pi: openRouter,
-    deepagents: openRouter,
-    'grok-build': openRouter,
-    fx: codexLogin(),
-    'github-copilot': ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'].some(isSet),
-    cursor: isSet('CURSOR_API_KEY'),
+    pi: isSet('OPENROUTER_API_KEY'),
   };
 }
 
@@ -70,39 +51,9 @@ const FACTORIES: Record<HarnessId, () => HarnessAgentAdapter> = {
   'claude-code': () => createClaudeCode({ env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }),
   // From `OPENAI_API_KEY`, else the login of the `codex` CLI (a ChatGPT subscription).
   codex: () => createCodex(),
-  // A model `openrouter/<id>` makes OpenCode declare its OpenRouter provider with the key and the
-  // base URL of the `openai` route, which the proxy brokers to openrouter.ai.
-  opencode: () =>
-    createOpenCode({
-      provider: 'openai',
-      auth: { OPENAI_API_KEY: openRouterKey(), OPENAI_BASE_URL: OPENROUTER_API },
-    }),
   // Pi's own `openrouter` provider reads `OPENROUTER_API_KEY`; Pi runs here, the key never
   // reaches the sandbox.
   pi: () => createPi({ auth: { OPENROUTER_API_KEY: openRouterKey() } }),
-  // Deep Agents drives an Anthropic client: OpenRouter's Anthropic-compatible API.
-  deepagents: () =>
-    createDeepAgents({
-      auth: { ANTHROPIC_API_KEY: openRouterKey(), ANTHROPIC_BASE_URL: OPENROUTER_ANTHROPIC_API },
-    }),
-  // Grok Build takes its API's base URLs from the environment: pointed at OpenRouter, with the
-  // OpenRouter key as its xAI key.
-  'grok-build': () =>
-    createGrokBuild({
-      auth: {
-        XAI_API_KEY: openRouterKey(),
-        GROK_XAI_API_BASE_URL: OPENROUTER_API,
-        GROK_MODELS_BASE_URL: OPENROUTER_API,
-      },
-    }),
-  // On the Codex subscription of this machine: `direct` tries subscriptions before AI Gateway.
-  // fx reads that subscription from 1.0.70 on, built on a newer `@ai-sdk/provider-utils` than the
-  // example's: its schemas carry the same runtime marker (`Symbol.for`), but not the same type.
-  fx: () => createFx({ auth: 'direct' }) as unknown as HarnessAgentAdapter,
-  // From `COPILOT_GITHUB_TOKEN`, `GH_TOKEN` or `GITHUB_TOKEN`: a Copilot subscription.
-  'github-copilot': () => createGitHubCopilot({ auth: 'direct' }),
-  // From `CURSOR_API_KEY`; the model provider is the one of the Cursor account.
-  cursor: () => createCursor(),
 };
 
 const adapters = new Map<HarnessId, HarnessAgentAdapter>();

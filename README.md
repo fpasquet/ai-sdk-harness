@@ -84,7 +84,7 @@ packages/
   configs/            shared @repo/* presets (build, eslint, prettier, typescript, vitest)
 examples/
   starter/            the smallest project: Claude Code in a Docker Sandbox, fetched without this repository
-  next-chat/          the demonstration and integration app: every package, every official harness and every sandbox together, against this repository's code; the source of the docs' screenshots and UI registry
+  next-chat/          the demonstration and integration app: every package and every sandbox together, with a harness of each kind, against this repository's code; the source of the docs' screenshots and UI registry
 docs/                 the Fumadocs documentation site
 scripts/              screenshots of the example (`pnpm screenshots`)
 ```
