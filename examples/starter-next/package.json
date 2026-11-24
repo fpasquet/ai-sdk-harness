@@ -42,7 +42,7 @@
     "ai": "7.0.172",
     "ai-sdk-harness-approval": "^0.2.1",
     "ai-sdk-harness-network": "^0.1.0",
-    "ai-sdk-harness-plugins": "^0.3.1",
+    "ai-sdk-harness-plugins": "^0.3.3",
     "ai-sdk-harness-sessions": "^0.4.4",
     "ai-sdk-harness-workspace": "^0.1.4",
     "ai-sdk-sandbox-cloud-run": "^0.4.2",
