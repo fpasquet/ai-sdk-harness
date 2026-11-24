@@ -5,6 +5,7 @@ import type { SingleRepositoryWorkspaceSession, Workspace } from 'ai-sdk-harness
 import { createHarnessSandboxTemplate, HarnessAgent } from '@ai-sdk/harness/agent';
 import { withPlugins } from 'ai-sdk-harness-plugins';
 import { createSessionManager, sandboxPerSession, sharedSandbox } from 'ai-sdk-harness-sessions';
+import { createFileSessionStore } from 'ai-sdk-harness-sessions/file';
 import { withWorkspace } from 'ai-sdk-harness-workspace';
 import { join } from 'node:path';
 
@@ -24,7 +25,6 @@ import {
   SANDBOX_INSTRUCTIONS,
   SUSPEND_AFTER_MS,
 } from '@/lib/sandbox';
-import { createFileSessionStore } from '@/lib/session-store';
 import { createExampleWorkspace } from '@/lib/workspace';
 
 /**
