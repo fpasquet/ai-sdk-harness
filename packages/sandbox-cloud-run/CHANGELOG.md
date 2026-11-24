@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-cloud-run
 
+## 0.4.1
+
+### Patch Changes
+
+- 5e861e6: The README says what a suspended sandbox costs: the storage of its snapshot on Cloud Storage. Its introduction said that nothing is billed between turns.
+
 ## 0.4.0
 
 ### Minor Changes

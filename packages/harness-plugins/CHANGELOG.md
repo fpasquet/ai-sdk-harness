@@ -1,5 +1,15 @@
 # ai-sdk-harness-plugins
 
+## 0.3.2
+
+### Patch Changes
+
+- 9a09b1d: Hooks reach Claude Code again: `withPlugins()` adds them to `.claude/settings.json` under the sandbox's `$HOME` rather than to the session's `.claude/settings.local.json`, which `@ai-sdk/harness-claude-code` 1.0.180 and later no longer has Claude Code read (`settingSources: ['user']`). Every session of the sandbox reads that file, so each hook goes through a gate, `$HOME/.ai-sdk-harness/hook-gate.sh`, which runs the command the session holds for it, with its own `${PLUGIN_ROOT}`, and does nothing in a session without it. The hooks an earlier version wrote in a session are taken back when it resumes. A `prompt` hook has no command for the gate, and is now left out on Claude Code, as on Codex, and reported to `onUnsupported`.
+- cd8fbd0: Subagents reach Claude Code again: `withPlugins()` writes them in `.claude/agents/` under the sandbox's `$HOME`, rather than in the session's `.claude/`. `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude Code with the user's settings alone (`settingSources: ['user']`), so it read none of the session's subagents, and delegating to one failed. The sessions of a sandbox share these files: the last one to start or resume decides which subagents there are. A file of the same name the plugins did not write is never overwritten: the session fails to start instead. The subagents an earlier version wrote in a session are taken back when it resumes. Hooks still wait for the adapter to read the session's settings ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)).
+- f84bd11: Rules now reach Claude Code: they join the agent's instructions, as on Codex, rather than files of the session's `.claude/rules/`. `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude Code with the user's settings alone (`settingSources: ['user']`), so it read none of those files, and a plugin's rules were silently ignored. A rule with `paths` now says, in the instructions, which files it is for.
+  
+  The same adapter change keeps Claude Code from running the hooks and subagents of plugins, which the package writes in the session's `.claude/` too: they are still written, for the adapters before 1.0.180 and for the day the adapter lets the setting be chosen ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)), and the README says so in its limitations. Codex runs them.
+
 ## 0.3.1
 
 ### Patch Changes
