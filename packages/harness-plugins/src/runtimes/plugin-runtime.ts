@@ -24,6 +24,12 @@ export interface SessionLayout {
    * the sandbox's life: each one runs only in the sessions that have it.
    */
   hookGroups: Record<string, unknown[]>;
+  /**
+   * Whether `hookGroups` are the plugins' hooks as they declare them, for a sandbox that is the
+   * session's own: they replace every hook the plugins wrote in `$HOME` before, the gate's
+   * included. Otherwise they go through the gate, and are added to those of the other sessions.
+   */
+  directHooks?: boolean;
 }
 
 /** What the plugins set on a runtime's harness adapter, besides their MCP servers. */

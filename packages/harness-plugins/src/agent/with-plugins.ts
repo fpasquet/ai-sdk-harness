@@ -53,7 +53,8 @@ export interface UnsupportedPluginFeature {
   harnessId: string;
   /**
    * The one hook left out, by name, when the runtime takes the plugin's other hooks: Codex has no
-   * `Notification` nor `PostToolUseFailure` event, and no prompt hook.
+   * `Notification` nor `PostToolUseFailure` event, and no prompt hook; Claude Code takes a prompt
+   * hook only with {@link WithPluginsOptions.ownSandbox}, and on some events.
    */
   hook?: string;
 }
@@ -66,6 +67,19 @@ export interface WithPluginsOptions {
    * @defaultValue a Node.js process warning
    */
   onUnsupported?: (unsupported: UnsupportedPluginFeature) => void;
+  /**
+   * Whether each session has a sandbox of its own, and its `$HOME` with it: `sandboxPerSession()`
+   * of `ai-sdk-harness-sessions`, whose `ownSandboxes` says so. On Claude Code, the hooks then go to
+   * `$HOME/.claude/settings.json` as the plugins declare them, without the gate that keeps the
+   * sessions of a shared sandbox apart: prompt hooks run too, on the events Claude Code takes them
+   * on. Other runtimes ignore it.
+   *
+   * Never set it for a sandbox several sessions share: each one would run the hooks of the last one
+   * to start or resume, and none of its own.
+   *
+   * @defaultValue false
+   */
+  ownSandbox?: boolean;
 }
 
 /** The tool Claude Code loads skills with: an allow-list must let it through for skills to work. */
@@ -82,7 +96,8 @@ const SKILL_TOOL = 'Skill';
  *   session runs with the plugins the agent has now. Claude Code reads its subagents and hooks
  *   under the sandbox's `$HOME` alone, which the sessions of a sandbox share: the last one to
  *   start or resume decides which subagents there are, and each hook goes through a gate that
- *   runs it only in the sessions that have it;
+ *   runs it only in the sessions that have it — or as the plugin declares it, prompt hooks
+ *   included, with {@link WithPluginsOptions.ownSandbox};
  * - the **files** of a plugin whose `sandbox-command` tool cites `${PLUGIN_ROOT}` are written
  *   under the sandbox's `$HOME` too, in a directory named after their content: a tool runs in
  *   the sandbox's default working directory, and never learns the session's.
@@ -98,7 +113,7 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
   plugins: readonly Plugin[],
   options: WithPluginsOptions = {},
 ): WithPlugins<SETTINGS> {
-  const runtime = runtimeFor(settings.harness.harnessId);
+  const runtime = runtimeFor(settings.harness.harnessId, { ownSandbox: options.ownSandbox });
   plugins.forEach(checkPlugin);
   reportUnsupported(runtime, plugins, options.onUnsupported ?? emitWarning);
   const tools = mergeTools(settings, plugins);
@@ -124,8 +139,12 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
         await syncSessionFiles({ ...input, layout });
         if (layout.homeFiles !== undefined) {
           await syncHomeFiles({ ...input, files: layout.homeFiles });
+          await syncHomeHooks({
+            ...input,
+            hookGroups: layout.hookGroups,
+            direct: layout.directHooks === true,
+          });
         }
-        await syncHomeHooks({ ...input, hookGroups: layout.hookGroups });
         await syncToolFiles({ ...input, tools: toolFiles });
       },
     },
@@ -142,7 +161,7 @@ function layoutOf(
   sessionWorkDir: string,
 ): SessionLayout {
   const relativeRoot = (plugin: string): string => posix.join(STATE_DIR, 'plugins', plugin);
-  const { files, homeFiles, hookGroups } = runtime.layout(plugins, (plugin) =>
+  const { files, homeFiles, hookGroups, directHooks } = runtime.layout(plugins, (plugin) =>
     posix.join(sessionWorkDir, relativeRoot(plugin)),
   );
   const supported = plugins.flatMap((plugin) =>
@@ -155,6 +174,7 @@ function layoutOf(
     files: [...supported, ...files],
     hookGroups,
     ...(homeFiles !== undefined && { homeFiles }),
+    ...(directHooks !== undefined && { directHooks }),
   };
 }
 

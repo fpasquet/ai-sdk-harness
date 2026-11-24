@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Plugin, PluginHook, PluginSubagent } from '../definitions/plugin.js';
+import type { Plugin, PluginHook, PluginHookEvent, PluginSubagent } from '../definitions/plugin.js';
 import type { PluginRuntime, SessionFile } from './plugin-runtime.js';
 
 import { PLUGIN_ROOT } from '../definitions/plugin.js';
@@ -30,11 +30,45 @@ export const HOOK_GATE_SCRIPT = [
   '',
 ].join('\n');
 
+/** The command of a hook group the gate runs, and the id of its hook. */
+const GATE_COMMAND = /^sh "\$HOME\/\.ai-sdk-harness\/hook-gate\.sh" [0-9a-f]{16}$/;
+
+/** Whether `group`, of `$HOME/.claude/settings.json`, is one the plugins wrote for the gate. */
+export function isGateGroup(group: unknown): boolean {
+  const { hooks } = (group ?? {}) as { hooks?: unknown };
+  return (
+    Array.isArray(hooks) &&
+    hooks.length > 0 &&
+    hooks.every((hook: unknown) => {
+      const { command } = (hook ?? {}) as { command?: unknown };
+      return typeof command === 'string' && GATE_COMMAND.test(command);
+    })
+  );
+}
+
 /**
- * Claude Code: everything but prompt hooks. `@ai-sdk/harness-claude-code` 1.0.180 and later
- * starts Claude Code with the user's settings alone (`settingSources: ['user']`), so it reads
- * nothing of the session's `.claude/` (vercel/ai#21714), and the plugins write under the sandbox's
- * `$HOME`, which every session shares:
+ * The events Claude Code takes a prompt hook on, among those of the plugins: it runs only command
+ * hooks on the others (`Notification`, `PreCompact`, `SessionStart`, `SessionEnd`, `SubagentStart`).
+ */
+const PROMPT_EVENTS: ReadonlySet<PluginHookEvent> = new Set([
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PreToolUse',
+  'Stop',
+  'SubagentStop',
+  'UserPromptSubmit',
+]);
+
+/** A command hook, or a prompt hook on an event Claude Code takes one on. */
+const takesDirectHook = (hook: PluginHook): boolean =>
+  hook.command !== undefined || PROMPT_EVENTS.has(hook.event);
+
+/**
+ * Claude Code, in a sandbox its sessions may share: everything but prompt hooks.
+ * `@ai-sdk/harness-claude-code` 1.0.180 and later starts Claude Code with the user's settings
+ * alone (`settingSources: ['user']`), so it reads nothing of the session's `.claude/`
+ * (vercel/ai#21714), and the plugins write under the sandbox's `$HOME`, which every session
+ * shares:
  *
  * - subagents in `.claude/agents/`, as the adapter writes its skills in `.claude/skills/`;
  * - hooks in `.claude/settings.json`, each one through {@link HOOK_GATE}, which runs the command
@@ -62,6 +96,23 @@ export const claudeCodeRuntime: PluginRuntime = {
     };
   },
   takesHook: (hook) => hook.command !== undefined,
+};
+
+/**
+ * Claude Code in a sandbox that is the session's own, its `$HOME` with it: the hooks go to
+ * `$HOME/.claude/settings.json` as the plugins declare them, with no gate, `${PLUGIN_ROOT}`
+ * pointing at the session's files, prompt hooks included on the events Claude Code takes them on.
+ * They replace those the plugins wrote there before, the gate's included.
+ */
+export const claudeCodeOwnSandboxRuntime: PluginRuntime = {
+  ...claudeCodeRuntime,
+  layout: (plugins, pluginRoot) => ({
+    files: [],
+    homeFiles: plugins.flatMap((plugin) => (plugin.subagents ?? []).map(subagentFile)),
+    hookGroups: directHookGroupsOf(plugins, pluginRoot),
+    directHooks: true,
+  }),
+  takesHook: takesDirectHook,
 };
 
 interface CommandHook {
@@ -111,6 +162,31 @@ function hookGroupsOf(hooks: readonly CommandHook[]): Record<string, unknown[]> 
         },
       ],
     });
+  }
+  return groups;
+}
+
+/** Each hook a matcher group of its own under its event, as the plugin declares it. */
+function directHookGroupsOf(
+  plugins: readonly Plugin[],
+  pluginRoot: (plugin: string) => string,
+): Record<string, unknown[]> {
+  const groups: Record<string, unknown[]> = {};
+  for (const plugin of plugins) {
+    for (const hook of plugin.hooks ?? []) {
+      if (!takesDirectHook(hook)) continue;
+      const handler =
+        hook.command === undefined
+          ? { type: 'prompt', prompt: hook.prompt }
+          : {
+              type: 'command',
+              command: hook.command.replace(PLUGIN_ROOT, pluginRoot(plugin.name)),
+            };
+      (groups[hook.event] ??= []).push({
+        ...(hook.matcher !== undefined && { matcher: hook.matcher }),
+        hooks: [{ ...handler, ...(hook.timeout !== undefined && { timeout: hook.timeout }) }],
+      });
+    }
   }
   return groups;
 }

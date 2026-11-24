@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import type { HostSandbox } from '../../test/host-sandbox.js';
 import type { Plugin } from '../definitions/plugin.js';
-import type { PluginAgentSettings } from './with-plugins.js';
+import type { PluginAgentSettings, UnsupportedPluginFeature } from './with-plugins.js';
 
 import { createHostSandbox } from '../../test/host-sandbox.js';
 import { resolvePlugins } from '../config/resolve-plugins.js';
@@ -637,5 +637,179 @@ describe('the session files', () => {
     await expect(onSession([guard])).rejects.toThrow(
       'A plugin command failed in the sandbox (exit 1)',
     );
+  });
+});
+
+describe('the hooks in a sandbox of the session own', () => {
+  let sandbox: HostSandbox;
+  const onSession = async (
+    plugins: Plugin[],
+    {
+      ownSandbox = true,
+      harness = claudeCode,
+    }: { ownSandbox?: boolean; harness?: PluginAgentSettings['harness'] } = {},
+  ) => {
+    const settings = withPlugins({ harness }, plugins, {
+      ownSandbox,
+      onUnsupported: () => undefined,
+    });
+    await settings.sandboxConfig.onSession?.({
+      session: sandbox.session,
+      sessionWorkDir: sandbox.directory,
+    });
+  };
+  const homeSettings = async () =>
+    JSON.parse(await readFile(join(sandbox.home, '.claude/settings.json'), 'utf8')) as {
+      permissions?: unknown;
+      hooks: Record<string, undefined | unknown[]>;
+    };
+  const root = () => join(sandbox.directory, '.ai-sdk-harness/plugins/guard');
+  /** The guard's hooks as Claude Code reads them, `${PLUGIN_ROOT}` in the session. */
+  const guardHooks = () => ({
+    PreToolUse: [
+      {
+        matcher: 'Bash',
+        hooks: [{ type: 'command', command: `"${root()}/guard.sh"`, timeout: 5 }],
+      },
+    ],
+    Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is the work done?' }] }],
+  });
+
+  beforeEach(async () => {
+    sandbox = await createHostSandbox();
+  });
+
+  it('takes the prompt hooks on the events Claude Code takes them on, and reports the others', () => {
+    const onUnsupported = vi.fn<(unsupported: UnsupportedPluginFeature) => void>();
+    const starter: Plugin = {
+      name: 'starter',
+      description: '',
+      hooks: [{ event: 'SessionStart', name: 'greet', prompt: 'Say hello.' }],
+    };
+    withPlugins({ harness: claudeCode }, [guard, starter], { ownSandbox: true, onUnsupported });
+    expect(onUnsupported.mock.calls).toEqual([
+      [{ plugin: 'starter', feature: 'hooks', harnessId: 'claude-code', hook: 'greet' }],
+    ]);
+    // Without the option, and on Codex, the prompt hook of the guard is left out as before.
+    onUnsupported.mockClear();
+    withPlugins({ harness: claudeCode }, [guard], { onUnsupported });
+    withPlugins({ harness: codex }, [guard], { ownSandbox: true, onUnsupported });
+    expect(onUnsupported.mock.calls.map(([{ harnessId, hook }]) => [harnessId, hook])).toEqual([
+      ['claude-code', 'stop-2'],
+      ['codex', 'stop-2'],
+    ]);
+  });
+
+  it('writes the hooks as the plugins declare them, prompt hooks included, without the gate', async () => {
+    await onSession([guard, reviewer]);
+    expect((await homeSettings()).hooks).toEqual(guardHooks());
+    expect(await exists(join(sandbox.home, '.ai-sdk-harness/hook-gate.sh'))).toBe(false);
+    expect(await exists(join(sandbox.directory, '.ai-sdk-harness/hooks'))).toBe(false);
+    // The rest is written as it is without the option.
+    expect(await exists(join(root(), 'guard.sh'))).toBe(true);
+    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(true);
+  });
+
+  it('runs a command hook as Claude Code would, from the files of its plugin', async () => {
+    const blocker: Plugin = {
+      name: 'blocker',
+      description: '',
+      hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: '"${PLUGIN_ROOT}/block.sh"' }],
+      files: [
+        {
+          path: 'block.sh',
+          content: '#!/bin/sh\ngrep -q MARKER && { echo blocked >&2; exit 2; }\nexit 0\n',
+          executable: true,
+        },
+      ],
+    };
+    await onSession([blocker]);
+    const { hooks } = await homeSettings();
+    const command = (hooks.PreToolUse?.[0] as { hooks: [{ command: string }] }).hooks[0].command;
+    const run = (event: string) =>
+      new Promise<{ code: number; stderr: string }>((resolve) => {
+        // Claude Code runs it from wherever: the command holds the absolute path of the script.
+        const child = execFile('sh', ['-c', command], { cwd: sandbox.home }, (error, _, stderr) =>
+          resolve({ code: typeof error?.code === 'number' ? error.code : 0, stderr }),
+        );
+        child.stdin?.end(event);
+      });
+    expect(await run('{"command":"echo MARKER"}')).toEqual({ code: 2, stderr: 'blocked\n' });
+    expect(await run('{"command":"ls"}')).toEqual({ code: 0, stderr: '' });
+  });
+
+  it('replaces at a resume the hooks the gate wrote, and keeps the settings and hooks $HOME had', async () => {
+    const own = {
+      permissions: { allow: ['Read'] },
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'mine' }] }] },
+    };
+    await mkdir(join(sandbox.home, '.claude'), { recursive: true });
+    await writeFile(join(sandbox.home, '.claude/settings.json'), JSON.stringify(own));
+    await onSession([guard], { ownSandbox: false });
+    const gated = join(
+      sandbox.directory,
+      `.ai-sdk-harness/hooks/${hookIdOf((await homeSettings()).hooks.PreToolUse?.[1])}`,
+    );
+    expect(await exists(gated)).toBe(true);
+
+    await onSession([guard]);
+    const settings = await homeSettings();
+    expect(settings.permissions).toEqual(own.permissions);
+    expect(settings.hooks).toEqual({
+      PreToolUse: [...own.hooks.PreToolUse, ...guardHooks().PreToolUse],
+      Stop: guardHooks().Stop,
+    });
+    // The command the gate ran is taken back with the session's other files.
+    expect(await exists(gated)).toBe(false);
+  });
+
+  it('takes back at a resume what the session no longer has, and nothing twice', async () => {
+    await onSession([guard]);
+    await onSession([guard]);
+    expect((await homeSettings()).hooks).toEqual(guardHooks());
+
+    const stopOnly: Plugin = { ...guard, hooks: guard.hooks?.slice(1) };
+    await onSession([stopOnly]);
+    expect((await homeSettings()).hooks).toEqual({ Stop: guardHooks().Stop });
+
+    // A file that held the plugins' hooks alone goes.
+    await onSession([]);
+    expect(await exists(join(sandbox.home, '.claude/settings.json'))).toBe(false);
+  });
+
+  it('takes out the gate of a session that no longer has hooks', async () => {
+    await onSession([guard], { ownSandbox: false });
+    await onSession([]);
+    expect(await exists(join(sandbox.home, '.claude/settings.json'))).toBe(false);
+  });
+
+  it('never takes out a hook $HOME had, even one alike', async () => {
+    const own = { hooks: { Stop: guardHooks().Stop } };
+    await mkdir(join(sandbox.home, '.claude'), { recursive: true });
+    await writeFile(join(sandbox.home, '.claude/settings.json'), JSON.stringify(own));
+    await onSession([guard]);
+    // Added once: the file had it already.
+    expect((await homeSettings()).hooks).toEqual({ ...guardHooks(), ...own.hooks });
+    await onSession([]);
+    expect(await homeSettings()).toEqual(own);
+  });
+
+  it('takes back its hooks when a resume goes through the gate again', async () => {
+    await onSession([guard]);
+    await onSession([guard], { ownSandbox: false });
+    const { hooks } = await homeSettings();
+    expect(hooks).toEqual({
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: expect.stringMatching(GATE) as unknown, timeout: 5 }],
+        },
+      ],
+    });
+  });
+
+  it('changes nothing on Codex, which takes its hooks from the adapter', async () => {
+    await onSession([guard], { harness: codex });
+    expect(await exists(join(sandbox.home, '.claude'))).toBe(false);
   });
 });

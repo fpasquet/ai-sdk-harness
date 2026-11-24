@@ -86,8 +86,9 @@ Ask the agent to read `.env`: Claude Code runs the hook's script before the read
 <Callout>
   With `@ai-sdk/harness-claude-code` 1.0.180 and later, Claude Code reads nothing of the session's
   `.claude/`: the hooks and subagents of plugins go under the sandbox's `$HOME`, which its sessions
-  share, each hook run only in the sessions that have it. A `prompt` hook is left out. See [Hooks on
-  Claude Code](/docs/packages/harness-plugins#hooks-on-claude-code).
+  share, each hook run only in the sessions that have it. A `prompt` hook is left out, unless each
+  session has a sandbox of its own (`ownSandbox: true`). See [Hooks on Claude
+  Code](/docs/packages/harness-plugins#hooks-on-claude-code).
 </Callout>
 
 </Step>
