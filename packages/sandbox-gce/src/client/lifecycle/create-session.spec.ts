@@ -16,6 +16,7 @@ import type { GceNetworkSandboxSession } from '../../index.js';
 import { startFakeService } from '../../../test/fake-service.js';
 import {
   createGceNetworkSandboxSession,
+  deleteGceSandbox,
   deleteGceSandboxTemplate,
   GceSandboxImageError,
   GceSandboxNotFoundError,
@@ -433,6 +434,25 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
 
     expect(resumed.ports).toEqual([4000]);
     expect((await resumed.run({ command: 'echo ok' })).stdout).toBe('ok\n');
+  });
+
+  it('is deleted stopped without being started, and a sandbox already gone is no error', async () => {
+    const session = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    await session.stop();
+    const calls = fake.compute.calls.length;
+
+    await deleteGceSandbox({ ...options(), sandboxId: 'box' });
+
+    const made = fake.compute.calls.slice(calls);
+    expect(made.some((call) => call.includes('/start'))).toBe(false);
+    expect(made.some((call) => call.startsWith('DELETE') && call.includes('sbx-box'))).toBe(true);
+    await expect(
+      resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' }),
+    ).rejects.toBeInstanceOf(GceSandboxNotFoundError);
+    await expect(deleteGceSandbox({ ...options(), sandboxId: 'box' })).resolves.toBeUndefined();
+    await expect(deleteGceSandbox({ ...options(), sandboxId: 'Bad_Name' })).rejects.toThrow(
+      'Invalid sandbox id',
+    );
   });
 
   it('cannot resume a sandbox that does not exist', async () => {

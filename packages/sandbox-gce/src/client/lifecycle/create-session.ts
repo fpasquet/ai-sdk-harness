@@ -6,6 +6,7 @@ import type {
   GceNetworkSandboxSessionCreateOptions,
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
+  GceSandboxDeletionSettings,
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
 
@@ -168,6 +169,20 @@ export async function deleteGceSandboxTemplate(
   const source = { template, setup, image };
   forgetTemplate(client, source);
   await client.deleteTemplate(templateId(source), image, abortSignal);
+}
+
+/**
+ * Deletes the sandbox `sandboxId`, its machine and its disk, without starting it: a stopped sandbox,
+ * which `destroy()` of a session would first have to resume, a minute of a billed machine for
+ * nothing. Deleting a sandbox that does not exist, or no longer does, is no error. The
+ * `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while
+ * suspended.
+ */
+export async function deleteGceSandbox(options: GceSandboxDeletionSettings): Promise<void> {
+  const { sandboxId, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  await clientOf(options).remove(sandboxId, abortSignal);
 }
 
 /**

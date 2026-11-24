@@ -213,6 +213,7 @@ class GitWorkspace implements Workspace {
           };
     return {
       ...(inner.capacity !== undefined && { capacity: inner.capacity }),
+      ...(inner.ownSandboxes !== undefined && { ownSandboxes: inner.ownSandboxes }),
       acquire: async (sessionId, options) => {
         const lease = await inner.acquire(sessionId, options);
         const { slot, sandboxSession } = this.attach(
@@ -237,7 +238,12 @@ class GitWorkspace implements Workspace {
         };
       },
       // A session closed while it was suspended: its checkout goes, as when a live one is closed.
+      // In a sandbox of its own, deleted whole, it goes with it: never start the sandbox for it.
       discard: async (sessionId) => {
+        if (inner.ownSandboxes === true && inner.discard !== undefined) {
+          await inner.discard(sessionId);
+          return;
+        }
         let lease: SessionSandboxLease;
         try {
           lease = await inner.acquire(sessionId, { resume: true });

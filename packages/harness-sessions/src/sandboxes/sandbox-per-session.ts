@@ -13,6 +13,12 @@ export interface SandboxPerSessionOptions {
     sessionId: string,
     options: { abortSignal?: AbortSignal },
   ): Promise<HarnessV1NetworkSandboxSession>;
+  /**
+   * Deletes the sandbox of a session closed while it was suspended, without starting it again: a
+   * sandbox already gone is no error. Without it, the sandbox is reattached with `resume`, then
+   * destroyed, which starts a stopped machine only to delete it.
+   */
+  remove?(sessionId: string, options: { abortSignal?: AbortSignal }): Promise<void>;
   /** How many sessions, each with its running sandbox, may be live at once. Default: unlimited. */
   maxSessions?: number;
 }
@@ -25,6 +31,7 @@ export interface SandboxPerSessionOptions {
 export function sandboxPerSession(options: SandboxPerSessionOptions): SessionSandboxes {
   return {
     ...(options.maxSessions !== undefined && { capacity: options.maxSessions }),
+    ownSandboxes: true,
     acquire: async (sessionId, { resume, abortSignal }) => {
       const settings = { ...(abortSignal && { abortSignal }) };
       const sandboxSession = await (resume
@@ -41,6 +48,10 @@ export function sandboxPerSession(options: SandboxPerSessionOptions): SessionSan
       };
     },
     discard: async (sessionId) => {
+      if (options.remove !== undefined) {
+        await options.remove(sessionId, {});
+        return;
+      }
       const sandboxSession = await options.resume(sessionId, {});
       await sandboxSession.destroy();
     },

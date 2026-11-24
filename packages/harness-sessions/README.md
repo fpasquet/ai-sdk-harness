@@ -340,6 +340,27 @@ const sandboxes = sandboxPerSession({
 });
 ```
 
+A session closed while it was suspended leaves a stopped sandbox, which `discard` deletes. Give `remove(sessionId)` to delete it as it is: without it, the sandbox is resumed, then destroyed, and a stopped Compute Engine machine is started for a minute only to be deleted. `remove` takes a sandbox already gone as no error. `deleteGceSandbox()` of `ai-sdk-sandbox-gce` is one:
+
+```ts
+import {
+  createGceNetworkSandboxSession,
+  deleteGceSandbox,
+  resumeGceNetworkSandboxSession,
+} from 'ai-sdk-sandbox-gce';
+
+const service = { url: process.env.GCE_SANDBOX_URL!, ports: [4000] };
+const sandboxes = sandboxPerSession({
+  create: (sessionId) =>
+    createGceNetworkSandboxSession({ ...service, sandboxId: `chat-${sessionId}`, template }),
+  resume: (sessionId) =>
+    resumeGceNetworkSandboxSession({ ...service, sandboxId: `chat-${sessionId}` }),
+  remove: (sessionId) => deleteGceSandbox({ ...service, sandboxId: `chat-${sessionId}` }),
+});
+```
+
+`sandboxPerSession()` says its sandboxes are each session's own (`ownSandboxes`): `workspace.sandboxes()` of `ai-sdk-harness-workspace` then leaves the checkout of a closed session to go with its sandbox, rather than start the sandbox to remove it. A `SessionSandboxes` of your own whose `discard` deletes a session's sandbox whole can say the same.
+
 ### Opening the sandbox
 
 The package imports no sandbox package: the `open()` of `sharedSandbox()`, and the `create()` and `resume()` of `sandboxPerSession()`, are functions you write with the sandbox package of your choice. Throughout this documentation, `openSandbox` is the function of [The manager](#the-manager): it finds the sandbox again when it exists, and creates it otherwise. To run the sessions somewhere else, change that function and nothing else:

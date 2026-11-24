@@ -247,6 +247,8 @@ export interface SessionSandboxes {
     options: { resume: boolean; abortSignal?: AbortSignal },
   ): Promise<SessionSandboxLease>;
   discard?(sessionId: string): Promise<void>;
+  /** Each session has a sandbox of its own, deleted whole when it is closed. */
+  readonly ownSandboxes?: boolean;
   shutdown?(): Promise<void>;
 }
 
