@@ -1,0 +1,34 @@
+[
+  {
+    "query": "I want to run Claude Code from my Node.js app with the AI SDK harnesses. Where do we start?",
+    "expected_behavior": "Must start by introspecting the project (package manager from the lockfile, Node.js >= 24 and ESM, existing @ai-sdk/harness or adapter, the app's shape, the project's languages, which sandbox the host can run: sbx version, /dev/kvm, bwrap/socat/rg, credentials already set without printing them) before writing code. Must NOT paste a HarnessAgent snippet first."
+  },
+  {
+    "query": "package.json:\n{\n  \"type\": \"module\",\n  \"engines\": { \"node\": \">=24\" },\n  \"dependencies\": { \"hono\": \"^4.0.0\" }\n}\nLockfile: pnpm-lock.yaml. `sbx version` answers 0.48.\n\nUser: Add a Claude Code agent that fixes failing tests in a sandbox.",
+    "expected_behavior": "Asks which sandbox with AskUserQuestion, ai-sdk-sandbox-sbx first with '(Recommended)' on its label because Docker Sandboxes is installed. Installs with 'pnpm add @ai-sdk/harness @ai-sdk/harness-claude-code ai-sdk-sandbox-sbx'. Writes an openSandbox() that resumes the sandbox by sandboxId (killAllProcesses() after resuming) and creates it on SbxSandboxNotFoundError, with ports: [4000], setup: ['npm install --global --silent pnpm@10'] and template: await agent.getSandboxTemplate(). Adds CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY to .env.example without a value."
+  },
+  {
+    "query": "package.json:\n{\n  \"type\": \"module\",\n  \"dependencies\": { \"next\": \"^16.0.0\", \"ai\": \"^7.0.0\", \"@ai-sdk/react\": \"^4.0.0\" }\n}\nUser: I want a chat page where users talk to Codex, several conversations at once, that survive a server restart.",
+    "expected_behavior": "Picks the Codex adapter (@ai-sdk/harness-codex, createCodex(), OPENAI_API_KEY or the codex CLI login). Adds serverExternalPackages to next.config with @ai-sdk/harness, the adapter, the sandbox package and ai-sdk-harness-sessions. Uses ai-sdk-harness-sessions: createSessionManager with sharedSandbox or sandboxPerSession after asking whether conversations may share files, a route that creates the session on the first message and returns sessions.send(...).toUIMessageStreamResponse(). Says the default store is in memory and that surviving a restart needs a SessionStore on their database. Mentions Codex does not ask before its own tools (permissionMode 'allow-all' only)."
+  },
+  {
+    "query": "My Python project (pyproject.toml, GitHub remote) will be worked on by Claude Code in a Docker Sandbox. Lock down what the sandbox can reach.",
+    "expected_behavior": "Uses ai-sdk-harness-network: networkPolicy(harnessHosts('claude-code'), trustedHosts('github', 'python')), passed as networkPolicy at creation of the sbx sandbox. Warns that the template is built under the same network, so setup's and the harness install's hosts must be listed. Explains the image needs Node.js and git beside Python. Does NOT open allow-all or every trusted group."
+  },
+  {
+    "query": "The template build fails: the network refused registry.npmjs.org. Can I just set the policy to allow-all?",
+    "expected_behavior": "Says no: add the refused host the build needs (registry.npmjs.org, which harnessHosts('claude-code') lists; install: false only fits once the runtime is in the template), keep the policy closed. Explains getSandboxTemplate() runs under the network of the sandbox it is for."
+  },
+  {
+    "query": "I'm on a Linux server without KVM and without Docker Sandboxes, and the agent must run on our Google Cloud project. Our tests use docker compose with PostgreSQL.",
+    "expected_behavior": "Recommends ai-sdk-sandbox-gce (a VM, Docker in it) over cloud-run (gVisor, no Docker). Says its service, proxy and images must be deployed first from the README, and does not run gcloud commands that create resources without the user's go-ahead. Uses createGceNetworkSandboxSession with url, auth ('metadata' on Google Cloud), ports [4000], allowedHosts and template, and resumeGceNetworkSandboxSession with the same settings."
+  },
+  {
+    "query": "The harness can't authenticate in the sandbox. Should I pass ANTHROPIC_API_KEY into the sandbox env, or set brokerCredentials: false?",
+    "expected_behavior": "Refuses both: the sandbox packages broker credentials, the sandbox only gets a placeholder and the real value is swapped in outside on the way to the provider. Turning brokering off lets the agent read the real credential. Checks instead that the variable is set in the app's process, that the provider's host is reachable, and that only one @ai-sdk/harness is installed."
+  },
+  {
+    "query": "package.json:\n{\n  \"dependencies\": { \"express\": \"^4.18.0\" }\n}\n.nvmrc: 20\n\nUser: Set up a coding agent with the AI SDK harnesses.",
+    "expected_behavior": "Stops before installing: the packages need Node.js >= 24 and are ESM-only, and this project is on Node 20 and CommonJS. Says what to change (Node 24, \"type\": \"module\" or await import()) and asks before changing it."
+  }
+]

@@ -1,0 +1,164 @@
+# Sandboxes
+
+Every sandbox package gives `agent.createSession({ sandboxSession })` the same thing, a `HarnessV1NetworkSandboxSession`: the harness and the user's tools never know which one runs. Pick by where the agent runs and what its project needs.
+
+| Package                       | Where                                | Isolation             | Docker in it        | Image                                    | Needs first                                             |
+| ----------------------------- | ------------------------------------ | --------------------- | ------------------- | ---------------------------------------- | ------------------------------------------------------- |
+| `ai-sdk-sandbox-sbx`          | This host, or Docker Sandboxes Cloud | A microVM             | Yes                 | `image` per sandbox                      | Docker Sandboxes installed, `sbx login`                 |
+| `ai-sdk-sandbox-microsandbox` | This host                            | A microVM             | Yes, `docker: true` | Any OCI image (`node:24` by default)     | Linux with KVM, or macOS on Apple Silicon               |
+| `ai-sdk-sandbox-runtime`      | This host                            | srt: processes fenced | No                  | None: the host's own tools               | Linux (`bubblewrap`, `socat`, `ripgrep`) or macOS, pnpm |
+| `ai-sdk-sandbox-cloud-run`    | Google Cloud, Cloud Run              | gVisor                | No                  | The service's, one for all its sandboxes | Its sandbox service deployed (README)                   |
+| `ai-sdk-sandbox-gce`          | Google Cloud, Compute Engine         | A virtual machine     | Yes                 | Among those the service offers           | Its service, proxy and images deployed (README)         |
+
+## Signals for the recommendation
+
+- `sbx version` answers → `sbx`: the docs, the starter and the examples use it.
+- No Docker Sandboxes, but `/dev/kvm` is usable or the Mac is Apple Silicon → `microsandbox`: nothing else to install, the runtime comes with the npm package.
+- Neither, and the project needs no containers → `runtime` (srt). It fences the agent's processes on the host rather than isolating a machine: say so.
+- The agent runs on a server on Google Cloud → `cloud-run` when it edits code and runs plain processes (scaled to zero, cheap), `gce` when its tests need `docker compose`, a database, or a machine of their own.
+- Another cloud, or none of these fits → say so. Every package implements the same interface, so the rest of the setup does not change with the sandbox.
+
+## The sandbox of each package
+
+What the sandbox needs depends on where the harness runs:
+
+- **A bridge in the sandbox** (Claude Code, Codex, OpenCode, Deep Agents, Grok Build, GitHub Copilot, Cursor): `ports: [4000]`, the port its bridge listens on inside the sandbox, the same for every harness.
+- **On the app's server** (Pi, fx): the sandbox is their file system and shell only. No port, no bridge, no template.
+- `template: await agent.getSandboxTemplate()` for a bridge-backed harness: it installs its runtime once, in an image or snapshot every later sandbox starts from. The first creation takes a minute or two.
+- pnpm, with which the Claude Code and Codex bridges install their dependencies: `setup: ['npm install --global --silent pnpm@10']` on `sbx` and `microsandbox`; on the host's `PATH` for `runtime`; already in the Cloud Run and Compute Engine images.
+- Node.js and git, for the bridge and for `ai-sdk-harness-workspace`. The default images have both: the kits of Docker Sandboxes, `node:24` of microsandbox, and the images the Cloud Run and Compute Engine READMEs build. Only an image of the user's, for another toolchain, must add them beside it. `sbx` and `gce` check them once `setup` ran and fail the creation with `SbxSandboxImageError` or `GceSandboxImageError`, naming what is missing: add it to the image or to `setup`, don't empty `requiredCommands`.
+
+Name the sandbox (`sandboxId`), and **resume it** on the next run rather than creating one each time: creation never resumes, an existing name is a conflict.
+
+### `ai-sdk-sandbox-sbx`
+
+```ts
+import { HarnessAgent } from '@ai-sdk/harness/agent';
+import { createClaudeCode } from '@ai-sdk/harness-claude-code';
+import {
+  createSbxNetworkSandboxSession,
+  resumeSbxNetworkSandboxSession,
+  SbxSandboxNotFoundError,
+} from 'ai-sdk-sandbox-sbx';
+
+export const agent = new HarnessAgent({ harness: createClaudeCode() });
+
+export async function openSandbox() {
+  const settings = { sandboxId: 'my-agent', ports: [4000] };
+  try {
+    const sandbox = await resumeSbxNetworkSandboxSession(settings);
+    // A previous run may have left its bridge behind, holding the port.
+    await sandbox.killAllProcesses();
+    return sandbox;
+  } catch (error) {
+    if (!(error instanceof SbxSandboxNotFoundError)) throw error;
+  }
+  return createSbxNetworkSandboxSession({
+    ...settings,
+    setup: ['npm install --global --silent pnpm@10'],
+    template: await agent.getSandboxTemplate(),
+  });
+}
+```
+
+Options worth asking about: `workspace` (a host directory mounted read-write; `clone: true` for a private clone of a Git repository whose commits come back through a `sandbox-<name>` remote), `image`, `networkPolicy`. `stop()` keeps the files, `destroy()` removes the sandbox.
+
+### `ai-sdk-sandbox-microsandbox`
+
+The same shape: `createMicrosandboxNetworkSandboxSession()`, `resumeMicrosandboxNetworkSandboxSession()`, `MicrosandboxSandboxNotFoundError`, with `setup: ['npm install --global --silent pnpm@10']`. Its `image` is any OCI image (`node:24` by default), `docker: true` runs a Docker daemon in it, and `networkPolicy` is **fixed at creation**. It has no `fork()`: with `ai-sdk-harness-sessions`, only `sandboxPerSession()`.
+
+If the user also installed the `msb` CLI, its runtime must be the version of the npm package (`msb --version`): `msb doctor` checks the host.
+
+### `ai-sdk-sandbox-runtime`
+
+`createSrtNetworkSandboxSession()`, `resumeSrtNetworkSandboxSession()`, `SrtSandboxNotFoundError`. No image: the agent uses the host's tools, in a directory of its own or the `workspace` given. Its network is `allowedDomains` at creation, srt's syntax, by default `registry.npmjs.org`, `api.anthropic.com`, `api.openai.com`, `chatgpt.com` and `ai-gateway.vercel.sh`.
+
+On Linux, srt needs `bubblewrap`, `socat` and `ripgrep` (`sudo apt install bubblewrap socat ripgrep`). Recent Ubuntu releases refuse its seccomp filter (`apply-seccomp: … Permission denied`): the package's README gives the two ways out, read it rather than guessing.
+
+### `ai-sdk-sandbox-cloud-run`
+
+```ts
+import {
+  CloudRunSandboxNotFoundError,
+  createCloudRunNetworkSandboxSession,
+  resumeCloudRunNetworkSandboxSession,
+} from 'ai-sdk-sandbox-cloud-run';
+
+const settings = {
+  sandboxId: 'my-agent',
+  url: process.env.CLOUD_RUN_SANDBOX_URL!,
+  serviceToken: process.env.CLOUD_RUN_SANDBOX_SERVICE_TOKEN,
+  // 'gcloud' by default, on a developer's machine; the workload's service account on Google Cloud.
+  auth: 'metadata' as const,
+  ports: [4000],
+  // The bridge installs its dependencies from npm.
+  allowedHosts: ['registry.npmjs.org'],
+};
+
+// The same shape as on sbx: resumed when it exists, created otherwise. `agent` is the HarnessAgent.
+export async function openSandbox() {
+  try {
+    return await resumeCloudRunNetworkSandboxSession(settings);
+  } catch (error) {
+    if (!(error instanceof CloudRunSandboxNotFoundError)) throw error;
+  }
+  return createCloudRunNetworkSandboxSession({
+    ...settings,
+    template: await agent.getSandboxTemplate(),
+  });
+}
+```
+
+The service keeps neither `ports` nor `allowedHosts` across a suspension: the same settings go to every resume, as above. The sandbox service is deployed first, from the package's README (image, bucket, service account, `gcloud run deploy`), with the image pinned to the version of the package the app depends on.
+
+### `ai-sdk-sandbox-gce`
+
+```ts
+import {
+  createGceNetworkSandboxSession,
+  GceSandboxNotFoundError,
+  resumeGceNetworkSandboxSession,
+} from 'ai-sdk-sandbox-gce';
+
+const settings = {
+  sandboxId: 'my-agent',
+  url: process.env.GCE_SANDBOX_URL!,
+  serviceToken: process.env.GCE_SANDBOX_SERVICE_TOKEN,
+  auth: 'metadata' as const,
+  ports: [4000],
+  allowedHosts: ['registry.npmjs.org'],
+};
+
+export async function openSandbox() {
+  try {
+    return await resumeGceNetworkSandboxSession(settings);
+  } catch (error) {
+    if (!(error instanceof GceSandboxNotFoundError)) throw error;
+  }
+  return createGceNetworkSandboxSession({
+    ...settings,
+    template: await agent.getSandboxTemplate(),
+  });
+}
+```
+
+`agent` is the `HarnessAgent` of the app, as on sbx. The same settings go to every resume. Tests that run `docker compose` pull their images: add the registries to `allowedHosts` (`allowedHosts(trustedHosts('docker-hub'))`, or `'containers'` for every registry). `image` names one of the images the service offers (`SANDBOX_IMAGES`), for a project in another language. A stopped sandbox keeps its disk; a resume boots the machine again. Its deployment is longer (a VPC, an egress proxy, images, the service): follow its README step by step, with the user.
+
+## Next.js
+
+The harnesses read their bridge from files next to their module, which a bundle would leave behind. List every harness and sandbox package the app imports in `next.config.*`:
+
+```ts
+const config: NextConfig = {
+  serverExternalPackages: [
+    '@ai-sdk/harness',
+    '@ai-sdk/harness-claude-code', // the adapter the app uses: '@ai-sdk/harness-codex'…
+    'ai-sdk-sandbox-sbx', // the sandbox package it uses
+    // and, when used: 'ai-sdk-harness-sessions', 'ai-sdk-harness-workspace',
+    // 'ai-sdk-sandbox-microsandbox' with 'microsandbox',
+    // 'ai-sdk-sandbox-runtime' with '@anthropic-ai/sandbox-runtime'
+  ],
+};
+```
+
+The agent and its sandbox live on the server only: a route handler or a server action, never a client component.

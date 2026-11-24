@@ -1,0 +1,33 @@
+---
+title: Agent skills
+description: Let your coding agent set up the packages — npx skills teaches Claude Code, Cursor, Codex and others to pick the sandbox, close its network and manage the sessions of a HarnessAgent.
+---
+
+Rather than wiring the packages by hand, you can let your coding agent do it. This project ships an installable [agent skill](https://github.com/vercel-labs/skills): instructions that teach Claude Code, Cursor, Codex and other agents to add a `HarnessAgent` and its sandbox to your application, from what your project and your machine have.
+
+## Install it
+
+`npx skills` fetches the skill from GitHub, detects the agents you have, and puts it where each one reads it: in the project by default, for your user with `-g`.
+
+```bash
+npx skills add fpasquet/ai-sdk-harness
+```
+
+## Use it
+
+Open your agent in your project and say what you want, for instance:
+
+> Run Claude Code in a sandbox from this app, to fix the failing tests.
+
+The `setup-ai-sdk-harness` skill then leads the agent to:
+
+- Read the project first: its package manager, Node.js 24 and ESM, the app's shape (a script, a server, Next.js), the languages of the code, and which sandbox your machine can run (`sbx`, KVM, srt's programs).
+- Pick the harness and its credential, kept out of the sandbox.
+- Ask you which sandbox, recommending the one your machine or your cloud fits: a [Docker Sandbox](/docs/packages/sandbox-sbx), a [microsandbox](/docs/packages/sandbox-microsandbox), [srt](/docs/packages/sandbox-runtime), [Cloud Run](/docs/packages/sandbox-cloud-run) or [Compute Engine](/docs/packages/sandbox-gce).
+- Close the sandbox's network to the hosts the harness and your project need, with [ai-sdk-harness-network](/docs/packages/harness-network).
+- Choose between one session per run and conversations managed by [ai-sdk-harness-sessions](/docs/managing-sessions).
+- Run a first turn to check it works.
+
+## Prefer to do it by hand?
+
+The skill follows this documentation: [Getting started](/docs/getting-started), [Choosing a sandbox](/docs/choosing-a-sandbox) and [Managing sessions](/docs/managing-sessions) take the same steps.
