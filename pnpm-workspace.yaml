@@ -2,6 +2,8 @@ packages:
   - 'packages/*'
   - 'packages/configs/*'
   - 'examples/*'
+  # Fetched and installed on its own, from npm: see its job in ci.yml.
+  - '!examples/starter'
   - 'docs'
 
 allowBuilds:

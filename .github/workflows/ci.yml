@@ -144,6 +144,30 @@ jobs:
             docker run --rm "ai-sdk-$package" --help
           done
 
+  # The starter is fetched and installed on its own, from npm: checked as a user runs it, against
+  # the published packages, not those of this commit.
+  starter:
+    name: Starter (npm install, typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: examples/starter
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
   commitlint:
     name: Validate commit messages
     runs-on: ubuntu-latest
@@ -178,13 +202,13 @@ jobs:
     # Stable required status check, whatever the Node matrix of `test` reports.
     name: CI
     runs-on: ubuntu-latest
-    needs: [check, test, images]
+    needs: [check, test, images, starter]
     if: always()
     steps:
       - name: Check required jobs succeeded
         run: |
-          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ]; then
-            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }}, images=${{ needs.images.result }})."
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] || [ "${{ needs.starter.result }}" != "success" ]; then
+            echo "One or more required CI jobs failed (check=${{ needs.check.result }}, test=${{ needs.test.result }}, images=${{ needs.images.result }}, starter=${{ needs.starter.result }})."
             exit 1
           fi
           echo "All CI jobs passed."

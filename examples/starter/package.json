@@ -1,0 +1,22 @@
+{
+  "name": "ai-sdk-harness-starter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env agent.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@ai-sdk/harness": "^1.0.183",
+    "@ai-sdk/harness-claude-code": "^1.0.187",
+    "ai-sdk-sandbox-sbx": "^0.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
