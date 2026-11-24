@@ -9,13 +9,7 @@ const config: NextConfig = {
     '@ai-sdk/harness',
     '@ai-sdk/harness-claude-code',
     '@ai-sdk/harness-codex',
-    '@ai-sdk/harness-cursor',
-    '@ai-sdk/harness-deepagents',
-    '@ai-sdk/harness-github-copilot',
-    '@ai-sdk/harness-grok-build',
-    '@ai-sdk/harness-opencode',
-    // Pi and fx run in this process: fx on libfx, a native addon.
-    '@ai-sdk/harness-fx',
+    // Pi runs in this process.
     '@ai-sdk/harness-pi',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-sandbox-cloud-run',

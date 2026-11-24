@@ -3,9 +3,11 @@
  * lets you pick one, and the server, which builds them (`lib/harness-adapters.ts`) and only accepts
  * what is listed here.
  *
- * Claude Code and Codex run on their subscriptions, and fx on the Codex one; the other open
- * runtimes go through OpenRouter (`OPENROUTER_API_KEY`); GitHub Copilot and Cursor through their
- * own accounts. A harness whose credential is missing is shown, but cannot be picked.
+ * Three harnesses, one of each kind: Claude Code and Codex, on their subscriptions, run in the
+ * sandbox behind a bridge; Pi, through OpenRouter (`OPENROUTER_API_KEY`), runs in this server, its
+ * tools working in the sandbox. A harness whose credential is missing is shown, but cannot be
+ * picked. The other official adapters plug in the same way: an entry here and its factory in
+ * `lib/harness-adapters.ts`.
  */
 export const HARNESSES = {
   'claude-code': {
@@ -38,21 +40,6 @@ export const HARNESSES = {
       { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
     ],
   },
-  opencode: {
-    label: 'OpenCode',
-    description: 'The open-source coding agent, its server driven through a bridge in the sandbox.',
-    route: 'OpenRouter',
-    credentials: 'OPENROUTER_API_KEY',
-    runsIn: 'sandbox',
-    asksFirst: true,
-    // `openrouter/` picks OpenCode's OpenRouter provider; the rest is the OpenRouter model.
-    openRouter: { prefix: 'openrouter/' },
-    models: [
-      { id: 'openrouter/deepseek/deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
-      { id: 'openrouter/moonshotai/kimi-k3', label: 'Kimi K3' },
-      { id: 'openrouter/z-ai/glm-5.3', label: 'GLM 5.3' },
-    ],
-  },
   pi: {
     label: 'Pi',
     description: 'A minimal coding agent, run by this server, its tools working in the sandbox.',
@@ -69,75 +56,6 @@ export const HARNESSES = {
       { id: 'openrouter/z-ai/glm-5.3', label: 'GLM 5.3' },
     ],
   },
-  deepagents: {
-    label: 'Deep Agents',
-    description: "LangChain's LangGraph agent, run through a bridge in the sandbox.",
-    route: 'OpenRouter',
-    credentials: 'OPENROUTER_API_KEY',
-    runsIn: 'sandbox',
-    // The adapter cannot yet answer approvals of its built-in tools.
-    asksFirst: false,
-    // Deep Agents speaks the Anthropic API: OpenRouter's Anthropic-compatible endpoint.
-    openRouter: { prefix: '' },
-    models: [
-      { id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' },
-      { id: 'moonshotai/kimi-k3', label: 'Kimi K3' },
-      { id: 'z-ai/glm-5.3', label: 'GLM 5.3' },
-    ],
-  },
-  'grok-build': {
-    label: 'Grok Build',
-    description: "xAI's coding agent, its CLI driven over ACP in the sandbox.",
-    route: 'OpenRouter',
-    credentials: 'OPENROUTER_API_KEY',
-    runsIn: 'sandbox',
-    asksFirst: false,
-    // Grok Build runs xAI's models only.
-    openRouter: { prefix: '', only: 'x-ai/' },
-    models: [
-      { id: 'x-ai/grok-build-0.1', label: 'Grok Build 0.1' },
-      { id: 'x-ai/grok-4.7', label: 'Grok 4.7' },
-    ],
-  },
-  fx: {
-    label: 'fx',
-    description: 'The fx agent engine, run by this server, its tools working in the sandbox.',
-    route: 'ChatGPT subscription',
-    credentials: 'the login of the codex CLI (CODEX_HOME)',
-    runsIn: 'server',
-    asksFirst: true,
-    // The models of a ChatGPT subscription: it refuses `gpt-5.5`, which an API key runs.
-    models: [
-      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
-      { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
-    ],
-  },
-  'github-copilot': {
-    label: 'GitHub Copilot',
-    description: "GitHub's coding agent, its CLI driven over ACP in the sandbox.",
-    route: 'Copilot subscription',
-    credentials: 'COPILOT_GITHUB_TOKEN, GH_TOKEN or GITHUB_TOKEN',
-    runsIn: 'sandbox',
-    asksFirst: false,
-    models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5' },
-      { id: 'claude-sonnet-5.5', label: 'Claude Sonnet 5.5' },
-    ],
-  },
-  cursor: {
-    label: 'Cursor',
-    description: "Cursor's agent, its CLI driven over ACP in the sandbox.",
-    route: 'Cursor account',
-    credentials: 'CURSOR_API_KEY',
-    runsIn: 'sandbox',
-    asksFirst: false,
-    // Cursor routes the models itself, as its account settings say.
-    models: [
-      { id: 'auto', label: 'Auto' },
-      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-    ],
-  },
 } as const;
 
 export type HarnessId = keyof typeof HARNESSES;
@@ -145,9 +63,8 @@ export type HarnessId = keyof typeof HARNESSES;
 export const HARNESS_IDS = Object.keys(HARNESSES) as HarnessId[];
 
 /**
- * The harnesses installed in the template every sandbox starts from: Claude Code and Codex. The
- * others install themselves in the sandbox the first time a conversation runs them, or run in the
- * server (Pi, fx) and install nothing.
+ * The harnesses installed in the template every sandbox starts from: Claude Code and Codex. Pi runs
+ * in the server and installs nothing.
  */
 export const TEMPLATE_HARNESSES: readonly HarnessId[] = ['claude-code', 'codex'];
 
@@ -174,10 +91,9 @@ export interface ModelOption {
 
 /**
  * How a harness names a model of OpenRouter's catalog, for those that go through OpenRouter: the
- * prefix that picks their OpenRouter provider, and the models they can run when not all.
+ * prefix that picks their OpenRouter provider.
  */
 interface OpenRouterRoute {
-  only?: string;
   prefix: string;
 }
 
@@ -186,14 +102,14 @@ function openRouterOf(harness: HarnessId): OpenRouterRoute | undefined {
   return 'openRouter' in entry ? (entry.openRouter as OpenRouterRoute) : undefined;
 }
 
-/** `model` as a harness on `route` names it, or `undefined` when the harness cannot run it. */
-function openRouterOptionOf(
+/** `model` as a harness on `route` names it. */
+const openRouterOptionOf = (
   { id, name }: OpenRouterModel,
-  { only, prefix }: OpenRouterRoute,
-): ModelOption | undefined {
-  if (only !== undefined && !id.startsWith(only)) return undefined;
-  return { id: `${prefix}${id}`, label: name.split(': ').at(-1) ?? name };
-}
+  { prefix }: OpenRouterRoute,
+): ModelOption => ({
+  id: `${prefix}${id}`,
+  label: name.split(': ').at(-1) ?? name,
+});
 
 /** Who makes `model`, as OpenRouter names it: `MoonshotAI` of `MoonshotAI: Kimi K3`. */
 const providerOf = ({ id, name }: OpenRouterModel): string =>
@@ -213,7 +129,7 @@ export function modelGroupsOf(
   const byProvider = new Map<string, ModelOption[]>();
   for (const model of catalog) {
     const option = openRouterOptionOf(model, route);
-    if (option === undefined || suggested.some(({ id }) => id === option.id)) continue;
+    if (suggested.some(({ id }) => id === option.id)) continue;
     const provider = providerOf(model);
     byProvider.set(provider, [...(byProvider.get(provider) ?? []), option]);
   }
