@@ -29,25 +29,41 @@ export function mergeHookGroups(
 }
 
 /**
- * The settings with each group of `next` its event has not yet added, or `undefined` when it has
- * them all: what other sessions added stays.
+ * The settings with the groups `taken` says are the plugins' taken out, then each group of `next`
+ * its event does not have added; `added` keys those it added, not those the file already had of
+ * its own. `settings` is `undefined` when nothing changed, an empty object when nothing is left.
  */
-export function addHookGroups(
+export function replaceHookGroups(
   settings: Record<string, unknown>,
   next: Readonly<Record<string, unknown[]>>,
-): Record<string, unknown> | undefined {
-  const hooks: Record<string, unknown> = { ...asRecord(settings.hooks) };
-  let added = false;
-  for (const [event, groups] of Object.entries(next)) {
-    const existing: unknown = hooks[event];
-    const present: unknown[] = Array.isArray(existing) ? (existing as unknown[]) : [];
-    const keys = new Set(present.map((group) => groupKey(event, group)));
-    const missing = groups.filter((group) => !keys.has(groupKey(event, group)));
-    if (missing.length === 0) continue;
-    hooks[event] = [...present, ...missing];
-    added = true;
+  taken: (event: string, group: unknown) => boolean,
+): { settings: Record<string, unknown> | undefined; added: string[] } {
+  const hooks: Record<string, unknown> = {};
+  for (const [event, groups] of Object.entries(asRecord(settings.hooks))) {
+    // What the plugins cannot have written stays as it is.
+    if (!Array.isArray(groups) || groups.length === 0) hooks[event] = groups;
+    else {
+      const kept = groups.filter((group) => !taken(event, group));
+      if (kept.length > 0) hooks[event] = kept;
+    }
   }
-  return added ? { ...settings, hooks } : undefined;
+  const added = Object.entries(next).flatMap(([event, groups]) =>
+    groups.flatMap((group) => addGroup(hooks, event, group)),
+  );
+  const { hooks: _replaced, ...rest } = settings;
+  const merged = Object.keys(hooks).length > 0 ? { ...rest, hooks } : rest;
+  const changed = JSON.stringify(merged) !== JSON.stringify(settings);
+  return { settings: changed ? merged : undefined, added };
+}
+
+/** Adds `group` under `event` unless it is there already; its key when it was added. */
+function addGroup(hooks: Record<string, unknown>, event: string, group: unknown): string[] {
+  const key = groupKey(event, group);
+  const existing = hooks[event];
+  const present: unknown[] = Array.isArray(existing) ? (existing as unknown[]) : [];
+  if (present.some((other) => groupKey(event, other) === key)) return [];
+  hooks[event] = [...present, group];
+  return [key];
 }
 
 /**

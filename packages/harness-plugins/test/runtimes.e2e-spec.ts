@@ -37,6 +37,7 @@ const sandboxWord = `sandbox-${randomBytes(3).toString('hex')}`;
 const ruleWord = `rule-${randomBytes(3).toString('hex')}`;
 const notesWord = `notes-${randomBytes(3).toString('hex')}`;
 const oracleWord = `oracle-${randomBytes(3).toString('hex')}`;
+const stopWord = `stop-${randomBytes(3).toString('hex')}`;
 
 /** Plugins as they would come out of a database. */
 const manifests = [
@@ -124,6 +125,34 @@ const manifests = [
   },
 ];
 
+/**
+ * For a sandbox that is the session's own: a prompt hook, and a command hook that runs a script of
+ * its plugin through `${PLUGIN_ROOT}`.
+ */
+const closer: Plugin = {
+  name: 'closer',
+  description: 'Has the agent sign its answers, and blocks a marker in shell commands.',
+  files: [
+    {
+      path: 'guard.sh',
+      content:
+        "#!/bin/sh\ngrep -q FORBIDDEN-MARKER && { echo 'Blocked by the closer plugin.' >&2; exit 2; }\nexit 0\n",
+      executable: true,
+    },
+  ],
+  hooks: [
+    { event: 'PreToolUse', matcher: 'Bash', command: '"${PLUGIN_ROOT}/guard.sh"' },
+    {
+      event: 'Stop',
+      prompt: [
+        'Here is the state of an assistant about to stop, as JSON: $ARGUMENTS',
+        `If stop_hook_active is true, or if last_assistant_message contains ${stopWord}, respond {"ok": true}.`,
+        `Otherwise respond {"ok": false, "reason": "End your answer with a line of its own: ${stopWord}"}.`,
+      ].join('\n'),
+    },
+  ],
+};
+
 describe('plugins on real runtimes', () => {
   let sandbox: SbxNetworkSandboxSession;
   let resolved: ResolvedPlugins;
@@ -147,11 +176,16 @@ describe('plugins on real runtimes', () => {
   });
 
   /** A turn of `runtime` with the plugins, and what it did. */
-  async function turn(runtime: keyof typeof RUNTIMES, plugins: Plugin[], message: string) {
+  async function turn(
+    runtime: keyof typeof RUNTIMES,
+    plugins: Plugin[],
+    message: string,
+    { ownSandbox = false } = {},
+  ) {
     const { create, model } = RUNTIMES[runtime];
     const harness: HarnessAgentAdapter = create({ ...pluginHarnessSettings(runtime, plugins) });
     const agent = new HarnessAgent(
-      withPlugins({ harness, model }, plugins, { onUnsupported: () => undefined }),
+      withPlugins({ harness, model }, plugins, { ownSandbox, onUnsupported: () => undefined }),
     );
     const session = await agent.createSession({ sandboxSession: sandbox });
     try {
@@ -241,4 +275,19 @@ describe('plugins on real runtimes', () => {
       expect(seen.some((part) => part.includes('Blocked by the guard plugin.'))).toBe(true);
     },
   );
+
+  it('claude-code runs a prompt hook and a command hook of its plugin, in a sandbox of its own', async () => {
+    // One session at a time in the sandbox: it is the session's own while it runs.
+    const { text, outputs } = await turn(
+      'claude-code',
+      [closer],
+      'Run exactly this command with your shell tool, once: echo FORBIDDEN-MARKER. Then report its output or error verbatim.',
+      { ownSandbox: true },
+    );
+
+    const seen = [text, ...outputs.map(({ output }) => output)];
+    expect(seen.some((part) => part.includes('Blocked by the closer plugin.'))).toBe(true);
+    // The prompt hook on Stop sent the agent back to sign its answer.
+    expect(text).toContain(stopWord);
+  });
 });

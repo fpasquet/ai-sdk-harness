@@ -102,7 +102,7 @@ export const acme = definePlugin({
 ¹ As instructions, a rule with `paths` saying which files it is for.
 ² Without the subagent's `tools`: [Subagents on Codex](#subagents-on-codex).
 ³ Commands only, given to the adapter by `pluginHarnessSettings('codex', plugins)`: [Hooks on Codex](#hooks-on-codex).
-⁴ Commands only, under the sandbox's `$HOME`, each one run only in the sessions that have it: [Hooks on Claude Code](#hooks-on-claude-code).
+⁴ Under the sandbox's `$HOME`, each one run only in the sessions that have it, commands only; prompts too when each session has a sandbox of its own: [Hooks on Claude Code](#hooks-on-claude-code).
 ⁵ Under the sandbox's `$HOME`, which the sessions of the sandbox share: [Subagents on Claude Code](#subagents-on-claude-code).
 
 **Secrets never appear in a plugin.** It holds a reference, `{ "secret": "LINEAR_TOKEN" }`, which your server resolves with `resolveSecret`: the value never reaches the configuration, a database or the sandbox.
@@ -141,7 +141,7 @@ await close(); // closes the MCP clients, once the agent is done
 ```
 
 - `resolvePlugins()` builds the tools written as configuration, resolves the secrets and connects the MCP servers. A plugin with none of these can go straight to `withPlugins()`. Its `hosts` are those the plugins reach, from the sandbox and from your server: see [Network](#network).
-- `withPlugins()` adds the tools, skills and rules to the agent, and writes the hooks, subagents and files for each session. What the runtime cannot take — a prompt hook — is left out with a warning (`onUnsupported` to change that).
+- `withPlugins()` adds the tools, skills and rules to the agent, and writes the hooks, subagents and files for each session. What the runtime cannot take — a prompt hook, unless each session has a sandbox of its own ([`ownSandbox`](#a-sandbox-for-each-session)) — is left out with a warning (`onUnsupported` to change that).
 - `/<skill>` calls a skill as `/<command>` calls a command; `listSlashCommands(plugins)` lists both, for a prompt's completion.
 
 ### A plugin in JSON
@@ -478,8 +478,26 @@ Claude Code reads the subagents of plugins from `.claude/agents/<name>.md` under
 Claude Code reads the hooks of plugins from `.claude/settings.json` under the sandbox's `$HOME`, where `withPlugins()` adds them beside the settings and hooks the file has. Every session of the sandbox reads that file, so each hook goes through a gate, `$HOME/.ai-sdk-harness/hook-gate.sh`: its matcher and its timeout are the hook's, and the gate runs the command the session holds for it in `.ai-sdk-harness/hooks/`, `${PLUGIN_ROOT}` pointing at its own files. In a session without the hook, the gate does nothing. Claude Code still matches, blocks on exit status `2` and runs several hooks as it does its own.
 
 - A hook stays in `$HOME/.claude/settings.json` for the sandbox's life, as another session may have it: the gate does nothing for the others, which costs a short process each time the hook's event fires.
-- A `prompt` hook has no command for the gate to run, and every session would get it: it is left out and reported to `onUnsupported`, with its name in `hook`.
+- A `prompt` hook has no command for the gate to run, and every session would get it: it is left out and reported to `onUnsupported`, with its name in `hook`, unless each session has a sandbox of its own (below).
 - Two sessions starting at the same moment may each write the file: a hook one of them adds may be lost until a session with it starts again.
+
+#### A sandbox for each session
+
+When each session has a sandbox of its own, and its `$HOME` with it, as with `sandboxPerSession()` of `ai-sdk-harness-sessions`, there is nothing to keep apart: `ownSandbox: true` has `withPlugins()` write the hooks in `$HOME/.claude/settings.json` as the plugins declare them, without the gate, `prompt` hooks included.
+
+```ts
+const sandboxes = sandboxPerSession({ create, resume });
+const agent = new HarnessAgent(
+  withPlugins({ harness: createClaudeCode() }, plugins, {
+    ownSandbox: sandboxes.ownSandboxes, // true
+  }),
+);
+```
+
+- A `command` hook runs as Claude Code runs its own, `${PLUGIN_ROOT}` replaced with the directory of the plugin's files in the session.
+- A `prompt` hook goes as `{ "type": "prompt", "prompt": "…" }`, its `timeout` with it: Claude Code has a small model evaluate it, `$ARGUMENTS` in it standing for the event as JSON. Claude Code takes one on `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop` and `SubagentStop`; on another event, it is left out and reported to `onUnsupported`.
+- At each start and resume, the session's hooks replace those the plugins wrote before, through the gate or not: a hook the session no longer has is taken out, and none is written twice. A hook of the file the plugins did not write stays, even one alike.
+- Never set it for a sandbox several sessions share (`sharedSandbox()`): each one would run the hooks of the last one to start or resume, and none of its own. Codex ignores it: its hooks go to the adapter.
 
 ### Subagents on Codex
 
@@ -558,7 +576,7 @@ const sandbox = await createSbxNetworkSandboxSession({
 
 ## Limitations
 
-- **Claude Code reads nothing of the session's `.claude/`** with `@ai-sdk/harness-claude-code` 1.0.180 and later, which starts it with the user's settings alone (`settingSources: ['user']`). Rules go in the agent's instructions, and subagents and hooks under the sandbox's `$HOME`, which the sessions of a sandbox share: see [Subagents on Claude Code](#subagents-on-claude-code) and [Hooks on Claude Code](#hooks-on-claude-code). They can go back to the session once the adapter lets the setting be chosen ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)), or take subagents in code ([vercel/ai#25447](https://github.com/vercel/ai/issues/25447)). A `prompt` hook runs on neither runtime.
+- **Claude Code reads nothing of the session's `.claude/`** with `@ai-sdk/harness-claude-code` 1.0.180 and later, which starts it with the user's settings alone (`settingSources: ['user']`). Rules go in the agent's instructions, and subagents and hooks under the sandbox's `$HOME`, which the sessions of a sandbox share: see [Subagents on Claude Code](#subagents-on-claude-code) and [Hooks on Claude Code](#hooks-on-claude-code). They can go back to the session once the adapter lets the setting be chosen ([vercel/ai#21714](https://github.com/vercel/ai/pull/21714)), or take subagents in code ([vercel/ai#25447](https://github.com/vercel/ai/issues/25447)). A `prompt` hook runs on Claude Code only in a sandbox of the session's own ([`ownSandbox`](#a-sandbox-for-each-session)), never on Codex.
 - A Codex hook is trusted by the key and the hash Codex gives it, which the package computes as Codex 0.160.1 does: a Codex that changed either would skip the hook.
 - A tool working in the sandbox runs in its default working directory: the harness does not hand tools the session's own.
 
