@@ -389,9 +389,9 @@ describe('createCatalog', () => {
       requires: [],
       unsupportedOn: [],
     });
-    // A prompt hook: Codex skips them.
+    // A prompt hook: no runtime takes them.
     expect(described.find(({ id }) => id === 'safety/hook:stop-2')).toMatchObject({
-      unsupportedOn: ['codex'],
+      unsupportedOn: ['claude-code', 'codex'],
     });
     expect(described.find(({ id }) => id === 'tool:npm-latest')).toMatchObject({
       kind: 'tool',

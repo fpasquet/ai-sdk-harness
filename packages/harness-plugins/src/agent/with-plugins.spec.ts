@@ -2,7 +2,7 @@ import { createClaudeCode } from '@ai-sdk/harness-claude-code';
 import { createCodex } from '@ai-sdk/harness-codex';
 import { HarnessAgent } from '@ai-sdk/harness/agent';
 import { tool } from '@ai-sdk/provider-utils';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ import type { PluginAgentSettings } from './with-plugins.js';
 import { createHostSandbox } from '../../test/host-sandbox.js';
 import { resolvePlugins } from '../config/resolve-plugins.js';
 import { InvalidPluginError } from '../errors/invalid-plugin-error.js';
+import { groupKey } from '../session/local-settings.js';
 import { pluginHarnessSettings } from './plugin-harness-settings.js';
 import { withPlugins } from './with-plugins.js';
 
@@ -56,6 +57,11 @@ const reviewer: Plugin = {
     },
   ],
 };
+
+/** The command of a hook of the plugins in `$HOME`: the gate, with the hook's id. */
+const GATE = /^sh "\$HOME\/\.ai-sdk-harness\/hook-gate\.sh" ([0-9a-f]{16})$/;
+const hookIdOf = (group: unknown): string =>
+  GATE.exec((group as { hooks: [{ command: string }] }).hooks[0].command)?.[1] ?? '';
 
 const exists = (path: string): Promise<boolean> =>
   access(path).then(
@@ -281,6 +287,11 @@ describe('the session files', () => {
     });
   };
   const read = (path: string) => readFile(join(sandbox.directory, path), 'utf8');
+  const homeSettings = async () =>
+    JSON.parse(await readFile(join(sandbox.home, '.claude/settings.json'), 'utf8')) as {
+      permissions?: unknown;
+      hooks: Record<string, undefined | unknown[]>;
+    };
 
   beforeEach(async () => {
     sandbox = await createHostSandbox();
@@ -295,76 +306,146 @@ describe('the session files', () => {
     order.push('plugins');
     expect(order).toEqual(['own', 'plugins']);
 
-    const root = join(sandbox.directory, '.ai-sdk-harness/plugins/guard');
-    expect(JSON.parse(await read('.claude/settings.local.json'))).toEqual({
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: 'Bash',
-            hooks: [{ type: 'command', command: `"${root}/guard.sh"`, timeout: 5 }],
-          },
-        ],
-        Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is the work done?' }] }],
-      },
+    // Under $HOME: Claude Code reads the user's settings alone. The prompt hook is left out.
+    const { hooks } = await homeSettings();
+    const gate: unknown = expect.stringMatching(GATE);
+    expect(hooks).toEqual({
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: gate, timeout: 5 }],
+        },
+      ],
     });
-    // Under $HOME: Claude Code reads the user's settings alone.
+    // The session holds the command the gate runs, its own files at ${PLUGIN_ROOT}.
+    const root = join(sandbox.directory, '.ai-sdk-harness/plugins/guard');
+    expect(await read(`.ai-sdk-harness/hooks/${hookIdOf(hooks.PreToolUse?.[0])}`)).toBe(
+      `"${root}/guard.sh"\n`,
+    );
+    expect(await exists(join(sandbox.directory, '.claude'))).toBe(false);
     expect(await readFile(join(sandbox.home, '.claude/agents/critic.md'), 'utf8')).toBe(
       '---\nname: "critic"\ndescription: "Criticises."\ntools: "Read"\nmodel: "haiku"\n---\n\nFind the flaws.\n',
     );
-    expect(await exists(join(sandbox.directory, '.claude/agents'))).toBe(false);
-    await expect(read('.claude/rules/reviewer/tone.md')).rejects.toThrow();
     expect(await read('.ai-sdk-harness/plugins/guard/guard.sh')).toBe('#!/bin/sh\nexit 0\n');
     expect((await stat(join(root, 'guard.sh'))).mode & 0o111).not.toBe(0);
     expect(await read('.ai-sdk-harness/.gitignore')).toBe('*\n');
   });
 
-  it('keeps the settings and hooks the file had, and takes back what a turned-off plugin wrote', async () => {
-    await mkdir(join(sandbox.directory, '.claude'), { recursive: true });
+  it('runs a hook only in the sessions that have it, through the gate', async () => {
+    const blocker: Plugin = {
+      name: 'blocker',
+      description: '',
+      hooks: [{ event: 'PreToolUse', matcher: 'Bash', command: '"${PLUGIN_ROOT}/block.sh"' }],
+      files: [
+        {
+          path: 'block.sh',
+          content: '#!/bin/sh\ngrep -q MARKER && { echo blocked >&2; exit 2; }\nexit 0\n',
+          executable: true,
+        },
+      ],
+    };
+    const sessionIn = async (directory: string, plugins: Plugin[]) => {
+      const sessionWorkDir = join(sandbox.directory, directory);
+      await mkdir(sessionWorkDir, { recursive: true });
+      await withPlugins({ harness: claudeCode }, plugins).sandboxConfig.onSession?.({
+        session: sandbox.session,
+        sessionWorkDir,
+      });
+      return sessionWorkDir;
+    };
+    /** Runs the hook as Claude Code would: its command, in the session, the event on stdin. */
+    const runHook = async (sessionWorkDir: string, event: string) => {
+      const { hooks } = await homeSettings();
+      const command = (hooks.PreToolUse?.[0] as { hooks: [{ command: string }] }).hooks[0].command;
+      return new Promise<{ code: number; stderr: string }>((resolve) => {
+        const child = execFile(
+          'sh',
+          ['-c', command],
+          {
+            cwd: sessionWorkDir,
+            env: { ...process.env, HOME: sandbox.home, CLAUDE_PROJECT_DIR: sessionWorkDir },
+          },
+          (error, _stdout, stderr) =>
+            resolve({ code: typeof error?.code === 'number' ? error.code : 0, stderr }),
+        );
+        child.stdin?.end(event);
+      });
+    };
+
+    const one = await sessionIn('one', [blocker]);
+    // A session without the plugin, started later: the hook stays, for the first one.
+    const two = await sessionIn('two', []);
+    expect(await runHook(one, '{"command":"echo MARKER"}')).toEqual({
+      code: 2,
+      stderr: 'blocked\n',
+    });
+    expect(await runHook(one, '{"command":"ls"}')).toEqual({ code: 0, stderr: '' });
+    expect(await runHook(two, '{"command":"echo MARKER"}')).toEqual({ code: 0, stderr: '' });
+
+    // Another session with the plugin adds nothing: the group is there already.
+    await sessionIn('three', [blocker]);
+    expect((await homeSettings()).hooks.PreToolUse).toHaveLength(1);
+  });
+
+  it('keeps the settings and hooks $HOME had', async () => {
     const own = {
       permissions: { allow: ['Read'] },
-      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine' }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'mine' }] }] },
     };
-    await writeFile(join(sandbox.directory, '.claude/settings.local.json'), JSON.stringify(own));
-
-    await onSession([guard, reviewer]);
-    const settings = JSON.parse(await read('.claude/settings.local.json')) as {
-      hooks: Record<string, unknown[]>;
-    };
-    expect(settings.hooks.Stop).toHaveLength(2);
-
-    // Resumed with the reviewer only: the guard's hooks and files go, the critic stays.
-    await onSession([reviewer]);
-    expect(JSON.parse(await read('.claude/settings.local.json'))).toEqual(own);
-    expect(await exists(join(sandbox.directory, '.ai-sdk-harness/plugins/guard/guard.sh'))).toBe(
-      false,
-    );
-    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(true);
-
-    // Resumed with no plugin: the critic goes as well; the file keeps the developer's settings.
-    await onSession([]);
-    expect(await exists(join(sandbox.home, '.claude/agents/critic.md'))).toBe(false);
-    expect(JSON.parse(await read('.claude/settings.local.json'))).toEqual(own);
+    await mkdir(join(sandbox.home, '.claude'), { recursive: true });
+    await writeFile(join(sandbox.home, '.claude/settings.json'), JSON.stringify(own));
+    await onSession([guard]);
+    const settings = await homeSettings();
+    expect(settings.permissions).toEqual(own.permissions);
+    expect(settings.hooks.PreToolUse).toEqual([
+      ...own.hooks.PreToolUse,
+      expect.objectContaining({ matcher: 'Bash' }),
+    ]);
   });
 
-  it('removes the settings file it alone created once no plugin has hooks', async () => {
-    await onSession([guard]);
-    await onSession([guard]);
-    const { hooks } = JSON.parse(await read('.claude/settings.local.json')) as {
-      hooks: Record<string, unknown[]>;
+  it('takes back the hooks an earlier version wrote in the session', async () => {
+    const old = { matcher: 'Bash', hooks: [{ type: 'command', command: 'old' }] };
+    const own = { hooks: [{ type: 'command', command: 'mine' }] };
+    const earlier = async (settings: object, createdSettings: boolean) => {
+      await mkdir(join(sandbox.directory, '.claude'), { recursive: true });
+      await mkdir(join(sandbox.directory, '.ai-sdk-harness'), { recursive: true });
+      await writeFile(
+        join(sandbox.directory, '.claude/settings.local.json'),
+        JSON.stringify(settings),
+      );
+      await writeFile(
+        join(sandbox.directory, '.ai-sdk-harness/manifest.json'),
+        JSON.stringify({
+          version: 1,
+          files: [],
+          hookGroups: [groupKey('PreToolUse', old)],
+          createdSettings,
+        }),
+      );
     };
-    expect(Object.keys(hooks)).toEqual(['PreToolUse', 'Stop']);
-    expect(hooks.Stop).toHaveLength(1);
+
+    await earlier({ permissions: { allow: ['Read'] }, hooks: { PreToolUse: [own, old] } }, false);
+    await onSession([guard]);
+    expect(JSON.parse(await read('.claude/settings.local.json'))).toEqual({
+      permissions: { allow: ['Read'] },
+      hooks: { PreToolUse: [own] },
+    });
+
+    // A file that held the plugins' hooks alone goes.
+    sandbox = await createHostSandbox();
+    await earlier({ hooks: { PreToolUse: [old] } }, true);
     await onSession([]);
     expect(await exists(join(sandbox.directory, '.claude/settings.local.json'))).toBe(false);
   });
 
-  it('writes no settings file for plugins without hooks, and only the files for Codex', async () => {
+  it('writes no hooks for plugins without any, nor for Codex, which takes them from the adapter', async () => {
     await onSession([reviewer]);
-    expect(await exists(join(sandbox.directory, '.claude/settings.local.json'))).toBe(false);
+    expect(await exists(join(sandbox.home, '.claude/settings.json'))).toBe(false);
 
     sandbox = await createHostSandbox();
     await onSession([guard, reviewer], codex);
     expect(await exists(join(sandbox.directory, '.claude'))).toBe(false);
+    expect(await exists(join(sandbox.home, '.claude'))).toBe(false);
     expect(await read('.ai-sdk-harness/plugins/guard/guard.sh')).toBe('#!/bin/sh\nexit 0\n');
   });
 
@@ -543,10 +624,10 @@ describe('the session files', () => {
   });
 
   it('refuses a settings file that is not JSON, and reports a failing command', async () => {
-    await mkdir(join(sandbox.directory, '.claude'), { recursive: true });
-    await writeFile(join(sandbox.directory, '.claude/settings.local.json'), 'nope');
+    await mkdir(join(sandbox.home, '.claude'), { recursive: true });
+    await writeFile(join(sandbox.home, '.claude/settings.json'), 'nope');
     await expect(onSession([guard])).rejects.toThrow(
-      ".claude/settings.local.json in the session's working directory is not valid JSON.",
+      '$HOME/.claude/settings.json in the sandbox is not valid JSON.',
     );
 
     sandbox = await createHostSandbox();

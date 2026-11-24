@@ -15,6 +15,7 @@ import { takesHook } from '../runtimes/plugin-runtime.js';
 import { rulesAsInstructions } from '../runtimes/rules.js';
 import { runtimeFor } from '../runtimes/runtime-for.js';
 import { syncHomeFiles } from '../session/sync-home-files.js';
+import { syncHomeHooks } from '../session/sync-home-hooks.js';
 import { STATE_DIR, syncSessionFiles } from '../session/sync-session-files.js';
 import { syncToolFiles } from '../session/sync-tool-files.js';
 
@@ -78,9 +79,10 @@ const SKILL_TOOL = 'Skill';
  * - their **rules** join `instructions`, each one with `paths` saying which files it is for;
  * - their **hooks**, **subagents** and **files** are written in each session's working directory
  *   by `sandboxConfig.onSession`, after your own, at creation and at every resume — so a resumed
- *   session runs with the plugins the agent has now. Claude Code's subagents go under the
- *   sandbox's `$HOME` instead, the only place it reads them: the sessions of a sandbox share them,
- *   the last one to start or resume deciding which there are;
+ *   session runs with the plugins the agent has now. Claude Code reads its subagents and hooks
+ *   under the sandbox's `$HOME` alone, which the sessions of a sandbox share: the last one to
+ *   start or resume decides which subagents there are, and each hook goes through a gate that
+ *   runs it only in the sessions that have it;
  * - the **files** of a plugin whose `sandbox-command` tool cites `${PLUGIN_ROOT}` are written
  *   under the sandbox's `$HOME` too, in a directory named after their content: a tool runs in
  *   the sandbox's default working directory, and never learns the session's.
@@ -123,6 +125,7 @@ export function withPlugins<SETTINGS extends PluginAgentSettings>(
         if (layout.homeFiles !== undefined) {
           await syncHomeFiles({ ...input, files: layout.homeFiles });
         }
+        await syncHomeHooks({ ...input, hookGroups: layout.hookGroups });
         await syncToolFiles({ ...input, tools: toolFiles });
       },
     },

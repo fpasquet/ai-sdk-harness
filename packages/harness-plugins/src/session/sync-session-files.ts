@@ -5,7 +5,7 @@ import { posix } from 'node:path';
 import type { SessionFile, SessionLayout } from '../runtimes/plugin-runtime.js';
 
 import { CLAUDE_LOCAL_SETTINGS } from '../runtimes/claude-code.js';
-import { groupKey, mergeHookGroups, parseSettings } from './local-settings.js';
+import { mergeHookGroups, parseSettings } from './local-settings.js';
 import { FINISH, PREPARE, runScript } from './sandbox-shell.js';
 
 /** The directory of the session this package owns: the plugins' files and its manifest. */
@@ -18,6 +18,7 @@ const SELF_IGNORE: SessionFile = { path: `${STATE_DIR}/.gitignore`, content: '*\
 interface Manifest {
   version: 1;
   files: string[];
+  /** The hook groups an earlier version wrote in `.claude/settings.local.json`, to take back. */
   hookGroups: string[];
   /** Whether `.claude/settings.local.json` did not exist before the plugins wrote it. */
   createdSettings: boolean;
@@ -33,9 +34,10 @@ export interface SyncSessionFilesInput {
 }
 
 /**
- * Writes `layout` in the session's working directory and takes back what the previous call wrote
- * and `layout` no longer has — a plugin turned off between a session and its resume. The files
- * are kept out of Git: the state directory ignores itself, the others go to `info/exclude`.
+ * Writes the files of `layout` in the session's working directory and takes back what the previous
+ * call wrote and `layout` no longer has — a plugin turned off between a session and its resume —,
+ * the hooks an earlier version wrote in `.claude/settings.local.json` included. The files are kept
+ * out of Git: the state directory ignores itself, the others go to `info/exclude`.
  */
 export async function syncSessionFiles(input: SyncSessionFilesInput): Promise<void> {
   const { session, sessionWorkDir: directory, layout, abortSignal } = input;
@@ -53,12 +55,9 @@ export async function syncSessionFiles(input: SyncSessionFilesInput): Promise<vo
   for (const { path, content } of files) {
     await session.writeTextFile({ path: posix.join(directory, path), content, abortSignal });
   }
-  const settings = await syncSettings(input, previous);
+  await takeBackSettings(input, previous);
   const executables = files.filter(({ executable }) => executable === true).map(({ path }) => path);
-  const excluded = [
-    ...layout.files.map(({ path }) => path),
-    ...(settings.createdSettings && settings.hookGroups.length > 0 ? [CLAUDE_LOCAL_SETTINGS] : []),
-  ];
+  const excluded = layout.files.map(({ path }) => path);
   await runScript(
     session,
     { script: FINISH, args: [...executables, '--', ...excluded], directory },
@@ -68,7 +67,8 @@ export async function syncSessionFiles(input: SyncSessionFilesInput): Promise<vo
   const manifest: Manifest = {
     version: 1,
     files: layout.files.map(({ path }) => path),
-    ...settings,
+    hookGroups: [],
+    createdSettings: false,
   };
   await session.writeTextFile({
     path: posix.join(directory, MANIFEST),
@@ -77,39 +77,36 @@ export async function syncSessionFiles(input: SyncSessionFilesInput): Promise<vo
   });
 }
 
-/** Merges the hook groups into `.claude/settings.local.json`, or removes the file it alone made. */
-async function syncSettings(
-  { session, sessionWorkDir, layout, abortSignal }: SyncSessionFilesInput,
+/**
+ * Takes the hook groups an earlier version wrote out of `.claude/settings.local.json`, and removes
+ * the file once nothing else is left in it.
+ */
+async function takeBackSettings(
+  { session, sessionWorkDir, abortSignal }: SyncSessionFilesInput,
   previous: Manifest,
-): Promise<Pick<Manifest, 'createdSettings' | 'hookGroups'>> {
-  const hookGroups = Object.entries(layout.hookGroups).flatMap(([event, groups]) =>
-    groups.map((group) => groupKey(event, group)),
-  );
-  if (hookGroups.length === 0 && previous.hookGroups.length === 0) {
-    return { createdSettings: previous.createdSettings, hookGroups };
-  }
+): Promise<void> {
+  if (previous.hookGroups.length === 0) return;
   const path = posix.join(sessionWorkDir, CLAUDE_LOCAL_SETTINGS);
   const text = await session.readTextFile({ path, abortSignal });
-  const createdSettings = previous.hookGroups.length > 0 ? previous.createdSettings : text === null;
-  const merged = mergeHookGroups(
-    parseSettings(text, CLAUDE_LOCAL_SETTINGS),
-    new Set(previous.hookGroups),
-    layout.hookGroups,
+  if (text === null) return;
+  const settings = parseSettings(
+    text,
+    `${CLAUDE_LOCAL_SETTINGS} in the session's working directory`,
   );
-  if (merged !== undefined) {
+  const kept = mergeHookGroups(settings, new Set(previous.hookGroups), {});
+  if (kept !== undefined) {
     await session.writeTextFile({
       path,
-      content: `${JSON.stringify(merged, null, 2)}\n`,
+      content: `${JSON.stringify(kept, null, 2)}\n`,
       abortSignal,
     });
-  } else if (text !== null) {
+  } else {
     await runScript(
       session,
       { script: PREPARE, args: [CLAUDE_LOCAL_SETTINGS], directory: sessionWorkDir },
       abortSignal,
     );
   }
-  return { createdSettings, hookGroups };
 }
 
 async function readManifest({
