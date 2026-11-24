@@ -1,94 +1,68 @@
 'use client';
 
+import type { SessionSummary } from 'ai-sdk-harness-sessions';
 import type { UIMessage } from 'ai';
 
-import { useChat } from '@ai-sdk/react';
-import { getToolName, isToolUIPart } from 'ai';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { Streamdown } from 'streamdown';
+import { useCallback, useEffect, useState } from 'react';
 
-const SUGGESTION = 'Write a script that prints the first ten primes, then run it.';
+import type { Conversation } from '@/lib/sessions';
 
-/** One part of a message: the agent's text as Markdown, or a tool it ran in the sandbox. */
-function Part({ part }: { part: UIMessage['parts'][number] }) {
-  if (part.type === 'text') return <Streamdown>{part.text}</Streamdown>;
-  if (!isToolUIPart(part)) return null;
-  return (
-    <details className="rounded-lg border border-neutral-500/30 text-sm">
-      <summary className="cursor-pointer px-3 py-2 font-mono">
-        {getToolName(part)} <span className="text-neutral-500">{part.state}</span>
-      </summary>
-      <pre className="overflow-x-auto border-t border-neutral-500/30 p-3 text-xs">
-        {JSON.stringify({ input: part.input, output: part.output ?? part.errorText }, null, 2)}
-      </pre>
-    </details>
-  );
-}
+import { Chat } from './chat';
 
+const newId = () => crypto.randomUUID();
+
+/** The conversations on the left, the one open on the right. */
 export default function Page() {
-  const { messages, sendMessage, status, stop, error } = useChat();
-  const [input, setInput] = useState('');
-  const end = useRef<HTMLDivElement>(null);
-  const busy = status === 'submitted' || status === 'streaming';
+  const [list, setList] = useState<SessionSummary<Conversation>[]>([]);
+  const [open, setOpen] = useState<{ id: string; messages: UIMessage[] }>(() => ({
+    id: newId(),
+    messages: [],
+  }));
 
+  const refresh = useCallback(async () => {
+    const response = await fetch('/api/sessions');
+    if (response.ok) setList(await response.json());
+  }, []);
+
+  // The statuses change while the agents work: idle, working, waiting for you, suspended.
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [messages]);
+    void refresh();
+    const timer = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(timer);
+  }, [refresh]);
 
-  const submit = (event?: FormEvent) => {
-    event?.preventDefault();
-    if (input.trim() === '' || busy) return;
-    void sendMessage({ text: input });
-    setInput('');
+  const show = async (id: string) => {
+    const response = await fetch(`/api/sessions/${id}`);
+    if (response.ok) setOpen({ id, messages: (await response.json()).messages });
   };
 
   return (
-    <main className="mx-auto flex h-dvh max-w-3xl flex-col gap-4 p-4">
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
-        {messages.length === 0 && (
-          <p className="m-auto text-center text-neutral-500">
-            Claude Code, in a local Docker Sandbox. The first message builds its template: a minute
-            or two.
-          </p>
-        )}
-        {messages.map((message) => (
-          <div
-            className={
-              message.role === 'user'
-                ? 'self-end rounded-xl bg-neutral-500/15 px-4 py-2'
-                : 'flex flex-col gap-2'
-            }
-            key={message.id}
-          >
-            {message.parts.map((part, index) => (
-              <Part key={index} part={part} />
-            ))}
-          </div>
-        ))}
-        {status === 'submitted' && <p className="text-neutral-500">The agent is starting…</p>}
-        {error && <p className="text-red-600">{error.message}</p>}
-        <div ref={end} />
-      </div>
-
-      <form className="flex gap-2" onSubmit={submit}>
-        <textarea
-          className="flex-1 resize-none rounded-xl border border-neutral-500/30 bg-transparent p-3"
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) submit(event);
-          }}
-          placeholder={SUGGESTION}
-          rows={3}
-          value={input}
-        />
+    <div className="flex h-dvh">
+      <nav className="flex w-64 shrink-0 flex-col gap-1 border-r border-neutral-500/30 p-3 text-sm">
         <button
-          className="self-end rounded-xl bg-neutral-900 px-4 py-2 text-white dark:bg-neutral-100 dark:text-neutral-900"
-          onClick={busy ? () => void stop() : undefined}
-          type={busy ? 'button' : 'submit'}
+          className="mb-2 rounded-lg border border-neutral-500/30 px-3 py-2 text-left"
+          onClick={() => setOpen({ id: newId(), messages: [] })}
         >
-          {busy ? 'Stop' : 'Send'}
+          New conversation
         </button>
-      </form>
-    </main>
+        {list.map((session) => (
+          <button
+            className={`rounded-lg px-3 py-2 text-left ${session.id === open.id ? 'bg-neutral-500/15' : ''}`}
+            key={session.id}
+            onClick={() => void show(session.id)}
+          >
+            <span className="block truncate">{session.metadata.title}</span>
+            <span className="text-xs text-neutral-500">{session.status}</span>
+          </button>
+        ))}
+      </nav>
+      {/* A new conversation, or another one opened: a chat of its own. */}
+      <Chat
+        id={open.id}
+        initialMessages={open.messages}
+        key={open.id}
+        onTurnEnd={() => void refresh()}
+      />
+    </div>
   );
 }

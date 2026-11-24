@@ -8,6 +8,8 @@ const config: NextConfig = {
     '@ai-sdk/harness-claude-code',
     'ai-sdk-sandbox-sbx',
     'ai-sdk-harness-sessions',
+    // Runs git on this host for a repository of this machine.
+    'ai-sdk-harness-workspace',
   ],
 };
 
