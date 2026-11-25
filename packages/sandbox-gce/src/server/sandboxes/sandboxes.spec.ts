@@ -49,6 +49,8 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
     setScheduling: vi.fn(() => Promise.resolve()),
     setMetadata: vi.fn(() => Promise.resolve()),
     setLabels: vi.fn(() => Promise.resolve()),
+    getDisk: vi.fn((name: string) => Promise.resolve({ name, labelFingerprint: 'd0' })),
+    setDiskLabels: vi.fn(() => Promise.resolve()),
     deleteInstance: vi.fn(() => {
       statuses.splice(0, statuses.length, undefined);
       return Promise.resolve();
@@ -336,6 +338,55 @@ describe('the sandboxes of the service', () => {
       allowedHosts: ['registry.npmjs.org', 'github.com'],
       baseUrls: {},
     });
+  });
+
+  it("puts the caller's labels on the machine and on its disk, beside the service's", async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = computeOf([undefined, sandbox('RUNNING')]);
+
+    await sandboxesOf({ compute }).create('box', { labels: { team: 'studio', run: 'r-42' } });
+
+    expect(compute.insertInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        labels: {
+          team: 'studio',
+          run: 'r-42',
+          'ai-sdk-sandbox': 'sandbox',
+          'ai-sdk-sandbox-image': 'default',
+        },
+        disks: [
+          expect.objectContaining({
+            initializeParams: expect.objectContaining({
+              labels: {
+                team: 'studio',
+                run: 'r-42',
+                'ai-sdk-sandbox': 'sandbox',
+                'ai-sdk-sandbox-name': 'box',
+              },
+            }) as unknown,
+          }),
+        ],
+      }),
+      { wait: true },
+    );
+  });
+
+  it.each([
+    [{ 'ai-sdk-sandbox': 'mine' }, 'starts with "ai-sdk-"'],
+    [{ Team: 'a' }, 'Invalid label key "Team"'],
+    [{ '1team': 'a' }, 'Invalid label key "1team"'],
+    [{ team: 'Studio' }, 'Invalid value of the label "team"'],
+    [{ team: 'a'.repeat(64) }, 'Invalid value of the label "team"'],
+    [{ ['k'.repeat(64)]: 'a' }, 'Invalid label key'],
+    [Object.fromEntries(Array.from({ length: 57 }, (_, i) => [`k${i}`, ''])), '57 labels'],
+  ])('refuses the labels %j before making anything', async (labels, message) => {
+    const compute = computeOf([undefined]);
+
+    const created = sandboxesOf({ compute }).create('box', { labels });
+
+    await expect(created).rejects.toMatchObject({ status: 400 });
+    await expect(created).rejects.toThrow(message);
+    expect(compute.insertInstance).not.toHaveBeenCalled();
   });
 
   it('refuses a name taken meanwhile, and an image the service does not offer', async () => {
@@ -839,6 +890,12 @@ describe('the warm pool', () => {
       'ai-sdk-sandbox': 'sandbox',
       'ai-sdk-sandbox-name': 'box',
     });
+    // Its disk, labelled the pool's until then, is the sandbox's now.
+    expect(compute.setDiskLabels).toHaveBeenCalledWith(
+      'sbx-pool-a',
+      { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+      'd0',
+    );
     expect(proxy.register).toHaveBeenCalledWith(
       'box',
       expect.objectContaining({ address: '10.0.2.1' }),
@@ -975,6 +1032,38 @@ describe('the warm pool', () => {
     expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
     expect(poolIn(machines)).toEqual([]);
     expect(compute.insertInstance).not.toHaveBeenCalled();
+  });
+
+  it("labels a machine of the pool and its disk with the caller's labels, its disk at best", async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-a', deps, {
+        disks: [{ boot: true, source: 'zones/z/disks/sbx-pool-a-disk' }],
+      }),
+    ]);
+    compute.setDiskLabels.mockRejectedValueOnce(new ComputeError(403, 'Required permission'));
+    const warn = vi.fn();
+
+    await sandboxesOf({ compute, warmPool: 0, logger: { ...silentLogger, warn } }).create('box', {
+      template: 'deps',
+      labels: { team: 'studio' },
+    });
+
+    expect(machines.get('sbx-pool-a')?.labels).toMatchObject({
+      team: 'studio',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'box',
+    });
+    expect(compute.getDisk).toHaveBeenCalledWith('sbx-pool-a-disk');
+    expect(compute.setDiskLabels).toHaveBeenCalledWith(
+      'sbx-pool-a-disk',
+      { team: 'studio', 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+      'd0',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('The disk of sbx-pool-a keeps its labels'),
+    );
   });
 
   it('makes a machine of its own when another creation took the one of the pool first, which refills it', async () => {

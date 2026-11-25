@@ -29,6 +29,12 @@ interface FakeInstance {
   body: Record<string, unknown>;
 }
 
+/** The boot disk of a machine, named after it. */
+interface FakeDisk {
+  labels: Record<string, string>;
+  labelFingerprint: string;
+}
+
 type Json = Record<string, unknown>;
 type Metadata = { fingerprint: string; items: { key: string; value: string }[] };
 type Answer = [number, unknown];
@@ -93,6 +99,8 @@ export class FakeCompute {
   endpoint = '';
 
   private readonly instances = new Map<string, FakeInstance>();
+  /** The machines' boot disks, by name: gone with their machine. */
+  readonly disks = new Map<string, FakeDisk>();
   private readonly server: Server;
   private operations = 0;
 
@@ -114,6 +122,12 @@ export class FakeCompute {
       (name, body) => Promise.resolve(this.setLabels(name, body)),
     ],
     ['DELETE', /\/zones\/[^/]+\/instances\/([^/]+)$/, (name) => this.remove(name)],
+    ['GET', /\/zones\/[^/]+\/disks\/([^/]+)$/, (name) => Promise.resolve(this.getDisk(name))],
+    [
+      'POST',
+      /\/zones\/[^/]+\/disks\/([^/]+)\/setLabels$/,
+      (name, body) => Promise.resolve(this.setDiskLabels(name, body)),
+    ],
     [
       'GET',
       /\/global\/images\/family\/([^/]+)$/,
@@ -192,6 +206,7 @@ export class FakeCompute {
         labelFingerprint: instance.labelFingerprint,
         networkInterfaces: [{ networkIP: '127.0.0.1' }],
         metadata: instance.metadata,
+        disks: [{ boot: true, source: `zones/${this.zone}/disks/${instance.name}` }],
       },
     ];
   }
@@ -217,6 +232,13 @@ export class FakeCompute {
       body,
     };
     this.instances.set(name, instance);
+    const [bootDisk] = (body['disks'] ?? []) as {
+      initializeParams?: { labels?: Record<string, string> };
+    }[];
+    this.disks.set(name, {
+      labels: { ...bootDisk?.initializeParams?.labels },
+      labelFingerprint: `d${++this.operations}`,
+    });
     await this.boot(instance);
     return this.operation();
   }
@@ -262,11 +284,29 @@ export class FakeCompute {
     return this.operation();
   }
 
+  private getDisk(name: string): Answer {
+    const disk = this.disks.get(name);
+    return disk === undefined ? NOT_FOUND : [200, { name, ...disk }];
+  }
+
+  /** Replaces the labels of the disk `name`, unless they changed since their fingerprint was read. */
+  private setDiskLabels(name: string, body: Json): Answer {
+    const disk = this.disks.get(name);
+    if (disk === undefined) return NOT_FOUND;
+    if (body['labelFingerprint'] !== disk.labelFingerprint) {
+      return [412, { error: { message: 'Labels fingerprint either invalid or labels changed' } }];
+    }
+    disk.labels = (body['labels'] ?? {}) as Record<string, string>;
+    disk.labelFingerprint = `d${++this.operations}`;
+    return this.operation();
+  }
+
   private async remove(name: string): Promise<Answer> {
     const instance = this.instances.get(name);
     if (instance === undefined) return NOT_FOUND;
     await this.halt(instance);
     this.instances.delete(name);
+    this.disks.delete(name);
     rmSync(instance.disk, { recursive: true, force: true });
     return this.operation();
   }

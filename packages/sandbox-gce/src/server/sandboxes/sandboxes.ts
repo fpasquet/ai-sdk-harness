@@ -12,6 +12,7 @@ import type { ProxyAdmin } from './proxy-admin.js';
 import { HttpError } from '../../common/http-error.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
 import { AGENT_TOKEN_METADATA_KEY, IDLE_POWER_OFF_METADATA_KEY } from '../../protocol/agent.js';
+import { labelsProblem } from '../../protocol/labels.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
@@ -121,6 +122,39 @@ const RETIRED_LABEL = 'ai-sdk-sandbox-retired';
  */
 const PREPARED_LABEL = 'ai-sdk-sandbox-prepared';
 
+/** A machine and its disk as the service makes them: their source, and the caller's labels. */
+interface MachineSource {
+  /** The service's name of the image the machine is made on. */
+  image: string;
+  /** What its disk is made from: the image, or a template's. */
+  sourceImage: string;
+  /** The caller's labels, put on the machine and on its disk beside the service's. */
+  callerLabels?: Readonly<Record<string, string>>;
+}
+
+/** What a machine is created with: its source, and the labels of the machine and of its disk. */
+interface MachineBody {
+  image: string;
+  sourceImage: string;
+  labels: Record<string, string>;
+  diskLabels: Record<string, string>;
+  metadata?: readonly { key: string; value: string }[];
+  standard?: boolean;
+}
+
+/** The labels of the disk of the sandbox `name`: the caller's, and the service's. */
+const sandboxDiskLabels = (
+  name: string,
+  callerLabels: Readonly<Record<string, string>>,
+): Record<string, string> => ({ ...callerLabels, [LABEL]: 'sandbox', [NAME_LABEL]: name });
+
+/** The name of the boot disk of `instance`: the instance's own, as the service makes it. */
+const bootDiskOf = (instance: Instance): string =>
+  instance.disks
+    ?.find(({ boot }) => boot === true)
+    ?.source?.split('/')
+    .at(-1) ?? instance.name;
+
 /** A name of a sandbox or a template: what an instance or image name and a URL path all take. */
 const NAME = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
@@ -189,6 +223,12 @@ const PREPARED_POWER_OFF_MINUTES = PREPARED_WAIT_MS / 60_000 + 1;
 const alreadyExists = (name: string): HttpError =>
   new HttpError(409, `A sandbox named "${name}" already exists.`);
 
+/** Refuses labels Compute Engine would refuse, or that the service keeps for its own. */
+function assertLabels(labels: Readonly<Record<string, string>>): void {
+  const problem = labelsProblem(labels);
+  if (problem !== undefined) throw new HttpError(400, problem);
+}
+
 /** Compute Engine's names are 63 characters at most. */
 const MAX_NAME = 63;
 
@@ -238,17 +278,23 @@ export class Sandboxes {
   /**
    * Creates the sandbox `name` on the image `image`, from its template `template` when given: on a
    * machine of the warm pool booted from it when one runs, a new machine otherwise. Never resumes
-   * one.
+   * one. The caller's `labels` go on its machine and on its disk, beside the service's.
    */
   async create(
     name: string,
     {
       template,
       image = DEFAULT_IMAGE,
+      labels = {},
       ...network
-    }: SandboxNetwork & { image?: string; template?: string },
+    }: SandboxNetwork & {
+      image?: string;
+      labels?: Readonly<Record<string, string>>;
+      template?: string;
+    },
   ): Promise<SandboxDescription> {
     this.assertSandboxName(name);
+    assertLabels(labels);
     const base = this.imagePathOf(image);
     if (!(await this.nameIsFree(name))) throw alreadyExists(name);
     const sourceImage = template === undefined ? base : await this.templateImage(template, image);
@@ -257,7 +303,7 @@ export class Sandboxes {
     // The proxy boots meanwhile, when it was stopped: ready() waits for it.
     const proxyUp = this.proxyUp();
     proxyUp.catch(() => undefined);
-    const source = { sourceImage, image };
+    const source: MachineSource = { sourceImage, image, callerLabels: labels };
     const pool = template === undefined ? undefined : await this.fromPool(name, source);
     try {
       const taken = pool?.taken;
@@ -531,7 +577,7 @@ export class Sandboxes {
    */
   private async fromPool(
     name: string,
-    template: { image: string; sourceImage: string },
+    { callerLabels = {}, ...template }: MachineSource,
   ): Promise<{ taken?: Instance; upkeep: Promise<void> }> {
     const { logger, warmPool = 0 } = this.options;
     const templateLabel = labelOfImage(template.sourceImage);
@@ -550,7 +596,7 @@ export class Sandboxes {
     try {
       for (const machine of kept) {
         tried.add(machine.name);
-        taken = await this.take(machine, name);
+        taken = await this.take(machine, name, callerLabels);
         if (taken !== undefined) break;
       }
     } catch (error) {
@@ -572,17 +618,22 @@ export class Sandboxes {
   }
 
   /**
-   * Takes the machine `machine` of the warm pool for the sandbox `name`, by its labels: of two
-   * creations taking it at once, Compute Engine lets one change them only. The machine as it is
-   * then, running or still booting, `undefined` when another creation took it, or it no longer
-   * runs. Fails when Compute Engine refuses the change for another reason.
+   * Takes the machine `machine` of the warm pool for the sandbox `name`, by its labels, the caller's
+   * `callerLabels` among them: of two creations taking it at once, Compute Engine lets one change
+   * them only. Its disk is labelled the sandbox's too, without waiting. The machine as it is then,
+   * running or still booting, `undefined` when another creation took it, or it no longer runs.
+   * Fails when Compute Engine refuses the change for another reason.
    */
-  private async take(machine: Instance, name: string): Promise<Instance | undefined> {
+  private async take(
+    machine: Instance,
+    name: string,
+    callerLabels: Readonly<Record<string, string>>,
+  ): Promise<Instance | undefined> {
     const { compute, logger } = this.options;
     try {
       await compute.setLabels(
         machine.name,
-        { ...machine.labels, [LABEL]: 'sandbox', [NAME_LABEL]: name },
+        { ...machine.labels, ...callerLabels, [LABEL]: 'sandbox', [NAME_LABEL]: name },
         machine.labelFingerprint,
       );
     } catch (error) {
@@ -599,7 +650,25 @@ export class Sandboxes {
       return undefined;
     }
     logger.info(`${name} takes ${taken.name} from the warm pool`);
+    await this.labelDisk(taken, sandboxDiskLabels(name, callerLabels));
     return taken;
+  }
+
+  /**
+   * Labels the boot disk of `instance` with `labels`, without waiting for Compute Engine: what a
+   * billing export groups the disk's cost by. Failing, the sandbox goes on, its disk unlabelled,
+   * which is logged.
+   */
+  private async labelDisk(instance: Instance, labels: Record<string, string>): Promise<void> {
+    const { compute, logger } = this.options;
+    const disk = bootDiskOf(instance);
+    try {
+      const found = await compute.getDisk(disk);
+      if (found === undefined) throw new Error(`no disk ${disk}`);
+      await compute.setDiskLabels(disk, labels, found.labelFingerprint);
+    } catch (error) {
+      logger.warn(`The disk of ${instance.name} keeps its labels: ${String(error)}`);
+    }
   }
 
   /**
@@ -629,7 +698,7 @@ export class Sandboxes {
    * come when told so, without waiting for it. Answers its name.
    */
   private async addToPool(
-    template: { image: string; sourceImage: string },
+    template: MachineSource,
     templateLabel: string,
     { prepared = false }: { prepared?: boolean } = {},
   ): Promise<string> {
@@ -645,7 +714,11 @@ export class Sandboxes {
     const metadata = prepared
       ? [{ key: IDLE_POWER_OFF_METADATA_KEY, value: String(PREPARED_POWER_OFF_MINUTES) }]
       : [];
-    await this.insert(instance, { ...template, labels, metadata }, { wait: false });
+    await this.insert(
+      instance,
+      { ...template, labels, diskLabels: { [LABEL]: 'pool' }, metadata },
+      { wait: false },
+    );
     return instance;
   }
 
@@ -800,11 +873,15 @@ export class Sandboxes {
   /** Creates the machine named after the sandbox `name`, and answers its name. */
   private async insertSandbox(
     name: string,
-    source: { image: string; sourceImage: string },
+    { callerLabels = {}, ...source }: MachineSource,
   ): Promise<string> {
     const instance = this.instanceName(name);
     try {
-      await this.insert(instance, source);
+      await this.insert(instance, {
+        ...source,
+        labels: { ...callerLabels, [LABEL]: 'sandbox', [IMAGE_LABEL]: source.image },
+        diskLabels: sandboxDiskLabels(name, callerLabels),
+      });
     } catch (error) {
       if (error instanceof ComputeError && error.status === 409) throw alreadyExists(name);
       throw error;
@@ -871,12 +948,7 @@ export class Sandboxes {
    */
   private async insert(
     instance: string,
-    source: {
-      image: string;
-      sourceImage: string;
-      labels?: Record<string, string>;
-      metadata?: readonly { key: string; value: string }[];
-    },
+    source: MachineBody,
     { wait = true }: { wait?: boolean } = {},
   ): Promise<void> {
     const { compute, logger, zone } = this.options;
@@ -1112,19 +1184,7 @@ export class Sandboxes {
 
   private instanceBody(
     name: string,
-    {
-      sourceImage,
-      image,
-      labels = { [LABEL]: 'sandbox', [IMAGE_LABEL]: image },
-      metadata = [],
-      standard = false,
-    }: {
-      image: string;
-      sourceImage: string;
-      labels?: Record<string, string>;
-      metadata?: readonly { key: string; value: string }[];
-      standard?: boolean;
-    },
+    { sourceImage, labels, diskLabels, metadata = [], standard = false }: MachineBody,
   ): Record<string, unknown> {
     const { machine, zone } = this.options;
     return {
@@ -1141,7 +1201,7 @@ export class Sandboxes {
             sourceImage,
             diskSizeGb: String(machine.diskSizeGb),
             diskType: `zones/${zone}/diskTypes/${machine.diskType}`,
-            labels: { [LABEL]: 'sandbox' },
+            labels: diskLabels,
           },
         },
       ],

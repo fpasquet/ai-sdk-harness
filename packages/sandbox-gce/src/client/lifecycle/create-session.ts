@@ -10,6 +10,7 @@ import type {
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
 
+import { labelsProblem } from '../../protocol/labels.js';
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
 import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session.js';
 import { identityToken } from '../transport/identity-token.js';
@@ -36,6 +37,12 @@ function assertSandboxName(name: string): void {
       `Invalid sandbox id "${name}": lowercase letters, digits and dashes, starting and ending with a letter or a digit, 55 at most.`,
     );
   }
+}
+
+/** Refuses labels the service would refuse, before anything is made. */
+function assertLabels(labels: Readonly<Record<string, string>> | undefined): void {
+  const problem = labels === undefined ? undefined : labelsProblem(labels);
+  if (problem !== undefined) throw new Error(problem);
 }
 
 function clientOf({
@@ -99,19 +106,21 @@ export async function createGceNetworkSandboxSession(
     baseUrls,
     nodeUseEnvProxy,
     image,
+    labels,
   } = options;
   const requiredCommands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   const name = options.sandboxId ?? `ai-sdk-${randomBytes(4).toString('hex')}`;
   assertSandboxName(name);
+  assertLabels(labels);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls, nodeUseEnvProxy };
   const create = (ready?: ReadyTemplate): Promise<SandboxDescription> =>
-    createFrom(client, name, { ...network, image, template: ready, abortSignal });
+    createFrom(client, name, { ...network, image, labels, template: ready, abortSignal });
   const description = await (template
     ? withTemplate(
         client,
-        { template, setup, network, image, requiredCommands, abortSignal },
+        { template, setup, network, image, labels, requiredCommands, abortSignal },
         create,
       )
     : create());

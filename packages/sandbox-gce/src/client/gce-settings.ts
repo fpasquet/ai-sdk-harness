@@ -88,6 +88,17 @@ export interface GceCreationSettings extends GceConnectionSettings {
    */
   image?: string;
   /**
+   * Labels put on the sandbox's machine and on its disk, beside the service's own: what a Cloud
+   * Billing export, or a budget, groups their cost by. Keys start with a lowercase letter, then
+   * lowercase letters, digits, `_` or `-`, values the same but may be empty, 63 characters at most
+   * each, 56 labels at most. Keys starting with `ai-sdk-` are the package's: refused. A machine
+   * taken from the warm pool gets them as it is taken, its disk too. A template's builder gets those
+   * of the creation that builds it.
+   *
+   * @defaultValue `{}`
+   */
+  labels?: Readonly<Record<string, string>>;
+  /**
    * Commands the sandbox must have once `setup` ran, which may install them: a harness needs Node.js for
    * its bridge and git for the repositories, whatever the project's language. A missing one fails
    * the creation with `GceSandboxImageError`, the sandbox deleted. `[]` checks nothing.

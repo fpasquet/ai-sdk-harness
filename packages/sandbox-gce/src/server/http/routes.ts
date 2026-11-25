@@ -46,6 +46,7 @@ const network = async (request: IncomingMessage) => {
     template: optionalString(body, 'template'),
     image: optionalString(body, 'image'),
     name: optionalString(body, 'name'),
+    labels: stringRecord(body, 'labels'),
   };
 };
 

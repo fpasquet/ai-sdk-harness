@@ -95,10 +95,15 @@ export class SandboxServiceClient {
     return this.base.toString();
   }
 
-  /** Creates the sandbox `name`, from a template when given. */
+  /** Creates the sandbox `name`, from a template when given, its machine and disk labelled `labels`. */
   async create(
     name: string,
-    options: SandboxNetwork & { abortSignal?: AbortSignal; image?: string; template?: string },
+    options: SandboxNetwork & {
+      abortSignal?: AbortSignal;
+      image?: string;
+      labels?: Readonly<Record<string, string>>;
+      template?: string;
+    },
   ): Promise<SandboxDescription> {
     const { abortSignal, ...body } = options;
     const response = await this.call('POST', 'v1/sandboxes', {

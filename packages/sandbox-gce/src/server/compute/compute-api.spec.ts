@@ -161,6 +161,22 @@ describe('the Compute Engine API', () => {
     expect(calls[0]).toBe('POST /projects/p/zones/z/instances/box/setLabels');
   });
 
+  it('reads a disk, and changes its labels read with their fingerprint, not waiting', async () => {
+    answers.push(
+      { name: 'box', labels: { team: 'a' }, labelFingerprint: 'abc=' },
+      { name: 'op', status: 'RUNNING', selfLink: `${endpoint}/op` },
+    );
+
+    const disk = await api().getDisk('box');
+    await api().setDiskLabels('box', { team: 'b' }, disk?.labelFingerprint);
+
+    expect(disk).toEqual({ name: 'box', labels: { team: 'a' }, labelFingerprint: 'abc=' });
+    expect(calls).toEqual([
+      'GET /projects/p/zones/z/disks/box',
+      'POST /projects/p/zones/z/disks/box/setLabels',
+    ]);
+  });
+
   it('reports a failed operation that says little, and an error that is not JSON', async () => {
     answers.push(
       { name: 'op', status: 'DONE', selfLink: `${endpoint}/op`, error: { errors: [{}] } },

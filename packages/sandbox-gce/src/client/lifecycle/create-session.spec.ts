@@ -89,6 +89,37 @@ describe('a Compute Engine sandbox', () => {
     ).rejects.toThrow('Invalid sandbox id');
   });
 
+  it("labels its machine and its disk with the caller's labels, and refuses invalid ones", async () => {
+    await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      labels: { team: 'studio', session: 's-1' },
+    });
+
+    expect(fake.compute.instance('sbx-box')?.labels).toEqual({
+      team: 'studio',
+      session: 's-1',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-image': 'default',
+    });
+    expect(fake.compute.disks.get('sbx-box')?.labels).toEqual({
+      team: 'studio',
+      session: 's-1',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'box',
+    });
+    await expect(
+      createGceNetworkSandboxSession({ ...options(), labels: { 'ai-sdk-sandbox': 'x' } }),
+    ).rejects.toThrow('which the package keeps for its own');
+    const refused = await fetch(`${fake.url}/v1/sandboxes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'other', labels: { Team: 'a' } }),
+    });
+    expect(refused.status).toBe(400);
+    expect(fake.compute.instance('sbx-other')).toBeUndefined();
+  });
+
   it('refuses to create a sandbox whose name is taken', async () => {
     await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
 
@@ -772,10 +803,22 @@ describe('a sandbox from the warm pool', () => {
     await createGceNetworkSandboxSession({ ...options, sandboxId: 'one', template });
     const [ahead = ''] = pool();
     expect(ahead).toMatch(/^sbx-pool-[0-9a-f]{8}$/);
+    expect(fake.compute.disks.get(ahead)?.labels).toEqual({ 'ai-sdk-sandbox': 'pool' });
 
-    const two = await createGceNetworkSandboxSession({ ...options, sandboxId: 'two', template });
+    const two = await createGceNetworkSandboxSession({
+      ...options,
+      sandboxId: 'two',
+      template,
+      labels: { team: 'studio' },
+    });
     expect(fake.compute.instance('sbx-two')).toBeUndefined();
     expect(fake.compute.instance(ahead)?.labels).toMatchObject({
+      team: 'studio',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'two',
+    });
+    expect(fake.compute.disks.get(ahead)?.labels).toEqual({
+      team: 'studio',
       'ai-sdk-sandbox': 'sandbox',
       'ai-sdk-sandbox-name': 'two',
     });

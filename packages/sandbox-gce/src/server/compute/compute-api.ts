@@ -14,6 +14,25 @@ export interface Instance {
   metadata?: InstanceMetadata;
   /** When the instance was made: an RFC 3339 timestamp. */
   creationTimestamp?: string;
+  /** Its disks: the boot disk's `source` is the disk's URL, named after the instance. */
+  disks?: AttachedDisk[];
+}
+
+/** A disk as an instance lists it. */
+export interface AttachedDisk {
+  boot?: boolean;
+  /** The disk's URL: `…/zones/<zone>/disks/<name>`. */
+  source?: string;
+  /** Its size, a number in a string. */
+  diskSizeGb?: string;
+}
+
+/** The fields of a disk the service reads. */
+export interface Disk {
+  name: string;
+  labels?: Record<string, string>;
+  /** What the labels are changed with: Compute Engine refuses a change made on older ones. */
+  labelFingerprint?: string;
 }
 
 /** The metadata of an instance: its `fingerprint` must be given back to change it. */
@@ -131,6 +150,26 @@ export class ComputeApi {
   ): Promise<void> {
     await this.change('POST', this.zonal(`instances/${name}/setLabels`), {
       body: { labels, labelFingerprint: fingerprint },
+    });
+  }
+
+  /** The disk `name`, or `undefined` when there is none. */
+  getDisk(name: string): Promise<Disk | undefined> {
+    return this.read<Disk>(this.zonal(`disks/${name}`));
+  }
+
+  /**
+   * Replaces the labels of the disk `name`, without waiting for Compute Engine to be done. Refused
+   * with a 412 when they changed since they were read with `fingerprint`.
+   */
+  async setDiskLabels(
+    name: string,
+    labels: Record<string, string>,
+    fingerprint: string | undefined,
+  ): Promise<void> {
+    await this.change('POST', this.zonal(`disks/${name}/setLabels`), {
+      body: { labels, labelFingerprint: fingerprint },
+      wait: false,
     });
   }
 

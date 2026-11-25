@@ -654,21 +654,22 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 `createGceNetworkSandboxSession(options)` takes every option below; `resumeGceNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.
 
-| Option             | Default           | Description                                                                                                           |
-| ------------------ | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `url`              | required          | _Connection._ The URL of the sandbox service                                                                          |
-| `auth`             | `'gcloud'`        | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token                           |
-| `ports`            | `[]`              | _Connection._ Ports the harness may reach, through the service                                                        |
-| `allowedHosts`     | `[]`              | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                                         |
-| `baseUrls`         | `{}`              | _Connection._ Base URL variables routed through the proxy, on top of the service's                                    |
-| `nodeUseEnvProxy`  | the service's     | _Connection._ `true` sets `NODE_USE_ENV_PROXY=1` for the commands: see [Node.js and the proxy](#nodejs-and-the-proxy) |
-| `serviceToken`     | none              | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                                  |
-| `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken                   |
-| `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                                    |
-| `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`                                |
-| `requiredCommands` | `['node', 'git']` | Commands the sandbox must have once `setup` ran                                                                       |
-| `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template                       |
-| `abortSignal`      | none              | Aborts the creation or the resume                                                                                     |
+| Option             | Default           | Description                                                                                                                   |
+| ------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `url`              | required          | _Connection._ The URL of the sandbox service                                                                                  |
+| `auth`             | `'gcloud'`        | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token                                   |
+| `ports`            | `[]`              | _Connection._ Ports the harness may reach, through the service                                                                |
+| `allowedHosts`     | `[]`              | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                                                 |
+| `baseUrls`         | `{}`              | _Connection._ Base URL variables routed through the proxy, on top of the service's                                            |
+| `nodeUseEnvProxy`  | the service's     | _Connection._ `true` sets `NODE_USE_ENV_PROXY=1` for the commands: see [Node.js and the proxy](#nodejs-and-the-proxy)         |
+| `serviceToken`     | none              | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                                          |
+| `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken                           |
+| `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                                            |
+| `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`                                        |
+| `labels`           | `{}`              | Labels put on the machine and its disk, for a billing export: see [Usage and cost of a sandbox](#usage-and-cost-of-a-sandbox) |
+| `requiredCommands` | `['node', 'git']` | Commands the sandbox must have once `setup` ran                                                                               |
+| `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template                               |
+| `abortSignal`      | none              | Aborts the creation or the resume                                                                                             |
 
 ## Configuration
 
@@ -746,6 +747,24 @@ A sandbox's commands run with nothing of the agent's environment: only their `PA
 - `GceSandboxServiceError`: the service answered with an error status: 409 for a name already taken, 400 for an image it does not offer or a command carrying a credential, 504 for a machine whose agent did not answer in time. Carries `request` and `status`.
 - `HarnessSandboxAuthenticationError` (from `@ai-sdk/harness`): Cloud Run refused the call (401 or 403), or the service token is missing or wrong.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a network policy with CIDR rules.
+
+## Usage and cost of a sandbox
+
+The machine has no service account, and reaches nothing but the egress proxy: what a sandbox costs is read from outside, from the service, by the application.
+
+### Labels
+
+`labels` puts labels of yours on the sandbox's machine and on its disk, beside the service's own (`ai-sdk-sandbox`, `ai-sdk-sandbox-name`…): a [Cloud Billing export](https://cloud.google.com/billing/docs/how-to/export-data-bigquery) or a budget then groups their cost by them.
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({
+  url,
+  template: await agent.getSandboxTemplate(),
+  labels: { app: 'studio', tenant: 'acme', session: 's-42' },
+});
+```
+
+Keys start with a lowercase letter, then lowercase letters, digits, `_` or `-`; values take the same characters and may be empty; 63 characters at most each, 56 labels at most. Keys starting with `ai-sdk-` are the package's and are refused. A machine taken from the warm pool gets them as it is taken, and so does its disk, the pool's until then; a template's builder gets those of the creation that builds it. A resume keeps them as they are.
 
 ## Cost
 
