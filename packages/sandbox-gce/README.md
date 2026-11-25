@@ -790,7 +790,7 @@ const machine = await describeGceSandbox({ url, sandboxId: 'box' });
 // }
 ```
 
-`provisioningModel` is what the machine is billed as: a service of Spot machines (`SANDBOX_SPOT`) creates or starts a standard one when the zone has no Spot capacity left (`SANDBOX_SPOT_FALLBACK`), and `spotFallback` says so. The machine of a sandbox taken from the warm pool (`fromPool`) was made before the sandbox took it: `creationTimestamp` is the pool's. `labels` leaves the package's own out. It throws `GceSandboxNotFoundError` once the sandbox is deleted. A service of an earlier version answers 405.
+`provisioningModel` is what the machine is billed as: a service of Spot machines (`SANDBOX_SPOT`) creates or starts a standard one when the zone has no Spot capacity left (`SANDBOX_SPOT_FALLBACK`), and `spotFallback` says so. The machine of a sandbox taken from the warm pool (`fromPool`) was made before the sandbox took it: `creationTimestamp` is the pool's. `labels` leaves the package's own out. It throws `GceSandboxNotFoundError` once the sandbox is deleted: Compute Engine deletes the machine some 50 s after the deletion returns, and it is answered `STOPPING` meanwhile, as a stopped one is until it is `TERMINATED`, its `lastStopTimestamp` set then. A service of an earlier version answers 405.
 
 ### How long it took
 

@@ -219,7 +219,8 @@ export async function getGceSandboxUsage(
  * starting it: when it was made, last started and last stopped, whether it is billed as Spot or
  * standard (a service of Spot machines falls back to standard ones when the zone has none left),
  * its machine type, the size of its disk and its labels. Throws `GceSandboxNotFoundError` when
- * there is none.
+ * there is none: some 50 s after a deletion returns, Compute Engine done, the machine answered
+ * `STOPPING` meanwhile.
  */
 export async function describeGceSandbox(
   options: GceSandboxLookupSettings,

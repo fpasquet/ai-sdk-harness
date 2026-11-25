@@ -212,7 +212,7 @@ export class GceNetworkSandboxSession
   /**
    * The sandbox's machine, running or stopped, as Compute Engine describes it: when it ran, how it
    * is billed, Spot or standard, what it is made of, its labels. Throws
-   * `GceSandboxNotFoundError` once it is deleted.
+   * `GceSandboxNotFoundError` once Compute Engine deleted it, some 50 s after `destroy()`.
    */
   describe = async (): Promise<GceSandboxInfo> => {
     const info = await this.handle.client.describe(this.handle.name);
