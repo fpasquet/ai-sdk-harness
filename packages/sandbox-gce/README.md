@@ -863,6 +863,35 @@ since = samples.at(-1)?.at ?? since;
 
 A stop and a deletion read the last ones before the machine goes, a sample taken then, those since the machine last started: the report handed to `onUsageReport` holds them in `metrics`, beside `egress`. The agent runs in the machine, where the sandbox's user has `sudo`: what it reports is fit for sizing the machines and `SANDBOX_MAX_RUNNING`, never for billing, which [the labels](#labels) and the proxy's count are for. An image built with an earlier version of the package samples nothing: `metrics()` fails with a 501, and the reports have no `metrics`. Build the image again to get them.
 
+### Its logs
+
+The service logs each creation, resume, suspension and deletion as a JSON line (`LOG_FORMAT=json`, the default on Cloud Run), which Cloud Logging reads as a structured entry, for a log-based metric or a BigQuery sink:
+
+```json
+{
+  "event": "create",
+  "sandbox": "box",
+  "at": "2026-11-25T18:00:21.120Z",
+  "instance": "sbx-pool-1a2b3c4d",
+  "image": "default",
+  "template": "ai-sdk-harness-template-…",
+  "labels": { "app": "studio" },
+  "timings": {
+    "fromPool": true,
+    "proxyMs": 3,
+    "insertMs": 412,
+    "bootMs": 1210,
+    "agentMs": 95,
+    "totalMs": 1890
+  },
+  "severity": "INFO",
+  "message": "box created in 1890 ms on sbx-pool-1a2b3c4d of the warm pool",
+  "time": "2026-11-25T18:00:21.120Z"
+}
+```
+
+`resume` carries `instance` and `timings`; `suspend` and `delete` carry `instance`, its `status`, `egress` (the proxy's last count) and `samples` (how many samples the report holds). With `LOG_FORMAT=text`, only the message is written. A Spot machine Compute Engine took back is in its audit logs (`compute.instances.preempted`), not in the service's.
+
 ## Cost
 
 A machine is billed by the second while it runs, and only for its disk once stopped: in `europe-west1`, an `e2-standard-4` is in the order of $0.15 an hour, Spot much less, and a stopped 20 GB balanced disk about $2 a month. The proxy machine, an `e2-small`, is about $15 a month when always on, its external address a few dollars more; with `SANDBOX_PROXY_INSTANCE`, both are billed only while a sandbox runs. The service scales to zero. Check the current [Compute Engine pricing](https://cloud.google.com/compute/vm-instance-pricing).

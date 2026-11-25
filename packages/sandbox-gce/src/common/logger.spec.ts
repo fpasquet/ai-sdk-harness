@@ -22,6 +22,30 @@ describe('the service logger', () => {
     });
   });
 
+  it('writes the events of a sandbox as structured JSON lines, their message alone as plain ones', () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const event = {
+      event: 'create',
+      sandbox: 'box',
+      message: 'box created',
+      fromPool: true,
+    } as const;
+
+    createLogger({ json: true }).event(event);
+    createLogger({ json: false }).event(event);
+
+    expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
+      severity: 'INFO',
+      message: 'box created',
+      event: 'create',
+      sandbox: 'box',
+      at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as unknown,
+      time: expect.any(String) as unknown,
+      fromPool: true,
+    });
+    expect(String(stdout.mock.calls[1]?.[0])).toMatch(/^\S+ INFO box created\n$/);
+  });
+
   it('writes plain lines off Cloud Run', () => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 

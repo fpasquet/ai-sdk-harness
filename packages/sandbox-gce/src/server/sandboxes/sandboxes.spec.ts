@@ -591,6 +591,51 @@ describe('the sandboxes of the service', () => {
     }
   });
 
+  it('logs each creation, resume, suspension and deletion as a structured event', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const event = vi.fn();
+    const proxy = proxyOf();
+    proxy.remove.mockResolvedValue(usageOf(10));
+    const sandboxes = (statuses: (Instance | undefined)[]): Sandboxes =>
+      sandboxesOf({ compute: computeOf(statuses), proxy, logger: { ...silentLogger, event } });
+
+    await sandboxes([undefined, sandbox('RUNNING')]).create('box', { labels: { team: 'studio' } });
+    await sandboxes([sandbox('RUNNING')]).suspend('box');
+    await sandboxes([sandbox('TERMINATED'), sandbox('RUNNING')]).resume('box', {});
+    await sandboxes([sandbox('RUNNING')]).delete('box');
+    await sandboxes([undefined]).delete('gone');
+
+    expect(event.mock.calls.map(([logged]) => logged as unknown)).toEqual([
+      {
+        event: 'create',
+        sandbox: 'box',
+        message: expect.stringMatching(/^box created in \d+ ms$/) as unknown,
+        instance: 'sbx-box',
+        image: 'default',
+        template: undefined,
+        labels: { team: 'studio' },
+        timings: expect.objectContaining({ fromPool: false }) as unknown,
+      },
+      {
+        event: 'suspend',
+        sandbox: 'box',
+        message: 'box stopping',
+        instance: 'sbx-box',
+        status: 'RUNNING',
+        egress: usageOf(10),
+        samples: undefined,
+      },
+      {
+        event: 'resume',
+        sandbox: 'box',
+        message: expect.stringMatching(/^box resumed in \d+ ms$/) as unknown,
+        instance: 'sbx-box',
+        timings: expect.objectContaining({ fromPool: false }) as unknown,
+      },
+      expect.objectContaining({ event: 'delete', sandbox: 'box', message: 'box deleting' }),
+    ]);
+  });
+
   it('refuses a name taken meanwhile, and an image the service does not offer', async () => {
     const compute = computeOf([undefined]);
     compute.insertInstance.mockRejectedValueOnce(new ComputeError(409, 'exists'));
@@ -1080,12 +1125,12 @@ describe('the warm pool', () => {
     agentAnswers(PROTOCOL_VERSION);
     const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
     const proxy = proxyOf();
-    const info = vi.fn();
+    const event = vi.fn();
     const sandboxes = sandboxesOf({
       compute,
       proxy,
       warmPool: 1,
-      logger: { ...silentLogger, info },
+      logger: { ...silentLogger, event },
     });
 
     await expect(sandboxes.create('box', { template: 'deps' })).resolves.toMatchObject({
@@ -1109,8 +1154,16 @@ describe('the warm pool', () => {
     );
     const [next] = poolIn(machines);
     expect(next?.name).toMatch(/^sbx-pool-/);
-    expect(info).toHaveBeenCalledWith(
-      expect.stringMatching(/^box created in \d+ ms on sbx-pool-a of the warm pool$/),
+    expect(event).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'create',
+        sandbox: 'box',
+        instance: 'sbx-pool-a',
+        message: expect.stringMatching(
+          /^box created in \d+ ms on sbx-pool-a of the warm pool$/,
+        ) as unknown,
+        timings: expect.objectContaining({ fromPool: true }) as unknown,
+      }),
     );
 
     // The machine keeps its name: its agent's token is still the one of its machine.

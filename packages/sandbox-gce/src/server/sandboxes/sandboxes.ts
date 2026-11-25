@@ -354,25 +354,60 @@ export class Sandboxes {
     const source: MachineSource = { sourceImage, image, callerLabels: labels };
     const pool = template === undefined ? undefined : await this.fromPool(name, source);
     try {
-      const taken = pool?.taken;
-      const made = taken ?? (await this.insertSandbox(name, source));
-      const insertMs = Date.now() - inserting;
-      const { description, bootMs, agentMs } = await this.settle(name, network, made);
-      const timings: SandboxTimings = {
-        fromPool: taken !== undefined,
-        proxyMs: await proxyUp,
-        insertMs,
-        bootMs,
-        agentMs,
-        totalMs: Date.now() - startedAt,
-      };
-      const from = taken === undefined ? '' : ` on ${taken.name} of the warm pool`;
-      this.options.logger.info(`${name} created in ${timings.totalMs} ms${from}`);
-      return { ...description, timings };
+      return await this.make(name, network, {
+        taken: pool?.taken,
+        source,
+        template,
+        clock: { startedAt, inserting, proxyUp },
+      });
     } finally {
       // Before answering: Cloud Run throttles the instance's CPU once it has answered.
       await pool?.upkeep;
     }
+  }
+
+  /**
+   * Makes the sandbox `name` on the machine of the warm pool `taken`, or a new one from `source`,
+   * and logs it with how long each step took, from the times of `clock`.
+   */
+  private async make(
+    name: string,
+    network: SandboxNetwork,
+    {
+      taken,
+      source,
+      template,
+      clock,
+    }: {
+      taken: Instance | undefined;
+      source: MachineSource;
+      template?: string;
+      clock: { startedAt: number; inserting: number; proxyUp: Promise<number> };
+    },
+  ): Promise<SandboxDescription> {
+    const instance = taken?.name ?? (await this.insertSandbox(name, source));
+    const insertMs = Date.now() - clock.inserting;
+    const { description, bootMs, agentMs } = await this.settle(name, network, taken ?? instance);
+    const timings: SandboxTimings = {
+      fromPool: taken !== undefined,
+      proxyMs: await clock.proxyUp,
+      insertMs,
+      bootMs,
+      agentMs,
+      totalMs: Date.now() - clock.startedAt,
+    };
+    const from = taken === undefined ? '' : ` on ${instance} of the warm pool`;
+    this.options.logger.event({
+      event: 'create',
+      sandbox: name,
+      message: `${name} created in ${timings.totalMs} ms${from}`,
+      instance,
+      image: source.image,
+      template,
+      labels: source.callerLabels,
+      timings,
+    });
+    return { ...description, timings };
   }
 
   /**
@@ -415,7 +450,13 @@ export class Sandboxes {
       agentMs,
       totalMs: Date.now() - startedAt,
     };
-    this.options.logger.info(`${name} resumed in ${timings.totalMs} ms`);
+    this.options.logger.event({
+      event: 'resume',
+      sandbox: name,
+      message: `${name} resumed in ${timings.totalMs} ms`,
+      instance: current.name,
+      timings,
+    });
     return { ...description, timings };
   }
 
@@ -439,8 +480,8 @@ export class Sandboxes {
     if (instance.status !== 'TERMINATED') {
       await this.options.compute.stopInstance(instance.name, { wait: false });
       stopped = await this.leftRunning(instance.name);
-      this.options.logger.info(`${name} stopping`);
     }
+    this.logStop({ ...report, egress, metrics }, instance);
     await this.dropPowerOff(stopped);
     await this.proxyDownWhenIdle();
     return { ...report, egress, metrics };
@@ -459,7 +500,25 @@ export class Sandboxes {
     const metrics =
       instance === undefined ? undefined : await this.finalMetrics(name, instance, metricsSince);
     const egress = await this.removeMachine(name, instance?.name);
+    if (instance !== undefined) this.logStop({ ...report, egress, metrics }, instance);
     return { ...report, egress, metrics };
+  }
+
+  /** Logs the suspension or the deletion of `report`, of the machine `instance`. */
+  private logStop(
+    { name, event, egress, metrics }: SandboxReport,
+    { name: instance, status }: Instance,
+  ): void {
+    const verb = event === 'suspend' ? 'stopping' : 'deleting';
+    this.options.logger.event({
+      event,
+      sandbox: name,
+      message: `${name} ${verb}`,
+      instance,
+      status,
+      egress,
+      samples: metrics?.samples.length,
+    });
   }
 
   /**
@@ -1230,7 +1289,6 @@ export class Sandboxes {
     if (instance !== undefined) {
       await this.options.compute.deleteInstance(instance, { wait: false });
       await this.leftRunning(instance);
-      this.options.logger.info(`${name} deleting`);
     }
     await this.proxyDownWhenIdle();
     return egress;
