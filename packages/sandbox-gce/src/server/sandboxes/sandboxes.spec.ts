@@ -551,7 +551,10 @@ describe('the sandboxes of the service', () => {
         await new Promise((resolve) => setImmediate(resolve));
         pass(3000);
       });
-      compute.startInstance.mockImplementation(() => Promise.resolve(pass(4000)));
+      compute.startInstance.mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        pass(4000);
+      });
       let booting = true;
       vi.spyOn(AgentClient.prototype, 'health').mockImplementation(() => {
         pass(booting ? 20_000 : 1000);

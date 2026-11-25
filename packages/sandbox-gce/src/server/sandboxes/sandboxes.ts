@@ -165,10 +165,10 @@ interface Readied {
   agentMs: number;
 }
 
-/** How long `work` takes, in milliseconds, once done. */
-async function timed(work: Promise<unknown>): Promise<number> {
+/** How long `work` takes, in milliseconds, once done: counted from before it starts. */
+async function timed(work: () => Promise<unknown>): Promise<number> {
   const start = Date.now();
-  await work;
+  await work();
   return Date.now() - start;
 }
 
@@ -349,7 +349,7 @@ export class Sandboxes {
     await this.assertRoom();
     // The proxy boots meanwhile, when it was stopped: ready() waits for it.
     // Failing, it fails ready() too.
-    const proxyUp = timed(this.proxyUp()).catch(() => 0);
+    const proxyUp = timed(() => this.proxyUp()).catch(() => 0);
     const inserting = Date.now();
     const source: MachineSource = { sourceImage, image, callerLabels: labels };
     const pool = template === undefined ? undefined : await this.fromPool(name, source);
@@ -416,35 +416,13 @@ export class Sandboxes {
    */
   async resume(name: string, network: SandboxNetwork): Promise<SandboxDescription> {
     this.assertSandboxName(name);
-    const deadline = Date.now() + this.options.startTimeoutMs;
     const startedAt = Date.now();
-    let current: Instance | undefined;
-    let proxyMs = 0;
-    for (;;) {
-      current = await this.instanceOf(name);
-      if (current === undefined) {
-        throw new HttpError(404, `No sandbox "${name}": it was never created, or it was deleted.`);
-      }
-      if (current.status === 'RUNNING') break;
-      if (current.status === 'TERMINATED' || current.status === 'SUSPENDED') {
-        await this.assertRoom();
-        const started =
-          current.status === 'TERMINATED'
-            ? this.start(current.name)
-            : this.options.compute.resumeInstance(current.name);
-        const [, proxy] = await Promise.all([started, timed(this.proxyUp())]);
-        proxyMs += proxy;
-      } else if (TRANSIENT.has(current.status) && Date.now() < deadline) {
-        await sleep(2000);
-      } else {
-        throw new HttpError(503, `The machine of "${name}" is ${current.status}: try again later.`);
-      }
-    }
+    const { instance, proxyUp } = await this.running(name);
     const startMs = Date.now() - startedAt;
-    const { description, bootMs, agentMs } = await this.ready(name, network, current);
+    const { description, bootMs, agentMs } = await this.ready(name, network, instance);
     const timings: SandboxTimings = {
       fromPool: false,
-      proxyMs,
+      proxyMs: (await proxyUp) ?? 0,
       insertMs: startMs,
       bootMs,
       agentMs,
@@ -454,10 +432,39 @@ export class Sandboxes {
       event: 'resume',
       sandbox: name,
       message: `${name} resumed in ${timings.totalMs} ms`,
-      instance: current.name,
+      instance: instance.name,
       timings,
     });
     return { ...description, timings };
+  }
+
+  /**
+   * The machine of the sandbox `name` once it runs: started again when stopped, waited for when on
+   * its way, within `startTimeoutMs`. The proxy is started meanwhile, when the machine is: how long
+   * it took, once it answers.
+   */
+  private async running(name: string): Promise<{ instance: Instance; proxyUp?: Promise<number> }> {
+    const deadline = Date.now() + this.options.startTimeoutMs;
+    let proxyUp: Promise<number> | undefined;
+    for (;;) {
+      const current = await this.instanceOf(name);
+      if (current === undefined) {
+        throw new HttpError(404, `No sandbox "${name}": it was never created, or it was deleted.`);
+      }
+      if (current.status === 'RUNNING') return { instance: current, proxyUp };
+      if (current.status === 'TERMINATED' || current.status === 'SUSPENDED') {
+        await this.assertRoom();
+        // Failing, it fails ready() too.
+        proxyUp ??= timed(() => this.proxyUp()).catch(() => 0);
+        await (current.status === 'TERMINATED'
+          ? this.start(current.name)
+          : this.options.compute.resumeInstance(current.name));
+      } else if (TRANSIENT.has(current.status) && Date.now() < deadline) {
+        await sleep(2000);
+      } else {
+        throw new HttpError(503, `The machine of "${name}" is ${current.status}: try again later.`);
+      }
+    }
   }
 
   /**
@@ -1296,15 +1303,15 @@ export class Sandboxes {
 
   /**
    * Makes the running machine `instance` of `name` ready for commands: registered with the egress
-   * proxy under its address, its agent answering and configured. Says how long its agent took to
-   * answer, the guest booting, and the rest.
+   * proxy under its address, its agent answering and configured. The proxy is waited for while the
+   * guest boots. Says how long its agent took to answer, the guest booting, and how long the
+   * registration and the configuration took, the wait for the proxy left out: `proxyMs` says it.
    */
   private async ready(
     name: string,
     network: SandboxNetwork,
     instance: Instance | undefined,
   ): Promise<Readied> {
-    const readying = Date.now();
     const address = instance?.networkInterfaces?.[0]?.networkIP;
     if (
       instance === undefined ||
@@ -1314,19 +1321,24 @@ export class Sandboxes {
     ) {
       throw new HttpError(503, `The machine of "${name}" did not start.`);
     }
-    const endpoint = this.remember(name, instance);
+    const agent = new AgentClient(this.remember(name, instance));
     const baseUrls = { ...this.options.network.baseUrls, ...network.baseUrls };
-    // Running already but for a race with the last sandbox stopping: then started again.
-    await this.proxyUp();
-    await this.options.proxy.register(name, {
-      address,
-      allowedHosts: this.allowedHosts(network.allowedHosts ?? []),
-      baseUrls,
-    });
-    const agent = new AgentClient(endpoint);
-    const waiting = Date.now();
-    await this.waitForAgent(name, agent);
-    const bootMs = Date.now() - waiting;
+    const registered = async (): Promise<number> => {
+      // Running already but for a race with the last sandbox stopping: then started again.
+      await this.proxyUp();
+      return timed(() =>
+        this.options.proxy.register(name, {
+          address,
+          allowedHosts: this.allowedHosts(network.allowedHosts ?? []),
+          baseUrls,
+        }),
+      );
+    };
+    const [registerMs, bootMs] = await Promise.all([
+      registered(),
+      timed(() => this.waitForAgent(name, agent)),
+    ]);
+    const configuring = Date.now();
     const { home, workingDirectory } = await agent.configure({
       proxy: this.options.proxyUrl,
       baseUrls,
@@ -1335,7 +1347,7 @@ export class Sandboxes {
     return {
       description: { name, home, workingDirectory },
       bootMs,
-      agentMs: Date.now() - readying - bootMs,
+      agentMs: registerMs + Date.now() - configuring,
     };
   }
 

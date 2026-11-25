@@ -108,9 +108,9 @@ export interface SandboxTimings {
    * the stopped machine, or waiting for one on its way, on a resume: 0 or so when it ran.
    */
   insertMs: number;
-  /** The machine running and its guest booting, until its agent answers. */
+  /** The machine running and its guest booting, until its agent answers, alongside the proxy. */
   bootMs: number;
-  /** Registering the sandbox with the proxy and configuring its agent. */
+  /** Registering the sandbox with the proxy and configuring its agent, the wait for either left out. */
   agentMs: number;
   /** The whole call, on the service, checks included. */
   totalMs: number;

@@ -807,8 +807,8 @@ console.log(sandbox.timings);
 | `fromPool` | The creation took a machine of the warm pool, booted ahead of it. Always `false` on a resume                                          |
 | `proxyMs`  | Waiting for the egress proxy, booting when the service had stopped it (`SANDBOX_PROXY_INSTANCE`). It overlaps the steps below         |
 | `insertMs` | Compute Engine creating the machine, or the warm pool handing one over; on a resume, starting the stopped machine, or waiting for one |
-| `bootMs`   | The machine running and its guest booting, until its agent answers                                                                    |
-| `agentMs`  | Registering the sandbox with the proxy and configuring its agent                                                                      |
+| `bootMs`   | The machine running and its guest booting, until its agent answers, while the proxy is waited for                                     |
+| `agentMs`  | Registering the sandbox with the proxy and configuring its agent, the waits for either left out                                       |
 | `totalMs`  | The whole call on the service, its checks included                                                                                    |
 
 A template built by the creation is not counted: the creation of its builder, its setup and the image take minutes, once. A service of an earlier version answers no `timings`.
