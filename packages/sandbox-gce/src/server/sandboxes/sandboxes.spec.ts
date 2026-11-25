@@ -2,10 +2,12 @@ import type { Mock } from 'vitest';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProxyUsage } from '../../protocol/proxy.js';
 import type { ComputeApi, Image, Instance } from '../compute/compute-api.js';
 import type { ProxyAdmin } from './proxy-admin.js';
 import type { MachineSettings, SandboxesOptions } from './sandboxes.js';
 
+import { HttpError } from '../../common/http-error.js';
 import { silentLogger } from '../../common/logger.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
@@ -62,6 +64,15 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
   };
 }
 
+/** What a sandbox's connections carried through the proxy: `bytes` each way. */
+const usageOf = (bytes: number): ProxyUsage => ({
+  bytesRead: bytes,
+  bytesWritten: bytes,
+  connections: 1,
+  openConnections: 0,
+  since: '2026-11-25T10:00:00.000Z',
+});
+
 function proxyOf(): Stub<ProxyAdmin> {
   return {
     register: vi.fn(() => Promise.resolve()),
@@ -69,7 +80,8 @@ function proxyOf(): Stub<ProxyAdmin> {
     addTransformations: vi.fn(() => Promise.resolve()),
     setTransformations: vi.fn(() => Promise.resolve()),
     holdsSecret: vi.fn(() => Promise.resolve(false)),
-    remove: vi.fn(() => Promise.resolve()),
+    remove: vi.fn((_name: string): Promise<ProxyUsage | undefined> => Promise.resolve(undefined)),
+    usage: vi.fn((_name: string) => Promise.resolve(usageOf(0))),
     healthy: vi.fn(() => Promise.resolve(true)),
   };
 }
@@ -193,6 +205,43 @@ describe('the sandboxes of the service', () => {
     });
     return compute;
   }
+
+  it('reads what the connections of a sandbox carried from the proxy, and the last count as it goes', async () => {
+    const compute = computeOf([sandbox('RUNNING')]);
+    const proxy = proxyOf();
+    const order: string[] = [];
+    proxy.remove.mockImplementation(() => {
+      order.push('forget');
+      return Promise.resolve(usageOf(10));
+    });
+    const stop = compute.stopInstance.getMockImplementation();
+    compute.stopInstance.mockImplementation((name: string) => {
+      order.push('stop');
+      return stop?.(name) ?? Promise.resolve();
+    });
+    proxy.usage.mockResolvedValueOnce(usageOf(5));
+    proxy.usage.mockRejectedValueOnce(new HttpError(404, 'Egress proxy: unknown'));
+    const sandboxes = sandboxesOf({ compute, proxy });
+
+    await expect(sandboxes.usage('box')).resolves.toEqual(usageOf(5));
+    await expect(sandboxes.usage('box')).rejects.toMatchObject({ status: 404 });
+    await expect(sandboxes.suspend('box')).resolves.toEqual({
+      name: 'box',
+      event: 'suspend',
+      at: expect.any(String) as unknown,
+      egress: usageOf(10),
+    });
+    expect(order).toEqual(['forget', 'stop']);
+    await expect(
+      sandboxesOf({ compute: computeOf([sandbox('RUNNING')]), proxy }).delete('box'),
+    ).resolves.toMatchObject({ event: 'delete', egress: usageOf(10) });
+
+    // A proxy that cannot be reached: the sandbox goes all the same, with no count.
+    proxy.remove.mockRejectedValue(new HttpError(502, 'unreachable'));
+    await expect(
+      sandboxesOf({ compute: computeOf([sandbox('RUNNING')]), proxy }).delete('box'),
+    ).resolves.not.toHaveProperty('egress', expect.anything());
+  });
 
   it('starts the stopped proxy with a sandbox, and stops it with the last one', async () => {
     agentAnswers(PROTOCOL_VERSION);

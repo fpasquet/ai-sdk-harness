@@ -4,6 +4,7 @@ import type { ProxyRegistration } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { hostsOf } from '../protocol/proxy-routes.js';
+import { EgressMeter } from './egress-meter.js';
 
 /** The scheme a credential header value may start with, before the secret itself. */
 const SCHEME = /^(Bearer|Basic|Token)\s+/i;
@@ -21,6 +22,8 @@ export class RegisteredSandbox implements EgressPolicy {
   allowedHosts: readonly string[];
   upstreamHosts: readonly string[];
   transformations: HarnessV1RequestTransformation[] = [];
+  /** The bytes its connections carried, kept when it is registered again. */
+  meter = new EgressMeter();
 
   constructor(
     readonly name: string,

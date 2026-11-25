@@ -1,6 +1,6 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import type { ProxyRegistration } from '../protocol/proxy.js';
+import type { ProxyRegistration, ProxyUsage } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { HttpError } from '../common/http-error.js';
@@ -30,6 +30,7 @@ export class SandboxRegistry {
     const previous = this.byName.get(name);
     if (previous !== undefined) {
       next.transformations = previous.transformations;
+      next.meter = previous.meter;
       this.forgetAddress(name, previous.address);
     }
     this.byName.set(name, next);
@@ -60,12 +61,21 @@ export class SandboxRegistry {
     return this.byName.size;
   }
 
-  /** Forgets the sandbox `name` and its credentials. Idempotent. */
-  remove(name: string): void {
+  /** The bytes the connections of the sandbox `name` carried since it was registered. */
+  usage(name: string): ProxyUsage {
+    return this.get(name).meter.usage();
+  }
+
+  /**
+   * Forgets the sandbox `name` and its credentials: what its connections carried until then, which
+   * goes with it; `undefined` when it knew none. Idempotent.
+   */
+  remove(name: string): ProxyUsage | undefined {
     const sandbox = this.byName.get(name);
-    if (sandbox === undefined) return;
+    if (sandbox === undefined) return undefined;
     this.byName.delete(name);
     this.forgetAddress(name, sandbox.address);
+    return sandbox.meter.usage();
   }
 
   /** The policy of the sandbox whose machine has `address`, if one has. */

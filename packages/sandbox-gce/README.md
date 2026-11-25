@@ -636,16 +636,18 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 ## Lifecycle
 
-| Method                     | What it does                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `release()`                | Stops the processes this session started and forgets its credentials, leaving the sandbox running |
-| `killAllProcesses()`       | Stops every process the machine's agent started                                                   |
-| `stop()`                   | Stops the machine, its disk kept. Idempotent                                                      |
-| `destroy()`                | Deletes the machine and its disk. Idempotent                                                      |
-| `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                          |
-| `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                |
-| `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own                |
-| `describe()`               | The sandbox's machine, as Compute Engine describes it: see [Its machine](#its-machine)            |
+| Method                     | What it does                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `release()`                | Stops the processes this session started and forgets its credentials, leaving the sandbox running                 |
+| `killAllProcesses()`       | Stops every process the machine's agent started                                                                   |
+| `stop()`                   | Stops the machine, its disk kept. Idempotent                                                                      |
+| `destroy()`                | Deletes the machine and its disk. Idempotent                                                                      |
+| `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                                          |
+| `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                                |
+| `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own                                |
+| `describe()`               | The sandbox's machine, as Compute Engine describes it: see [Its machine](#its-machine)                            |
+| `usage()`                  | What its connections carried through the proxy: see [What its connections carried](#what-its-connections-carried) |
+| `lastReport`               | The last measures the last `stop()` or `destroy()` of this view answered                                          |
 
 `fork()` lets several harness sessions run side by side in one machine, each with a bridge on its own port, as with `ai-sdk-sandbox-cloud-run`.
 
@@ -808,6 +810,38 @@ console.log(sandbox.timings);
 | `totalMs`  | The whole call on the service, its checks included                                                                                    |
 
 A template built by the creation is not counted: the creation of its builder, its setup and the image take minutes, once. A service of an earlier version answers no `timings`.
+
+### What its connections carried
+
+The egress proxy counts the bytes each sandbox's connections carry, outside the machine, where nothing the sandbox runs changes them: `bytesRead`, what the proxy read from the sandbox (its requests, its uploads, the TLS it sent through its tunnels), and `bytesWritten`, what it wrote to it (answers, downloads). `usage()` of a session, or `getGceSandboxUsage({ url, sandboxId })`, reads them while the sandbox runs:
+
+```ts
+import { getGceSandboxUsage } from 'ai-sdk-sandbox-gce';
+
+const usage = await getGceSandboxUsage({ url, sandboxId: 'box' });
+// { bytesRead: 48211, bytesWritten: 9134877, connections: 12, openConnections: 2,
+//   since: '2026-11-25T18:00:21.120Z' }
+```
+
+The count starts when the proxy registers the sandbox, at its creation or its resume from a stop, and covers the connections still open as they stand. The proxy keeps it in memory only: it forgets it with the sandbox, at a stop or a deletion, and loses it when it restarts. So **a stop and a deletion answer the last count**, read just before the proxy forgets the sandbox, in a report:
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({
+  url,
+  // Each time a view of the sandbox stops or destroys it, ai-sdk-harness-sessions included.
+  onUsageReport: async (report) => {
+    // { name: 'box', event: 'suspend', at: '2026-11-25T19:02:00.000Z', egress: { … } }
+    await saveUsage(report);
+  },
+});
+await sandbox.stop();
+console.log(sandbox.lastReport);
+
+// Deleting a sandbox by its id reports too.
+await deleteGceSandbox({ url, sandboxId: 'box', onUsageReport: saveUsage });
+```
+
+`onUsageReport` is awaited, an error it throws ignored. `lastReport` holds the report of the last `stop()` or `destroy()` of that view. Reading the count of a stopped sandbox fails with `GceSandboxServiceError` (404): its stop answered it. A proxy of an earlier version counts nothing: its reports have no `egress`, and `usage()` fails with a 404.
 
 ## Cost
 

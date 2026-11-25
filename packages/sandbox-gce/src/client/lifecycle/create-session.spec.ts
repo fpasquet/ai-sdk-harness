@@ -22,6 +22,7 @@ import {
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
+  getGceSandboxUsage,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from '../../index.js';
@@ -500,7 +501,13 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     await expect(
       resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' }),
     ).rejects.toBeInstanceOf(GceSandboxNotFoundError);
-    await expect(deleteGceSandbox({ ...options(), sandboxId: 'box' })).resolves.toBeUndefined();
+    const reports: unknown[] = [];
+    await deleteGceSandbox({
+      ...options(),
+      sandboxId: 'box',
+      onUsageReport: (report) => void reports.push(report),
+    });
+    expect(reports).toEqual([{ name: 'box', event: 'delete', at: expect.any(String) as unknown }]);
     await expect(deleteGceSandbox({ ...options(), sandboxId: 'Bad_Name' })).rejects.toThrow(
       'Invalid sandbox id',
     );
@@ -954,6 +961,53 @@ describe('the network of a Compute Engine sandbox', () => {
       `fetch(process.env.${variable} + "${path}", { headers: { authorization: "Bearer placeholder" } })` +
         '.then(async (r) => console.log(r.status, await r.text()))',
     );
+
+  it('counts the bytes its connections carry through the proxy, until its stop reports the last', async () => {
+    const reports: unknown[] = [];
+    const onUsageReport = (report: unknown): void => {
+      reports.push(report);
+      throw new Error('ignored');
+    };
+    const session = await createGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+      onUsageReport,
+    });
+    await expect(session.usage()).resolves.toMatchObject({ bytesRead: 0, connections: 0 });
+
+    const { stdout } = await session.run({ command: fetchFrom('MODEL_BASE_URL', '/v1/messages') });
+    expect(stdout).toBe('200 from upstream\n');
+
+    const usage = await getGceSandboxUsage({ url: fake.url, auth: 'none', sandboxId: 'box' });
+    expect(usage.connections).toBeGreaterThanOrEqual(1);
+    expect(usage.bytesRead).toBeGreaterThan(100);
+    expect(usage.bytesWritten).toBeGreaterThan(100);
+
+    await session.stop();
+    expect(reports).toEqual([
+      {
+        name: 'box',
+        event: 'suspend',
+        at: expect.any(String) as unknown,
+        egress: expect.objectContaining({
+          bytesRead: usage.bytesRead,
+          bytesWritten: usage.bytesWritten,
+        }) as unknown,
+      },
+    ]);
+    expect(session.lastReport).toEqual(reports[0]);
+    await expect(session.usage()).rejects.toMatchObject({ status: 404 });
+    // Counted anew from its resume.
+    const resumed = await resumeGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+    });
+    await expect(resumed.usage()).resolves.toMatchObject({ bytesRead: 0 });
+    await deleteGceSandbox({ url: fake.url, auth: 'none', sandboxId: 'box', onUsageReport });
+    expect(reports.at(-1)).toMatchObject({ event: 'delete', egress: { bytesRead: 0 } });
+  });
 
   it('routes the base URLs through the proxy, and swaps the placeholder for the credential', async () => {
     const session = await createGceNetworkSandboxSession({

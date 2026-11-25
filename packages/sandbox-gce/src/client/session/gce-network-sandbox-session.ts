@@ -8,7 +8,12 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
-import type { GceSandboxInfo, GceSandboxTimings } from '../gce-usage.js';
+import type {
+  GceSandboxEgressUsage,
+  GceSandboxInfo,
+  GceSandboxReport,
+  GceSandboxTimings,
+} from '../gce-usage.js';
 import type { GceSandboxHandle } from './gce-sandbox-session.js';
 
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -16,6 +21,18 @@ import { GCE_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 import { GceSandboxSession } from './gce-sandbox-session.js';
 
 type Protocol = 'http' | 'https' | 'ws';
+
+/** Hands `report` to `onUsageReport`, when given: an error it throws is ignored. */
+export async function reportUsage(
+  onUsageReport: GceSandboxHandle['onUsageReport'],
+  report: GceSandboxReport,
+): Promise<void> {
+  try {
+    await onUsageReport?.(report);
+  } catch {
+    // The application's to report: the stop is done.
+  }
+}
 type Transformations = ReadonlyArray<HarnessV1RequestTransformation>;
 
 /** Where a view stands among the views of one sandbox. */
@@ -70,6 +87,7 @@ export class GceNetworkSandboxSession
   private exposed: readonly number[];
 
   private readonly view: Required<ViewSettings>;
+  private last?: GceSandboxReport;
 
   constructor(handle: GceSandboxHandle, ports: readonly number[], view: ViewSettings = {}) {
     super(handle);
@@ -187,7 +205,7 @@ export class GceNetworkSandboxSession
    */
   stop = async (): Promise<void> => {
     await this.killAll();
-    await this.handle.client.suspend(this.handle.name);
+    await this.reported(await this.handle.client.suspend(this.handle.name));
   };
 
   /**
@@ -204,8 +222,30 @@ export class GceNetworkSandboxSession
   /** Deletes the sandbox's machine and its disk. Idempotent. */
   destroy = async (): Promise<void> => {
     await this.killAll().catch(() => undefined);
-    await this.handle.client.remove(this.handle.name);
+    await this.reported(await this.handle.client.remove(this.handle.name));
   };
+
+  /**
+   * What the sandbox's connections carried through the egress proxy since its creation or its last
+   * resume: counted outside the machine, fit for billing. Fails while the sandbox is stopped: its
+   * suspension answered the last count.
+   */
+  usage = (): Promise<GceSandboxEgressUsage> => this.handle.client.usage(this.handle.name);
+
+  /** Keeps `report` as {@link lastReport} and hands it to `onUsageReport`, whose errors change nothing. */
+  private async reported(report: GceSandboxReport): Promise<void> {
+    this.last = report;
+    await reportUsage(this.handle.onUsageReport, report);
+  }
+
+  /**
+   * The last measures of the sandbox, read by the service as this view last stopped or destroyed
+   * it, before the proxy and the disk lose them: `undefined` until then. `onUsageReport` gets them
+   * too, whichever view stops the sandbox.
+   */
+  get lastReport(): GceSandboxReport | undefined {
+    return this.last;
+  }
 
   /** Hands the service the credentials every view of the sandbox still holds. */
   private async syncCredentials(): Promise<void> {

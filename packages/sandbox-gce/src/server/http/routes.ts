@@ -92,18 +92,22 @@ export const ROUTES: Route[] = [
       body: await sandboxes.resume(name, await network(request)),
     }),
   ),
-  route('POST', new RegExp(`^${SANDBOX}/suspend$`), async ({ sandboxes, params: [name = ''] }) => {
-    await sandboxes.suspend(name);
-    return NO_CONTENT;
-  }),
+  route('POST', new RegExp(`^${SANDBOX}/suspend$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.suspend(name),
+  })),
+  route('GET', new RegExp(`^${SANDBOX}/usage$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.usage(name),
+  })),
   route('GET', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => ({
     status: 200,
     body: await sandboxes.describe(name),
   })),
-  route('DELETE', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => {
-    await sandboxes.delete(name);
-    return NO_CONTENT;
-  }),
+  route('DELETE', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.delete(name),
+  })),
   route(
     'POST',
     new RegExp(`^${SANDBOX}/exec$`),

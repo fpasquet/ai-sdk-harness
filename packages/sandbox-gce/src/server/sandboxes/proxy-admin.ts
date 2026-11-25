@@ -1,6 +1,6 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import type { ProxyRegistration } from '../../protocol/proxy.js';
+import type { ProxyRegistration, ProxyUsage } from '../../protocol/proxy.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
@@ -56,9 +56,19 @@ export class ProxyAdmin {
     }
   }
 
-  /** Forgets the sandbox `name` and its credentials. Idempotent. */
-  async remove(name: string): Promise<void> {
-    await this.call('DELETE', name);
+  /** The bytes the connections of the sandbox `name` carried through the proxy. */
+  async usage(name: string): Promise<ProxyUsage> {
+    return (await (await this.call('GET', `${name}/usage`)).json()) as ProxyUsage;
+  }
+
+  /**
+   * Forgets the sandbox `name` and its credentials: what its connections carried until then,
+   * `undefined` when the proxy knew none, or is of an earlier version. Idempotent.
+   */
+  async remove(name: string): Promise<ProxyUsage | undefined> {
+    const response = await this.call('DELETE', name);
+    if (response.status === 204) return undefined;
+    return ((await response.json()) as { usage?: ProxyUsage }).usage;
   }
 
   /** Calls `/v1/sandboxes/<path>`. */

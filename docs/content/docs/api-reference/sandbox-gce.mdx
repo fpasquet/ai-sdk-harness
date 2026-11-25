@@ -45,3 +45,15 @@ The sandbox's machine, running or stopped, as Compute Engine describes it, witho
 What it answers, `GceSandboxInfo`:
 
 <AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="SandboxInfo" />
+
+## `getGceSandboxUsage(options)`
+
+What the connections of the running sandbox carried through the egress proxy since its creation or its last resume, counted outside its machine. `usage()` of a session answers the same. It takes the options of `describeGceSandbox()`.
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/proxy.ts" name="ProxyUsage" />
+
+## `GceSandboxReport`
+
+The last measures of a sandbox, read as it is stopped or deleted: what `onUsageReport` is handed and `lastReport` of a session holds.
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="SandboxReport" />

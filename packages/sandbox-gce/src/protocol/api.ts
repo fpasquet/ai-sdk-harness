@@ -3,6 +3,31 @@
  * them, so they are declared once, here.
  */
 
+import type { ProxyUsage } from './proxy.js';
+
+/**
+ * The bytes a sandbox's connections carried through the egress proxy since its creation or its last
+ * resume from a stop: `GET /v1/sandboxes/:name/usage` answers it while the sandbox runs, and a
+ * suspension or a deletion answers the last one in its {@link SandboxReport}.
+ */
+export type SandboxEgressUsage = ProxyUsage;
+
+/**
+ * What a suspension or a deletion answers: the last measures of the sandbox, read before they are
+ * lost, the proxy forgetting the sandbox and the deletion its disk. Each is missing when it could not
+ * be read: a sandbox stopped already, or a service, a proxy or an image of an earlier version.
+ */
+export interface SandboxReport {
+  /** The sandbox's name. */
+  name: string;
+  /** What was done to the sandbox. */
+  event: 'delete' | 'suspend';
+  /** When, an ISO 8601 timestamp. */
+  at: string;
+  /** What its connections carried through the proxy since its creation or its last resume. */
+  egress?: SandboxEgressUsage;
+}
+
 /** A sandbox, as the service describes it: where its commands run by default, and its user's home. */
 export interface SandboxDescription {
   name: string;

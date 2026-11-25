@@ -10,11 +10,11 @@ import type {
   GceSandboxLookupSettings,
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
-import type { GceSandboxInfo } from '../gce-usage.js';
+import type { GceSandboxEgressUsage, GceSandboxInfo } from '../gce-usage.js';
 
 import { labelsProblem } from '../../protocol/labels.js';
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
-import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session.js';
+import { GceNetworkSandboxSession, reportUsage } from '../session/gce-network-sandbox-session.js';
 import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
@@ -60,8 +60,9 @@ function sessionOf(
   { name, workingDirectory, timings }: SandboxDescription,
   settings: GceConnectionSettings,
 ): GceNetworkSandboxSession {
+  const { onUsageReport } = settings;
   return new GceNetworkSandboxSession(
-    { client, name, workingDirectory, timings, processes: new Set() },
+    { client, name, workingDirectory, timings, onUsageReport, processes: new Set() },
     settings.ports ?? [],
   );
 }
@@ -187,13 +188,29 @@ export async function deleteGceSandboxTemplate(
  * which `destroy()` of a session would first have to resume, a minute of a billed machine for
  * nothing. Deleting a sandbox that does not exist, or no longer does, is no error. The
  * `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while
- * suspended.
+ * suspended. `onUsageReport` is handed the sandbox's last measures.
  */
 export async function deleteGceSandbox(options: GceSandboxDeletionSettings): Promise<void> {
+  const { sandboxId, abortSignal, onUsageReport } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  await reportUsage(onUsageReport, await clientOf(options).remove(sandboxId, abortSignal));
+}
+
+/**
+ * What the connections of the running sandbox `sandboxId` carried through the egress proxy since
+ * its creation or its last resume, counted outside its machine: fit for billing, where what the
+ * agent samples in the machine is only fit for sizing. The proxy keeps it in memory, and forgets it
+ * with the sandbox: a suspension or a deletion answers the last count. Fails with
+ * `GceSandboxServiceError` (404) while the sandbox is stopped.
+ */
+export async function getGceSandboxUsage(
+  options: GceSandboxLookupSettings,
+): Promise<GceSandboxEgressUsage> {
   const { sandboxId, abortSignal } = options;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   assertSandboxName(sandboxId);
-  await clientOf(options).remove(sandboxId, abortSignal);
+  return clientOf(options).usage(sandboxId, abortSignal);
 }
 
 /**

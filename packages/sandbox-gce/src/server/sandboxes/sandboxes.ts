@@ -6,8 +6,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Logger } from '../../common/logger.js';
 import type {
   SandboxDescription,
+  SandboxEgressUsage,
   SandboxInfo,
   SandboxNetwork,
+  SandboxReport,
   SandboxTimings,
 } from '../../protocol/api.js';
 import type { ComputeApi, Instance } from '../compute/compute-api.js';
@@ -398,15 +400,18 @@ export class Sandboxes {
   }
 
   /**
-   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first. Nothing
-   * runs, nothing is billed but the disk, until a resume. Returns once the machine left `RUNNING`, the guest off within seconds, not when Compute
-   * Engine is done some 50 s later: a resume meanwhile waits for it. Idempotent.
+   * Stops the sandbox's machine, its disk kept: the proxy forgets its credentials first, answering
+   * what the sandbox's connections carried, which the report holds. Nothing runs, nothing is billed
+   * but the disk, until a resume. Returns once the machine left `RUNNING`, the guest off within
+   * seconds, not when Compute Engine is done some 50 s later: a resume meanwhile waits for it.
+   * Idempotent.
    */
-  async suspend(name: string): Promise<void> {
+  async suspend(name: string): Promise<SandboxReport> {
     this.assertSandboxName(name);
+    const report: SandboxReport = { name, event: 'suspend', at: new Date().toISOString() };
     const instance = await this.instanceOf(name);
-    if (instance === undefined) return;
-    await this.forget(name);
+    if (instance === undefined) return report;
+    const egress = await this.forget(name);
     let stopped: Instance | undefined = instance;
     if (instance.status !== 'TERMINATED') {
       await this.options.compute.stopInstance(instance.name, { wait: false });
@@ -415,16 +420,38 @@ export class Sandboxes {
     }
     await this.dropPowerOff(stopped);
     await this.proxyDownWhenIdle();
+    return { ...report, egress };
   }
 
   /**
-   * Deletes the sandbox's machine and its disk. Returns once the machine left `RUNNING`, not when
-   * Compute Engine is done some 50 s later: a sandbox created meanwhile under the same name waits
-   * for it. Idempotent.
+   * Deletes the sandbox's machine and its disk, the proxy made to forget it first, answering what
+   * its connections carried, which the report holds. Returns once the machine left `RUNNING`, not
+   * when Compute Engine is done some 50 s later: a sandbox created meanwhile under the same name
+   * waits for it. Idempotent.
    */
-  async delete(name: string): Promise<void> {
+  async delete(name: string): Promise<SandboxReport> {
     this.assertSandboxName(name);
-    await this.removeMachine(name, (await this.instanceOf(name))?.name);
+    const report: SandboxReport = { name, event: 'delete', at: new Date().toISOString() };
+    const egress = await this.removeMachine(name, (await this.instanceOf(name))?.name);
+    return { ...report, egress };
+  }
+
+  /**
+   * What the connections of the running sandbox `name` carried through the egress proxy since its
+   * creation or its last resume. Refused with a 404 when the proxy does not know it: stopped, its
+   * last count was answered by its suspension.
+   */
+  async usage(name: string): Promise<SandboxEgressUsage> {
+    this.assertSandboxName(name);
+    try {
+      return await this.options.proxy.usage(name);
+    } catch (error) {
+      if (!(error instanceof HttpError && error.status === 404)) throw error;
+      throw new HttpError(
+        404,
+        `The proxy counts nothing for "${name}": it does not run, and its suspension answered its last count, or the proxy is of an earlier version.`,
+      );
+    }
   }
 
   /**
@@ -1117,15 +1144,19 @@ export class Sandboxes {
    * Deletes the machine `instance` of the sandbox `name`, the proxy made to forget it first, and
    * returns once it left `RUNNING`. Only the proxy's registration without `instance`.
    */
-  private async removeMachine(name: string, instance: string | undefined): Promise<void> {
+  private async removeMachine(
+    name: string,
+    instance: string | undefined,
+  ): Promise<SandboxEgressUsage | undefined> {
     this.machines.delete(name);
-    await this.forget(name);
+    const egress = await this.forget(name);
     if (instance !== undefined) {
       await this.options.compute.deleteInstance(instance, { wait: false });
       await this.leftRunning(instance);
       this.options.logger.info(`${name} deleting`);
     }
     await this.proxyDownWhenIdle();
+    return egress;
   }
 
   /**
@@ -1194,10 +1225,15 @@ export class Sandboxes {
     }
   }
 
-  private async forget(name: string): Promise<void> {
+  /**
+   * Has the proxy forget the sandbox `name`: what its connections carried until then, `undefined`
+   * when the proxy knew none, or could not be reached, which is logged.
+   */
+  private async forget(name: string): Promise<SandboxEgressUsage | undefined> {
     this.endpoints.delete(name);
-    await this.options.proxy.remove(name).catch((error: unknown) => {
+    return this.options.proxy.remove(name).catch((error: unknown) => {
       this.options.logger.warn(`The proxy could not forget ${name}: ${String(error)}`);
+      return undefined;
     });
   }
 

@@ -4,6 +4,8 @@ import type {
   HarnessV1SandboxTemplate,
 } from '@ai-sdk/harness';
 
+import type { GceSandboxReport } from './gce-usage.js';
+
 /**
  * How calls to the sandbox service are authenticated. The service runs on Cloud Run, deployed with
  * `--no-allow-unauthenticated`: each call carries a Google identity token, granted
@@ -75,6 +77,14 @@ export interface GceConnectionSettings {
    * @defaultValue the service's `SANDBOX_NODE_USE_ENV_PROXY`, `false` by default
    */
   nodeUseEnvProxy?: boolean;
+  /**
+   * Called with the last measures of the sandbox each time this session, or a view of it, stops or
+   * destroys it, and by `deleteGceSandbox()`: what its connections carried through the egress
+   * proxy, and what the agent of its machine sampled, which the proxy and the disk lose then. What
+   * an application that leaves the stops to `ai-sdk-harness-sessions` keeps them with. Awaited; an
+   * error it throws is ignored, the stop done all the same.
+   */
+  onUsageReport?: (report: GceSandboxReport) => Promise<void> | void;
 }
 
 /** What a new sandbox is made of. */

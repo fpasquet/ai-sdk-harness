@@ -12,12 +12,18 @@ export type {
   GceSandboxLookupSettings,
   GceTemplateDeletionSettings,
 } from './client/gce-settings.js';
-export type { GceSandboxInfo, GceSandboxTimings } from './client/gce-usage.js';
+export type {
+  GceSandboxEgressUsage,
+  GceSandboxInfo,
+  GceSandboxReport,
+  GceSandboxTimings,
+} from './client/gce-usage.js';
 export {
   createGceNetworkSandboxSession,
   deleteGceSandbox,
   deleteGceSandboxTemplate,
   describeGceSandbox,
+  getGceSandboxUsage,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';

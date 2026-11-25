@@ -7,7 +7,7 @@ import type {
 
 import { posix } from 'node:path';
 
-import type { GceSandboxTimings } from '../gce-usage.js';
+import type { GceSandboxReport, GceSandboxTimings } from '../gce-usage.js';
 import type { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import type { DirectoryEntry, FileStat } from './file-info.js';
 
@@ -114,6 +114,8 @@ export interface GceSandboxHandle {
   readonly processes: Set<string>;
   /** How long the creation or the resume that made this session took, step by step. */
   readonly timings?: GceSandboxTimings;
+  /** Handed the last measures of the sandbox when a view stops or destroys it. */
+  readonly onUsageReport?: (report: GceSandboxReport) => Promise<void> | void;
 }
 
 /**

@@ -6,8 +6,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type {
   SandboxCommand,
   SandboxDescription,
+  SandboxEgressUsage,
   SandboxInfo,
   SandboxNetwork,
+  SandboxReport,
 } from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
 
@@ -47,6 +49,20 @@ const TEMPLATE_SAVE_TIMEOUT_MS = 30 * 60_000;
 function* templatePolls(): Generator<number> {
   yield* [1000, 2000, 5000];
   for (;;) yield 10_000;
+}
+
+/**
+ * The report a suspension or a deletion answers: one with no measure from a service of an earlier
+ * version, which answers nothing.
+ */
+async function reportOf(
+  response: Response,
+  name: string,
+  event: SandboxReport['event'],
+): Promise<SandboxReport> {
+  const text = response.status === 204 ? '' : await response.text();
+  if (text === '') return { name, event, at: new Date().toISOString() };
+  return JSON.parse(text) as SandboxReport;
 }
 
 /** A call cut on the way, by the network or by Cloud Run's front end, which the service may go on with. */
@@ -141,14 +157,28 @@ export class SandboxServiceClient {
     return response.status === 404 ? undefined : ((await response.json()) as SandboxInfo);
   }
 
-  /** Stops the sandbox's machine, its disk kept. */
-  async suspend(name: string): Promise<void> {
-    await this.call('POST', `v1/sandboxes/${name}/suspend`);
+  /**
+   * What the connections of the running sandbox `name` carried through the egress proxy since its
+   * creation or its last resume.
+   */
+  async usage(name: string, abortSignal?: AbortSignal): Promise<SandboxEgressUsage> {
+    const response = await this.call('GET', `v1/sandboxes/${name}/usage`, { abortSignal });
+    return (await response.json()) as SandboxEgressUsage;
   }
 
-  /** Deletes the sandbox, its disk included, running or stopped: one that does not exist is fine. */
-  async remove(name: string, abortSignal?: AbortSignal): Promise<void> {
-    await this.call('DELETE', `v1/sandboxes/${name}`, { abortSignal });
+  /** Stops the sandbox's machine, its disk kept: its last measures. */
+  async suspend(name: string): Promise<SandboxReport> {
+    const response = await this.call('POST', `v1/sandboxes/${name}/suspend`);
+    return reportOf(response, name, 'suspend');
+  }
+
+  /**
+   * Deletes the sandbox, its disk included, running or stopped: one that does not exist is fine.
+   * Its last measures.
+   */
+  async remove(name: string, abortSignal?: AbortSignal): Promise<SandboxReport> {
+    const response = await this.call('DELETE', `v1/sandboxes/${name}`, { abortSignal });
+    return reportOf(response, name, 'delete');
   }
 
   /**
