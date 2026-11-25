@@ -63,7 +63,7 @@ The packages here run those harnesses on your own machine or in your own Google 
 - **Isolation**: prefer a microVM or a virtual machine for code you do not trust. `sbx`, `microsandbox` (`docker: true`) and `gce` run Docker and Compose in the sandbox too. `runtime` needs no VM nor container, but shares the host's kernel and lets the agent read the host outside your home directory. `just-bash` is enough for a host-side harness such as Pi that only needs a shell and files.
 - **Cost between two turns**: a running sandbox takes resources even when nobody writes to it, so it has to be stopped. [`ai-sdk-harness-sessions`](packages/harness-sessions) stops it once its sessions are idle and resumes it on the next message, with `sandboxPerSession()`, or with `sharedSandbox()` and its `stopWhenUnused` option.
 
-[Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
+[Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail, and lists the other sandbox packages for `HarnessAgent`, the community's included. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
 
 ## Agent skills
 

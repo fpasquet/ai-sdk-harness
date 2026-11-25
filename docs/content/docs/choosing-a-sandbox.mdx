@@ -1,6 +1,6 @@
 ---
 title: Choosing a sandbox
-description: Which sandbox package fits where your agent runs, what any sandbox image needs, and how to work on a Python, Go or Rust project.
+description: Which sandbox package fits where your agent runs, which others exist, what any sandbox image needs, and how to work on a Python, Go or Rust project.
 seo:
   description: 'Pick the sandbox of an AI SDK HarnessAgent among Docker Sandboxes, microsandbox, Cloud Run, Compute Engine and Anthropic Sandbox Runtime, give it an image for your project language with Node.js and git beside the toolchain, and open its network to that language registries only.'
 ---
@@ -19,6 +19,32 @@ Every sandbox package gives `HarnessAgent.createSession({ sandboxSession })` the
 
 - **On a developer's machine**: `sbx` or `microsandbox`, which run Docker in the sandbox; `runtime` when neither is available and the project needs no containers.
 - **On Google Cloud**: `cloud-run` when the agent only edits code and runs plain processes, scaled to zero and cheap; `gce` when the project's tests need `docker compose`, a database, or a machine of their own.
+
+## Other sandboxes
+
+The packages of this project are not the only sandboxes for `HarnessAgent`. [ai-sdk-harness-plugins](/docs/packages/harness-plugins), [ai-sdk-harness-sessions](/docs/packages/harness-sessions), [ai-sdk-harness-workspace](/docs/packages/harness-workspace) and [ai-sdk-harness-approval](/docs/packages/harness-approval) import no sandbox package: they take the sandbox session of any of them.
+
+The AI SDK has two of its own:
+
+- [`@ai-sdk/sandbox-vercel`](https://www.npmjs.com/package/@ai-sdk/sandbox-vercel), in a [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox).
+- [`@ai-sdk/sandbox-just-bash`](https://www.npmjs.com/package/@ai-sdk/sandbox-just-bash), a shell simulated in your Node.js process. It exposes no port, so it runs host-runtime harnesses such as Pi, but not Claude Code nor Codex.
+
+Others come from the community, hosted or in your own cloud account:
+
+- [`@amond-ai/harness-sandbox`](https://github.com/amond-ai/harness/tree/main/packages/harness-sandbox), on any backend of the `@amond-ai/sandbox` contract, E2B among them.
+- [`ai-sdk-sandbox-azure-container-apps`](https://github.com/NikaBuligini/ai-sdk-sandbox-azure-container-apps), in an [Azure Container Apps](https://azure.microsoft.com/products/container-apps) sandbox.
+- [`@briq-cloud/ai-sdk-sandbox`](https://github.com/briq-cloud/ai-sdk-sandbox), in a [briq](https://briq.cloud) microVM.
+- [`@coder/ai-sdk-sandbox`](https://github.com/coder/ai-sdk/tree/main/packages/sandbox), in a [Coder](https://coder.com) workspace.
+- [`@e2b/ai-sdk-sandbox`](https://github.com/e2b-dev/ai-sdk-sandbox), in an [E2B](https://e2b.dev) sandbox.
+- [`@kosa8/ai-sdk-sandbox`](https://github.com/kosa8ai/kosa8-js), in a microVM on [kosa8](https://kosa8.com) Cloud or on your own machine.
+
+Or on your own machine:
+
+- [`@lgrammel/apple-container-sandbox`](https://github.com/lgrammel/apple-container-sandbox), in an [Apple Container](https://github.com/apple/container) on a Mac.
+- [`ai-sandbox-local`](https://github.com/fdarian/ai-sandbox-local), directly on your filesystem and processes, with no isolation.
+- [`ai-sdk-microsandbox`](https://github.com/DaniAkash/agent-toolkit/tree/main/packages/ai-sdk-microsandbox), in a [microsandbox](https://github.com/superradcompany/microsandbox) microVM, like `ai-sdk-sandbox-microsandbox`.
+
+This project does not test them: check in each one's README whether it runs the harnesses that need a bridge in the sandbox, Claude Code and Codex among them, and what it offers to close the network or to stop the sandbox between turns.
 
 ## What every image needs
 
