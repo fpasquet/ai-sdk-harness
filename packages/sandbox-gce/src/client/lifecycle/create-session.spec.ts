@@ -455,6 +455,25 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     });
   });
 
+  it('says how long its creation and its resume took, step by step', async () => {
+    const created = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    expect(created.timings).toEqual({
+      fromPool: false,
+      proxyMs: expect.any(Number) as unknown,
+      insertMs: expect.any(Number) as unknown,
+      bootMs: expect.any(Number) as unknown,
+      agentMs: expect.any(Number) as unknown,
+      totalMs: expect.any(Number) as unknown,
+    });
+    const { insertMs = 0, bootMs = 0, agentMs = 0, totalMs = 0 } = created.timings ?? {};
+    expect(insertMs + bootMs + agentMs).toBeLessThanOrEqual(totalMs);
+
+    await created.stop();
+    const resumed = await resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    expect(resumed.timings).toMatchObject({ fromPool: false });
+    expect(resumed.timings?.insertMs).toBeGreaterThan(0);
+  });
+
   it('resumes a running sandbox as it is', async () => {
     await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box', ports: [4000] });
 

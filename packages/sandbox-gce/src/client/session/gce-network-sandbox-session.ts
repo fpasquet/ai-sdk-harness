@@ -8,7 +8,7 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
-import type { GceSandboxInfo } from '../gce-usage.js';
+import type { GceSandboxInfo, GceSandboxTimings } from '../gce-usage.js';
 import type { GceSandboxHandle } from './gce-sandbox-session.js';
 
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -62,6 +62,11 @@ export class GceNetworkSandboxSession
 {
   readonly defaultWorkingDirectory: string;
   readonly id: string;
+  /**
+   * How long the creation or the resume that returned this session took on the service, step by
+   * step: `undefined` from a service of an earlier version.
+   */
+  readonly timings: GceSandboxTimings | undefined;
   private exposed: readonly number[];
 
   private readonly view: Required<ViewSettings>;
@@ -70,6 +75,7 @@ export class GceNetworkSandboxSession
     super(handle);
     this.id = handle.name;
     this.defaultWorkingDirectory = handle.workingDirectory;
+    this.timings = handle.timings;
     this.exposed = [...ports];
     this.view = { credentials: new Map(), forked: false, ...view };
   }

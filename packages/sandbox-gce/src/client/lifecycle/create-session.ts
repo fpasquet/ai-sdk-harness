@@ -57,11 +57,11 @@ function clientOf({
 
 function sessionOf(
   client: SandboxServiceClient,
-  { name, workingDirectory }: SandboxDescription,
+  { name, workingDirectory, timings }: SandboxDescription,
   settings: GceConnectionSettings,
 ): GceNetworkSandboxSession {
   return new GceNetworkSandboxSession(
-    { client, name, workingDirectory, processes: new Set() },
+    { client, name, workingDirectory, timings, processes: new Set() },
     settings.ports ?? [],
   );
 }

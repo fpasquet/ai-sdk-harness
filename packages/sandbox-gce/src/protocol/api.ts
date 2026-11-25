@@ -8,6 +8,30 @@ export interface SandboxDescription {
   name: string;
   home: string;
   workingDirectory: string;
+  /** How long its creation or resume took, step by step: none from a service of an earlier version. */
+  timings?: SandboxTimings;
+}
+
+/**
+ * How long a creation or a resume took on the service, in milliseconds, step by step. The proxy
+ * boots alongside the machine: `proxyMs` overlaps the others, which follow one another.
+ */
+export interface SandboxTimings {
+  /** Whether the creation took a machine of the warm pool, booted ahead of it. Never on a resume. */
+  fromPool: boolean;
+  /** Waiting for the egress proxy, its machine booting when the service had stopped it: 0 or so when it was up. */
+  proxyMs: number;
+  /**
+   * Compute Engine creating the machine, or taking one of the warm pool, on a creation; starting
+   * the stopped machine, or waiting for one on its way, on a resume: 0 or so when it ran.
+   */
+  insertMs: number;
+  /** The machine running and its guest booting, until its agent answers. */
+  bootMs: number;
+  /** Registering the sandbox with the proxy and configuring its agent. */
+  agentMs: number;
+  /** The whole call, on the service, checks included. */
+  totalMs: number;
 }
 
 /**

@@ -788,6 +788,27 @@ const machine = await describeGceSandbox({ url, sandboxId: 'box' });
 
 `provisioningModel` is what the machine is billed as: a service of Spot machines (`SANDBOX_SPOT`) creates or starts a standard one when the zone has no Spot capacity left (`SANDBOX_SPOT_FALLBACK`), and `spotFallback` says so. The machine of a sandbox taken from the warm pool (`fromPool`) was made before the sandbox took it: `creationTimestamp` is the pool's. `labels` leaves the package's own out. It throws `GceSandboxNotFoundError` once the sandbox is deleted. A service of an earlier version answers 405.
 
+### How long it took
+
+`timings` of the session returned by `createGceNetworkSandboxSession()` or `resumeGceNetworkSandboxSession()` says how long the call took on the service, in milliseconds, step by step:
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({ url, template });
+console.log(sandbox.timings);
+// { fromPool: true, proxyMs: 3, insertMs: 412, bootMs: 1210, agentMs: 95, totalMs: 1890 }
+```
+
+| Field      | What it measures                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `fromPool` | The creation took a machine of the warm pool, booted ahead of it. Always `false` on a resume                                          |
+| `proxyMs`  | Waiting for the egress proxy, booting when the service had stopped it (`SANDBOX_PROXY_INSTANCE`). It overlaps the steps below         |
+| `insertMs` | Compute Engine creating the machine, or the warm pool handing one over; on a resume, starting the stopped machine, or waiting for one |
+| `bootMs`   | The machine running and its guest booting, until its agent answers                                                                    |
+| `agentMs`  | Registering the sandbox with the proxy and configuring its agent                                                                      |
+| `totalMs`  | The whole call on the service, its checks included                                                                                    |
+
+A template built by the creation is not counted: the creation of its builder, its setup and the image take minutes, once. A service of an earlier version answers no `timings`.
+
 ## Cost
 
 A machine is billed by the second while it runs, and only for its disk once stopped: in `europe-west1`, an `e2-standard-4` is in the order of $0.15 an hour, Spot much less, and a stopped 20 GB balanced disk about $2 a month. The proxy machine, an `e2-small`, is about $15 a month when always on, its external address a few dollars more; with `SANDBOX_PROXY_INSTANCE`, both are billed only while a sandbox runs. The service scales to zero. Check the current [Compute Engine pricing](https://cloud.google.com/compute/vm-instance-pricing).

@@ -324,6 +324,7 @@ describe('the sandboxes of the service', () => {
       name: 'box',
       home: '/home/sandbox',
       workingDirectory: '/home/sandbox/workspace',
+      timings: expect.objectContaining({ fromPool: false }) as unknown,
     });
 
     expect(compute.insertInstance).toHaveBeenCalledWith(
@@ -443,6 +444,56 @@ describe('the sandboxes of the service', () => {
       labels: {},
     });
     await expect(sandboxes.describe('gone')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('says how long each step of a creation and of a resume took', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const pass = (ms: number): void => void vi.setSystemTime(Date.now() + ms);
+      const compute = computeOf([undefined, sandbox('RUNNING')]);
+      // Once the proxy, up already, answered.
+      compute.insertInstance.mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        pass(3000);
+      });
+      compute.startInstance.mockImplementation(() => Promise.resolve(pass(4000)));
+      let booting = true;
+      vi.spyOn(AgentClient.prototype, 'health').mockImplementation(() => {
+        pass(booting ? 20_000 : 1000);
+        booting = false;
+        return Promise.resolve(PROTOCOL_VERSION);
+      });
+      vi.spyOn(AgentClient.prototype, 'configure').mockImplementation(() => {
+        pass(500);
+        return Promise.resolve({ home: '/home/sandbox', workingDirectory: '/workspace' });
+      });
+      const sandboxes = sandboxesOf({ compute });
+
+      await expect(sandboxes.create('box', {})).resolves.toMatchObject({
+        timings: {
+          fromPool: false,
+          proxyMs: 0,
+          insertMs: 3000,
+          bootMs: 20_000,
+          agentMs: 500,
+          totalMs: 23_500,
+        },
+      });
+
+      compute.getInstance.mockResolvedValueOnce(sandbox('TERMINATED'));
+      await expect(sandboxes.resume('box', {})).resolves.toMatchObject({
+        timings: {
+          fromPool: false,
+          proxyMs: 0,
+          insertMs: 4000,
+          bootMs: 1000,
+          agentMs: 500,
+          totalMs: 5500,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refuses a name taken meanwhile, and an image the service does not offer', async () => {
