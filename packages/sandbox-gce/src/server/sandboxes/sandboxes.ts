@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Logger } from '../../common/logger.js';
-import type { SandboxDescription, SandboxNetwork } from '../../protocol/api.js';
+import type { SandboxDescription, SandboxInfo, SandboxNetwork } from '../../protocol/api.js';
 import type { ComputeApi, Instance } from '../compute/compute-api.js';
 import type { AgentEndpoint } from './agent-client.js';
 import type { ProxyAdmin } from './proxy-admin.js';
@@ -12,7 +12,7 @@ import type { ProxyAdmin } from './proxy-admin.js';
 import { HttpError } from '../../common/http-error.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
 import { AGENT_TOKEN_METADATA_KEY, IDLE_POWER_OFF_METADATA_KEY } from '../../protocol/agent.js';
-import { labelsProblem } from '../../protocol/labels.js';
+import { labelsProblem, RESERVED_LABEL_PREFIX } from '../../protocol/labels.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
@@ -147,6 +147,12 @@ const sandboxDiskLabels = (
   name: string,
   callerLabels: Readonly<Record<string, string>>,
 ): Record<string, string> => ({ ...callerLabels, [LABEL]: 'sandbox', [NAME_LABEL]: name });
+
+/** How `instance` is billed: Spot, or standard, which Compute Engine says by saying nothing. */
+const provisioningModelOf = ({ scheduling }: Instance): 'SPOT' | 'STANDARD' =>
+  scheduling?.provisioningModel === 'SPOT' || scheduling?.preemptible === true
+    ? 'SPOT'
+    : 'STANDARD';
 
 /** The name of the boot disk of `instance`: the instance's own, as the service makes it. */
 const bootDiskOf = (instance: Instance): string =>
@@ -381,6 +387,37 @@ export class Sandboxes {
   async delete(name: string): Promise<void> {
     this.assertSandboxName(name);
     await this.removeMachine(name, (await this.instanceOf(name))?.name);
+  }
+
+  /**
+   * The machine of the sandbox `name`, running or stopped, as Compute Engine describes it: when it
+   * ran, how it is billed, what it is made of. Refused with a 404 when there is none.
+   */
+  async describe(name: string): Promise<SandboxInfo> {
+    this.assertSandboxName(name);
+    const instance = await this.instanceOf(name);
+    if (instance === undefined) throw new HttpError(404, `No sandbox "${name}".`);
+    const model = provisioningModelOf(instance);
+    const diskSizeGb = Number(instance.disks?.find(({ boot }) => boot === true)?.diskSizeGb);
+    const labels = instance.labels ?? {};
+    return {
+      name,
+      instance: instance.name,
+      zone: this.options.zone,
+      status: instance.status,
+      creationTimestamp: instance.creationTimestamp,
+      lastStartTimestamp: instance.lastStartTimestamp,
+      lastStopTimestamp: instance.lastStopTimestamp,
+      provisioningModel: model,
+      spotFallback: this.options.machine.spot && model === 'STANDARD',
+      machineType: instance.machineType?.split('/').at(-1) ?? this.options.machine.machineType,
+      diskSizeGb: Number.isFinite(diskSizeGb) ? diskSizeGb : undefined,
+      image: labels[IMAGE_LABEL],
+      fromPool: instance.name !== this.instanceName(name),
+      labels: Object.fromEntries(
+        Object.entries(labels).filter(([key]) => !key.startsWith(RESERVED_LABEL_PREFIX)),
+      ),
+    };
   }
 
   /** Replaces the hosts the running sandbox `name` may reach, the service's own aside. */

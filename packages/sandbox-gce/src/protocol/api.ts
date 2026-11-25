@@ -10,6 +10,50 @@ export interface SandboxDescription {
   workingDirectory: string;
 }
 
+/**
+ * A sandbox's machine, as Compute Engine describes it: when it ran, how it is billed, what it is
+ * made of. `GET /v1/sandboxes/:name` answers it, running or stopped.
+ */
+export interface SandboxInfo {
+  /** The sandbox's name. */
+  name: string;
+  /**
+   * The Compute Engine instance holding it: `<prefix><name>`, or `<prefix>pool-<hex>` for a machine
+   * taken from the warm pool, which Compute Engine cannot rename.
+   */
+  instance: string;
+  /** The zone of the machine. */
+  zone: string;
+  /** `RUNNING`, `STOPPING`, `TERMINATED` (stopped, its disk kept)… as Compute Engine says. */
+  status: string;
+  /**
+   * When the machine was made, an RFC 3339 timestamp: for a machine of the warm pool, before the
+   * sandbox took it.
+   */
+  creationTimestamp?: string;
+  /** When the machine last started: none before it first did. */
+  lastStartTimestamp?: string;
+  /** When the machine last stopped: none before it first did. */
+  lastStopTimestamp?: string;
+  /**
+   * How it is billed: `SPOT`, or `STANDARD`. A service of Spot machines makes a standard one when
+   * the zone has no Spot capacity left, which `spotFallback` says.
+   */
+  provisioningModel: 'SPOT' | 'STANDARD';
+  /** Whether the service makes Spot machines but this one is standard, for want of Spot capacity. */
+  spotFallback: boolean;
+  /** The machine type: `e2-standard-4`, `e2-custom-4-8192`… */
+  machineType: string;
+  /** The size of its boot disk, in GB. */
+  diskSizeGb?: number;
+  /** The service's name of the image it was made on: `default` and the like. */
+  image?: string;
+  /** Whether the machine was taken from the warm pool. */
+  fromPool: boolean;
+  /** The caller's labels, as the machine holds them: those of the package left out. */
+  labels: Record<string, string>;
+}
+
 /** What a sandbox may reach, on top of what the service allows every sandbox. */
 export interface SandboxNetwork {
   allowedHosts?: readonly string[];

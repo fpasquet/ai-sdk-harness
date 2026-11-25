@@ -32,3 +32,16 @@ Deletes the template that sandboxes created with `template`, `setup` and `image`
   path="packages/sandbox-gce/src/client/gce-settings.ts"
   name="GceTemplateDeletionSettings"
 />
+
+## `describeGceSandbox(options)`
+
+The sandbox's machine, running or stopped, as Compute Engine describes it, without starting it. Throws `GceSandboxNotFoundError` when there is none. `describe()` of a session answers the same.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceSandboxLookupSettings"
+/>
+
+What it answers, `GceSandboxInfo`:
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="SandboxInfo" />

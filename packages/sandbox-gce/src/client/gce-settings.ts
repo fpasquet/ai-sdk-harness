@@ -161,13 +161,19 @@ export interface GceTemplateDeletionSettings extends GceConnectionSettings {
   abortSignal?: AbortSignal;
 }
 
-/** Options of `deleteGceSandbox()`: the sandbox, and the service it was created through. */
-export interface GceSandboxDeletionSettings extends GceConnectionSettings {
+/**
+ * Options of `describeGceSandbox()` and of the other calls about one sandbox: the sandbox, and the
+ * service it was created through.
+ */
+export interface GceSandboxLookupSettings extends GceConnectionSettings {
   /** The id the sandbox was created with. */
   sandboxId: string;
   /** Aborts the call. */
   abortSignal?: AbortSignal;
 }
+
+/** Options of `deleteGceSandbox()`: the sandbox, and the service it was created through. */
+export type GceSandboxDeletionSettings = GceSandboxLookupSettings;
 
 /** Options of `createGceNetworkSandboxSession()`. */
 export type GceNetworkSandboxSessionCreateOptions =

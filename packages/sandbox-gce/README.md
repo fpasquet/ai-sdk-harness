@@ -645,6 +645,7 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 | `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                          |
 | `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                |
 | `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own                |
+| `describe()`               | The sandbox's machine, as Compute Engine describes it: see [Its machine](#its-machine)            |
 
 `fork()` lets several harness sessions run side by side in one machine, each with a bridge on its own port, as with `ai-sdk-sandbox-cloud-run`.
 
@@ -765,6 +766,27 @@ const sandbox = await createGceNetworkSandboxSession({
 ```
 
 Keys start with a lowercase letter, then lowercase letters, digits, `_` or `-`; values take the same characters and may be empty; 63 characters at most each, 56 labels at most. Keys starting with `ai-sdk-` are the package's and are refused. A machine taken from the warm pool gets them as it is taken, and so does its disk, the pool's until then; a template's builder gets those of the creation that builds it. A resume keeps them as they are.
+
+### Its machine
+
+`describeGceSandbox({ url, sandboxId })`, or `describe()` of a session, reads the sandbox's machine from Compute Engine, running or stopped, without starting it:
+
+```ts
+import { describeGceSandbox } from 'ai-sdk-sandbox-gce';
+
+const machine = await describeGceSandbox({ url, sandboxId: 'box' });
+// {
+//   name: 'box', instance: 'sbx-box', zone: 'europe-west1-b', status: 'TERMINATED',
+//   creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+//   lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+//   lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+//   provisioningModel: 'STANDARD', spotFallback: true,
+//   machineType: 'e2-standard-4', diskSizeGb: 20, image: 'default', fromPool: false,
+//   labels: { app: 'studio', tenant: 'acme', session: 's-42' },
+// }
+```
+
+`provisioningModel` is what the machine is billed as: a service of Spot machines (`SANDBOX_SPOT`) creates or starts a standard one when the zone has no Spot capacity left (`SANDBOX_SPOT_FALLBACK`), and `spotFallback` says so. The machine of a sandbox taken from the warm pool (`fromPool`) was made before the sandbox took it: `creationTimestamp` is the pool's. `labels` leaves the package's own out. It throws `GceSandboxNotFoundError` once the sandbox is deleted. A service of an earlier version answers 405.
 
 ## Cost
 

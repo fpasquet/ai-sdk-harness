@@ -14,6 +14,13 @@ export interface Instance {
   metadata?: InstanceMetadata;
   /** When the instance was made: an RFC 3339 timestamp. */
   creationTimestamp?: string;
+  /** When it last started, and last stopped: RFC 3339 timestamps, none before the first. */
+  lastStartTimestamp?: string;
+  lastStopTimestamp?: string;
+  /** Its machine type's URL: `…/zones/<zone>/machineTypes/e2-standard-4`. */
+  machineType?: string;
+  /** How it runs: `provisioningModel` is `SPOT` or `STANDARD`, the latter when not said. */
+  scheduling?: { provisioningModel?: string; preemptible?: boolean };
   /** Its disks: the boot disk's `source` is the disk's URL, named after the instance. */
   disks?: AttachedDisk[];
 }

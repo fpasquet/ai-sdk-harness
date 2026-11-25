@@ -27,6 +27,10 @@ interface FakeInstance {
   agent?: ChildProcess;
   /** What the service asked for when it created it. */
   body: Record<string, unknown>;
+  /** When it was made, last started and last stopped, as Compute Engine writes them. */
+  creationTimestamp: string;
+  lastStartTimestamp?: string;
+  lastStopTimestamp?: string;
 }
 
 /** The boot disk of a machine, named after it. */
@@ -71,6 +75,12 @@ async function readBody(request: IncomingMessage): Promise<Json> {
 /** The agent token the service put in an instance's metadata. */
 const tokenOf = ({ items }: Metadata): string =>
   items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value ?? '';
+
+/** The size of the boot disk an instance is made with. */
+function diskSizeOf(body: Json): string | undefined {
+  const [disk] = (body['disks'] ?? []) as { initializeParams?: { diskSizeGb?: string } }[];
+  return disk?.initializeParams?.diskSizeGb;
+}
 
 /** The image an instance boots from, by the last segment of its `sourceImage`. */
 function sourceImageOf(body: Json): string {
@@ -206,7 +216,18 @@ export class FakeCompute {
         labelFingerprint: instance.labelFingerprint,
         networkInterfaces: [{ networkIP: '127.0.0.1' }],
         metadata: instance.metadata,
-        disks: [{ boot: true, source: `zones/${this.zone}/disks/${instance.name}` }],
+        creationTimestamp: instance.creationTimestamp,
+        lastStartTimestamp: instance.lastStartTimestamp,
+        lastStopTimestamp: instance.lastStopTimestamp,
+        machineType: instance.body['machineType'],
+        scheduling: instance.body['scheduling'],
+        disks: [
+          {
+            boot: true,
+            source: `zones/${this.zone}/disks/${instance.name}`,
+            diskSizeGb: diskSizeOf(instance.body),
+          },
+        ],
       },
     ];
   }
@@ -230,6 +251,7 @@ export class FakeCompute {
       disk,
       metadata: { fingerprint: 'f0', items: [], ...(body['metadata'] as Partial<Metadata>) },
       body,
+      creationTimestamp: new Date().toISOString(),
     };
     this.instances.set(name, instance);
     const [bootDisk] = (body['disks'] ?? []) as {
@@ -358,6 +380,7 @@ export class FakeCompute {
         instance.agent = agent;
         instance.port = port;
         instance.status = 'RUNNING';
+        instance.lastStartTimestamp = new Date().toISOString();
         return;
       }
     }
@@ -388,6 +411,7 @@ export class FakeCompute {
     const { agent } = instance;
     instance.agent = undefined;
     instance.port = undefined;
+    if (instance.status === 'RUNNING') instance.lastStopTimestamp = new Date().toISOString();
     instance.status = 'TERMINATED';
     // A signal ends a process without an exit code: one a test killed has exited all the same.
     if (agent?.exitCode === null && agent.signalCode === null) {

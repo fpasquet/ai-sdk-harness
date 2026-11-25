@@ -3,7 +3,12 @@ import type { HarnessV1PortEndpoint, HarnessV1RequestTransformation } from '@ai-
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import type { SandboxCommand, SandboxDescription, SandboxNetwork } from '../../protocol/api.js';
+import type {
+  SandboxCommand,
+  SandboxDescription,
+  SandboxInfo,
+  SandboxNetwork,
+} from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
 
 import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
@@ -125,6 +130,15 @@ export class SandboxServiceClient {
       accept: [404],
     });
     return response.status === 404 ? undefined : ((await response.json()) as SandboxDescription);
+  }
+
+  /**
+   * The machine of the sandbox `name`, running or stopped, as Compute Engine describes it:
+   * `undefined` when there is none.
+   */
+  async describe(name: string, abortSignal?: AbortSignal): Promise<SandboxInfo | undefined> {
+    const response = await this.call('GET', `v1/sandboxes/${name}`, { abortSignal, accept: [404] });
+    return response.status === 404 ? undefined : ((await response.json()) as SandboxInfo);
   }
 
   /** Stops the sandbox's machine, its disk kept. */

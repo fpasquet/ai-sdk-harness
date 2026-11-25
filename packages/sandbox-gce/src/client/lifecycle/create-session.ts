@@ -7,8 +7,10 @@ import type {
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
   GceSandboxDeletionSettings,
+  GceSandboxLookupSettings,
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
+import type { GceSandboxInfo } from '../gce-usage.js';
 
 import { labelsProblem } from '../../protocol/labels.js';
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -192,6 +194,24 @@ export async function deleteGceSandbox(options: GceSandboxDeletionSettings): Pro
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   assertSandboxName(sandboxId);
   await clientOf(options).remove(sandboxId, abortSignal);
+}
+
+/**
+ * The sandbox `sandboxId`'s machine, running or stopped, as Compute Engine describes it, without
+ * starting it: when it was made, last started and last stopped, whether it is billed as Spot or
+ * standard (a service of Spot machines falls back to standard ones when the zone has none left),
+ * its machine type, the size of its disk and its labels. Throws `GceSandboxNotFoundError` when
+ * there is none.
+ */
+export async function describeGceSandbox(
+  options: GceSandboxLookupSettings,
+): Promise<GceSandboxInfo> {
+  const { sandboxId, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  const info = await clientOf(options).describe(sandboxId, abortSignal);
+  if (info === undefined) throw new GceSandboxNotFoundError(sandboxId);
+  return info;
 }
 
 /**

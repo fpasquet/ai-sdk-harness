@@ -389,6 +389,62 @@ describe('the sandboxes of the service', () => {
     expect(compute.insertInstance).not.toHaveBeenCalled();
   });
 
+  it('describes the machine of a sandbox as Compute Engine does, its labels but the package own', async () => {
+    const compute = computeOf([
+      {
+        ...sandbox('TERMINATED', { 'ai-sdk-sandbox-image': 'python', team: 'studio' }),
+        creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+        lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+        lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+        machineType:
+          'https://compute.googleapis.com/compute/v1/projects/p/zones/z/machineTypes/e2-custom-2-4096',
+        scheduling: { provisioningModel: 'STANDARD' },
+        disks: [{ boot: true, source: 'zones/z/disks/sbx-box', diskSizeGb: '30' }],
+      },
+    ]);
+
+    await expect(
+      sandboxesOf({ compute, machine: { ...machine, spot: true } }).describe('box'),
+    ).resolves.toEqual({
+      name: 'box',
+      instance: 'sbx-box',
+      zone: 'z',
+      status: 'TERMINATED',
+      creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+      lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+      lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+      provisioningModel: 'STANDARD',
+      spotFallback: true,
+      machineType: 'e2-custom-2-4096',
+      diskSizeGb: 30,
+      image: 'python',
+      fromPool: false,
+      labels: { team: 'studio' },
+    });
+  });
+
+  it('describes a Spot machine taken from the pool, and refuses a sandbox that is gone', async () => {
+    const taken: Instance = {
+      ...sandbox('RUNNING', { 'ai-sdk-sandbox-name': 'box' }),
+      name: 'sbx-pool-a',
+      scheduling: { provisioningModel: 'SPOT' },
+    };
+    const compute = computeOf([undefined]);
+    compute.listInstances.mockResolvedValueOnce([taken]);
+    const sandboxes = sandboxesOf({ compute, machine: { ...machine, spot: true } });
+
+    await expect(sandboxes.describe('box')).resolves.toMatchObject({
+      instance: 'sbx-pool-a',
+      provisioningModel: 'SPOT',
+      spotFallback: false,
+      machineType: 'e2-standard-4',
+      diskSizeGb: undefined,
+      fromPool: true,
+      labels: {},
+    });
+    await expect(sandboxes.describe('gone')).rejects.toMatchObject({ status: 404 });
+  });
+
   it('refuses a name taken meanwhile, and an image the service does not offer', async () => {
     const compute = computeOf([undefined]);
     compute.insertInstance.mockRejectedValueOnce(new ComputeError(409, 'exists'));

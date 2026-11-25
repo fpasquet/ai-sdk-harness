@@ -9,12 +9,15 @@ export type {
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
   GceSandboxDeletionSettings,
+  GceSandboxLookupSettings,
   GceTemplateDeletionSettings,
 } from './client/gce-settings.js';
+export type { GceSandboxInfo } from './client/gce-usage.js';
 export {
   createGceNetworkSandboxSession,
   deleteGceSandbox,
   deleteGceSandboxTemplate,
+  describeGceSandbox,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';

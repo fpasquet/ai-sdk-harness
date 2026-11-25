@@ -18,6 +18,7 @@ import {
   createGceNetworkSandboxSession,
   deleteGceSandbox,
   deleteGceSandboxTemplate,
+  describeGceSandbox,
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
@@ -483,6 +484,45 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     await expect(deleteGceSandbox({ ...options(), sandboxId: 'box' })).resolves.toBeUndefined();
     await expect(deleteGceSandbox({ ...options(), sandboxId: 'Bad_Name' })).rejects.toThrow(
       'Invalid sandbox id',
+    );
+  });
+
+  it('is described as its machine is, when it started and stopped, running or not', async () => {
+    const sandbox = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      labels: { team: 'studio' },
+    });
+
+    const running = await sandbox.describe();
+    expect(running).toMatchObject({
+      name: 'box',
+      instance: 'sbx-box',
+      zone: 'test-zone',
+      status: 'RUNNING',
+      provisioningModel: 'STANDARD',
+      spotFallback: false,
+      machineType: 'e2-standard-4',
+      diskSizeGb: 20,
+      image: 'default',
+      fromPool: false,
+      labels: { team: 'studio' },
+    });
+    expect(Date.parse(running.creationTimestamp ?? '')).not.toBeNaN();
+    expect(running.lastStartTimestamp).toBeDefined();
+    expect(running.lastStopTimestamp).toBeUndefined();
+
+    await sandbox.stop();
+    const stopped = await describeGceSandbox({ ...options(), sandboxId: 'box' });
+    expect(stopped.status).toBe('TERMINATED');
+    expect(Date.parse(stopped.lastStopTimestamp ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(running.lastStartTimestamp ?? ''),
+    );
+
+    await sandbox.destroy();
+    await expect(sandbox.describe()).rejects.toBeInstanceOf(GceSandboxNotFoundError);
+    await expect(describeGceSandbox({ ...options(), sandboxId: 'box' })).rejects.toBeInstanceOf(
+      GceSandboxNotFoundError,
     );
   });
 

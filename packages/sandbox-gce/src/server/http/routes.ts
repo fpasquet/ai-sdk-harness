@@ -96,6 +96,10 @@ export const ROUTES: Route[] = [
     await sandboxes.suspend(name);
     return NO_CONTENT;
   }),
+  route('GET', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.describe(name),
+  })),
   route('DELETE', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => {
     await sandboxes.delete(name);
     return NO_CONTENT;

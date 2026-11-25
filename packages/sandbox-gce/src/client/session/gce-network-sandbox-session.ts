@@ -8,8 +8,10 @@ import type { Experimental_SandboxSession as SandboxSession } from '@ai-sdk/prov
 
 import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 
+import type { GceSandboxInfo } from '../gce-usage.js';
 import type { GceSandboxHandle } from './gce-sandbox-session.js';
 
+import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
 import { GCE_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 import { GceSandboxSession } from './gce-sandbox-session.js';
 
@@ -180,6 +182,17 @@ export class GceNetworkSandboxSession
   stop = async (): Promise<void> => {
     await this.killAll();
     await this.handle.client.suspend(this.handle.name);
+  };
+
+  /**
+   * The sandbox's machine, running or stopped, as Compute Engine describes it: when it ran, how it
+   * is billed, Spot or standard, what it is made of, its labels. Throws
+   * `GceSandboxNotFoundError` once it is deleted.
+   */
+  describe = async (): Promise<GceSandboxInfo> => {
+    const info = await this.handle.client.describe(this.handle.name);
+    if (info === undefined) throw new GceSandboxNotFoundError(this.handle.name);
+    return info;
   };
 
   /** Deletes the sandbox's machine and its disk. Idempotent. */
