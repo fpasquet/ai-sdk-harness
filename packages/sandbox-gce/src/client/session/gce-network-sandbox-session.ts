@@ -11,6 +11,7 @@ import { HarnessCapabilityUnsupportedError } from '@ai-sdk/harness';
 import type {
   GceSandboxEgressUsage,
   GceSandboxInfo,
+  GceSandboxMetrics,
   GceSandboxReport,
   GceSandboxTimings,
 } from '../gce-usage.js';
@@ -231,6 +232,15 @@ export class GceNetworkSandboxSession
    * suspension answered the last count.
    */
   usage = (): Promise<GceSandboxEgressUsage> => this.handle.client.usage(this.handle.name);
+
+  /**
+   * What the agent of the sandbox's machine sampled of it every 30 s (CPU, memory, their pressure,
+   * the processes killed for want of memory), after `since` when given: the `at` of the last sample
+   * read, to read the next ones. Read in the machine, where the sandbox's user has `sudo`: fit for
+   * sizing, never for billing. Fails while the sandbox is stopped: its stop answered the last ones.
+   */
+  metrics = ({ since }: { since?: Date | number | string } = {}): Promise<GceSandboxMetrics> =>
+    this.handle.client.metrics(this.handle.name, { since });
 
   /** Keeps `report` as {@link lastReport} and hands it to `onUsageReport`, whose errors change nothing. */
   private async reported(report: GceSandboxReport): Promise<void> {

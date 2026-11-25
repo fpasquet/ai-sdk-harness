@@ -9,6 +9,7 @@ import type {
   SandboxDescription,
   SandboxEgressUsage,
   SandboxInfo,
+  SandboxMetrics,
   SandboxNetwork,
   SandboxReport,
 } from '../../protocol/api.js';
@@ -80,6 +81,12 @@ function capacityError(
     max: body.max ?? Number.NaN,
     retryAfterSeconds: body.retryAfterSeconds ?? (header === null ? Number.NaN : Number(header)),
   });
+}
+
+/** A time as the service reads it in a query: an ISO 8601 timestamp, or milliseconds. */
+function timeParam(time: Date | number | string): string {
+  if (time instanceof Date) return time.toISOString();
+  return String(time);
 }
 
 /** A call cut on the way, by the network or by Cloud Run's front end, which the service may go on with. */
@@ -181,6 +188,21 @@ export class SandboxServiceClient {
   async usage(name: string, abortSignal?: AbortSignal): Promise<SandboxEgressUsage> {
     const response = await this.call('GET', `v1/sandboxes/${name}/usage`, { abortSignal });
     return (await response.json()) as SandboxEgressUsage;
+  }
+
+  /**
+   * The samples the agent of the running sandbox `name` took of its machine after `since`, every
+   * one it keeps without it.
+   */
+  async metrics(
+    name: string,
+    { since, abortSignal }: { since?: Date | number | string; abortSignal?: AbortSignal } = {},
+  ): Promise<SandboxMetrics> {
+    const query = since === undefined ? '' : `?since=${encodeURIComponent(timeParam(since))}`;
+    const response = await this.call('GET', `v1/sandboxes/${name}/metrics${query}`, {
+      abortSignal,
+    });
+    return (await response.json()) as SandboxMetrics;
   }
 
   /** Stops the sandbox's machine, its disk kept: its last measures. */

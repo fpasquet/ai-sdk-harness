@@ -1,6 +1,8 @@
 import type {
+  MetricSample,
   SandboxEgressUsage,
   SandboxInfo,
+  SandboxMetrics,
   SandboxReport,
   SandboxTimings,
 } from '../protocol/api.js';
@@ -33,3 +35,16 @@ export type GceSandboxEgressUsage = SandboxEgressUsage;
  * deletes it, and what `lastReport` of the session holds then.
  */
 export type GceSandboxReport = SandboxReport;
+
+/**
+ * What the agent of a sandbox's machine read of it at one instant, from `/proc`: CPU, memory, their
+ * pressure, the processes killed for want of memory. Read in the machine, where the sandbox's user
+ * has `sudo`: fit for sizing the machines, never for billing.
+ */
+export type GceSandboxMetricSample = MetricSample;
+
+/**
+ * The samples of a sandbox's machine, oldest first, taken every `intervalSeconds`: what `metrics()`
+ * of a session and `getGceSandboxMetrics()` answer, and the `metrics` of a {@link GceSandboxReport}.
+ */
+export type GceSandboxMetrics = SandboxMetrics;

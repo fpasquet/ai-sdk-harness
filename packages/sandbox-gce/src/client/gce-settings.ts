@@ -182,6 +182,17 @@ export interface GceSandboxLookupSettings extends GceConnectionSettings {
   abortSignal?: AbortSignal;
 }
 
+/** Options of `getGceSandboxMetrics()`: the sandbox, and since when. */
+export interface GceSandboxMetricsSettings extends GceSandboxLookupSettings {
+  /**
+   * Only the samples taken after this time: a `Date`, an ISO 8601 timestamp, or milliseconds since
+   * the epoch. The `at` of the last sample read, to read the next ones.
+   *
+   * @defaultValue every sample the agent keeps, the last day of them
+   */
+  since?: Date | number | string;
+}
+
 /** Options of `deleteGceSandbox()`: the sandbox, and the service it was created through. */
 export type GceSandboxDeletionSettings = GceSandboxLookupSettings;
 

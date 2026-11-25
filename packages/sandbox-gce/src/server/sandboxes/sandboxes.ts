@@ -9,6 +9,7 @@ import type {
   SandboxDescription,
   SandboxEgressUsage,
   SandboxInfo,
+  SandboxMetrics,
   SandboxNetwork,
   SandboxReport,
   SandboxTimings,
@@ -210,6 +211,17 @@ const MACHINE_KEPT_MS = 10 * 60_000;
  * cannot know when a sandbox stops, and a stop takes some seconds.
  */
 const CAPACITY_RETRY_SECONDS = 30;
+
+/** How long the agent has to answer the samples of its machine. */
+const AGENT_READ_MS = 10_000;
+
+/** How long the agent has to answer its last samples, as its machine stops or goes. */
+const FINAL_READ_MS = 5000;
+
+/** What a suspension or a deletion reads last: the samples after `metricsSince`, in milliseconds. */
+export interface FinalReads {
+  metricsSince?: number;
+}
 
 /** How long a resolved base image is trusted: a family moves on when a new image is built. */
 const IMAGE_KEPT_MS = 5 * 60_000;
@@ -414,12 +426,15 @@ export class Sandboxes {
    * seconds, not when Compute Engine is done some 50 s later: a resume meanwhile waits for it.
    * Idempotent.
    */
-  async suspend(name: string): Promise<SandboxReport> {
+  async suspend(name: string, { metricsSince }: FinalReads = {}): Promise<SandboxReport> {
     this.assertSandboxName(name);
     const report: SandboxReport = { name, event: 'suspend', at: new Date().toISOString() };
     const instance = await this.instanceOf(name);
     if (instance === undefined) return report;
-    const egress = await this.forget(name);
+    const [metrics, egress] = await Promise.all([
+      this.finalMetrics(name, instance, metricsSince),
+      this.forget(name),
+    ]);
     let stopped: Instance | undefined = instance;
     if (instance.status !== 'TERMINATED') {
       await this.options.compute.stopInstance(instance.name, { wait: false });
@@ -428,7 +443,7 @@ export class Sandboxes {
     }
     await this.dropPowerOff(stopped);
     await this.proxyDownWhenIdle();
-    return { ...report, egress };
+    return { ...report, egress, metrics };
   }
 
   /**
@@ -437,11 +452,54 @@ export class Sandboxes {
    * when Compute Engine is done some 50 s later: a sandbox created meanwhile under the same name
    * waits for it. Idempotent.
    */
-  async delete(name: string): Promise<SandboxReport> {
+  async delete(name: string, { metricsSince }: FinalReads = {}): Promise<SandboxReport> {
     this.assertSandboxName(name);
     const report: SandboxReport = { name, event: 'delete', at: new Date().toISOString() };
-    const egress = await this.removeMachine(name, (await this.instanceOf(name))?.name);
-    return { ...report, egress };
+    const instance = await this.instanceOf(name);
+    const metrics =
+      instance === undefined ? undefined : await this.finalMetrics(name, instance, metricsSince);
+    const egress = await this.removeMachine(name, instance?.name);
+    return { ...report, egress, metrics };
+  }
+
+  /**
+   * The samples the agent of the running sandbox `name` took of its machine after `since`,
+   * milliseconds since the epoch, every one it keeps without it. Refused with a 501 by an agent of
+   * an earlier version.
+   */
+  async metrics(name: string, since?: number): Promise<SandboxMetrics> {
+    const metrics = await (await this.agent(name)).metrics({ since, timeoutMs: AGENT_READ_MS });
+    if (metrics === undefined) {
+      throw new HttpError(
+        501,
+        `The agent of "${name}" samples nothing: its image was built with a version of ai-sdk-sandbox-gce before the metrics. Build it again.`,
+      );
+    }
+    return metrics;
+  }
+
+  /**
+   * The last samples of the machine `instance` of `name`, read before it stops or goes, a sample
+   * taken first: those after `since`, or since the machine last started. `undefined` when it does
+   * not run, or its agent cannot answer in time, which is logged: the stop goes on all the same.
+   */
+  private async finalMetrics(
+    name: string,
+    instance: Instance,
+    since?: number,
+  ): Promise<SandboxMetrics | undefined> {
+    if (instance.status !== 'RUNNING') return undefined;
+    const started = Date.parse(instance.lastStartTimestamp ?? '');
+    try {
+      return await new AgentClient(this.endpointOf(instance)).metrics({
+        since: since ?? (Number.isNaN(started) ? undefined : started),
+        fresh: true,
+        timeoutMs: FINAL_READ_MS,
+      });
+    } catch (error) {
+      this.options.logger.warn(`The last metrics of ${name} could not be read: ${String(error)}`);
+      return undefined;
+    }
   }
 
   /**
@@ -1256,13 +1314,21 @@ export class Sandboxes {
     });
   }
 
-  private remember(name: string, instance: Instance): AgentEndpoint {
+  /** Where the agent of the running machine `instance` is reached, and its token. */
+  private endpointOf(instance: Instance): AgentEndpoint {
     const { host, port } = this.options.agentAddress?.(instance) ?? {
       host: instance.networkInterfaces?.[0]?.networkIP ?? '',
       port: this.options.agentPort,
     };
-    const token = agentToken(this.options.agentSecret, instance.name, runOf(instance));
-    const endpoint = { host, port, token };
+    return {
+      host,
+      port,
+      token: agentToken(this.options.agentSecret, instance.name, runOf(instance)),
+    };
+  }
+
+  private remember(name: string, instance: Instance): AgentEndpoint {
+    const endpoint = this.endpointOf(instance);
     this.endpoints.set(name, { endpoint, until: Date.now() + ADDRESS_KEPT_MS });
     if (instance.name !== this.instanceName(name)) {
       this.machines.set(name, { instance: instance.name, until: Date.now() + MACHINE_KEPT_MS });

@@ -1,6 +1,6 @@
 import type { Mock } from 'vitest';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProxyUsage } from '../../protocol/proxy.js';
 import type { ComputeApi, Image, Instance } from '../compute/compute-api.js';
@@ -17,6 +17,8 @@ import { Sandboxes } from './sandboxes.js';
 // The waits between two polls of a machine or an agent pass at once.
 vi.mock('node:timers/promises', () => ({ setTimeout: () => Promise.resolve() }));
 
+// No agent answers the last metrics of a machine but where a test says so.
+beforeEach(() => vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValue(undefined));
 afterEach(() => vi.restoreAllMocks());
 
 const sandbox = (status: string, labels: Record<string, string> = {}): Instance => ({
@@ -241,6 +243,50 @@ describe('the sandboxes of the service', () => {
     await expect(
       sandboxesOf({ compute: computeOf([sandbox('RUNNING')]), proxy }).delete('box'),
     ).resolves.not.toHaveProperty('egress', expect.anything());
+  });
+
+  it('reads the last samples of a running machine before it stops or goes, whatever comes of it', async () => {
+    const samples = { intervalSeconds: 30, samples: [{ at: '2026-11-25T10:01:00.000Z' }] };
+    const metrics = vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValue(samples);
+    const running = {
+      ...sandbox('RUNNING'),
+      lastStartTimestamp: '2026-11-25T10:00:00.000Z',
+    };
+
+    await expect(
+      sandboxesOf({ compute: computeOf([running]) }).suspend('box'),
+    ).resolves.toMatchObject({ metrics: samples });
+    expect(metrics).toHaveBeenLastCalledWith({
+      since: Date.parse('2026-11-25T10:00:00.000Z'),
+      fresh: true,
+      timeoutMs: 5000,
+    });
+    await sandboxesOf({ compute: computeOf([running]) }).delete('box', { metricsSince: 42 });
+    expect(metrics).toHaveBeenLastCalledWith({ since: 42, fresh: true, timeoutMs: 5000 });
+
+    // A stopped machine has no agent to ask; one that cannot answer stops all the same.
+    metrics.mockClear();
+    await sandboxesOf({ compute: computeOf([sandbox('TERMINATED')]) }).delete('box');
+    expect(metrics).not.toHaveBeenCalled();
+    metrics.mockRejectedValueOnce(new HttpError(502, 'no answer'));
+    const warn = vi.fn();
+    const compute = computeOf([running]);
+    await expect(
+      sandboxesOf({ compute, logger: { ...silentLogger, warn } }).suspend('box'),
+    ).resolves.not.toHaveProperty('metrics', expect.anything());
+    expect(compute.stopInstance).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('The last metrics of box'));
+  });
+
+  it('relays the samples of a running machine, and says when its agent has none', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const samples = { intervalSeconds: 30, samples: [] };
+    const metrics = vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValueOnce(samples);
+    const sandboxes = sandboxesOf({ compute: computeOf([sandbox('RUNNING')]) });
+
+    await expect(sandboxes.metrics('box', 7)).resolves.toEqual(samples);
+    expect(metrics).toHaveBeenCalledWith({ since: 7, timeoutMs: 10_000 });
+    await expect(sandboxes.metrics('box')).rejects.toMatchObject({ status: 501 });
   });
 
   it('starts the stopped proxy with a sandbox, and stops it with the last one', async () => {

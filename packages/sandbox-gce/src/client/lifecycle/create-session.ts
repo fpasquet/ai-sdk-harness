@@ -8,9 +8,10 @@ import type {
   GcePrepareSettings,
   GceSandboxDeletionSettings,
   GceSandboxLookupSettings,
+  GceSandboxMetricsSettings,
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
-import type { GceSandboxEgressUsage, GceSandboxInfo } from '../gce-usage.js';
+import type { GceSandboxEgressUsage, GceSandboxInfo, GceSandboxMetrics } from '../gce-usage.js';
 
 import { labelsProblem } from '../../protocol/labels.js';
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
@@ -229,6 +230,24 @@ export async function describeGceSandbox(
   const info = await clientOf(options).describe(sandboxId, abortSignal);
   if (info === undefined) throw new GceSandboxNotFoundError(sandboxId);
   return info;
+}
+
+/**
+ * What the agent of the running sandbox `sandboxId`'s machine sampled of it every 30 s, after
+ * `since` when given: CPU, memory, their pressure, the processes the kernel killed for want of
+ * memory. Read in the machine, where the sandbox's user has `sudo`: fit for sizing, never for
+ * billing. The agent keeps the last day of samples on the disk, across stops; a stop or a deletion
+ * answers those since the machine last started, to `onUsageReport`. Fails with
+ * `GceSandboxServiceError` while the sandbox is stopped (404), or when its image predates the
+ * metrics (501).
+ */
+export async function getGceSandboxMetrics(
+  options: GceSandboxMetricsSettings,
+): Promise<GceSandboxMetrics> {
+  const { sandboxId, since, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  return clientOf(options).metrics(sandboxId, { since, abortSignal });
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   DEFAULT_AGENT_PORT,
   IDLE_POWER_OFF_METADATA_KEY,
 } from '../protocol/agent.js';
+import { DEFAULT_METRICS_INTERVAL_MS } from './metrics-sampler.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -101,6 +102,19 @@ export function agentListenConfig(env: Environment): AgentListenConfig {
   };
 }
 
+/**
+ * How often the agent samples its machine, in milliseconds: `SANDBOX_METRICS_INTERVAL` seconds,
+ * 30 without it, never with 0.
+ */
+function metricsInterval(seconds: string | undefined): number {
+  if (seconds === undefined) return DEFAULT_METRICS_INTERVAL_MS;
+  const parsed = Number(seconds);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`SANDBOX_METRICS_INTERVAL must be a number of seconds, 0 for none: ${seconds}`);
+  }
+  return parsed * 1000;
+}
+
 /** Whom the commands run as: `SANDBOX_USER` (`agent`) as root, the agent's own user otherwise. */
 function commandIdentity(env: Environment): {
   commandUser?: CommandUser;
@@ -141,6 +155,7 @@ export async function agentSettings(env: Environment, logger: Logger): Promise<A
       env['SANDBOX_CONFIGURE_DOCKER'] !== 'false' &&
       commandUser !== undefined &&
       existsSync('/usr/bin/dockerd'),
+    metrics: { intervalMs: metricsInterval(env['SANDBOX_METRICS_INTERVAL']) },
     logger,
   };
 }

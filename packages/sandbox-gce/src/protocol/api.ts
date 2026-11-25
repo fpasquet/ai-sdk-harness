@@ -26,6 +26,63 @@ export interface SandboxReport {
   at: string;
   /** What its connections carried through the proxy since its creation or its last resume. */
   egress?: SandboxEgressUsage;
+  /**
+   * What the agent of its machine sampled since the machine last started, a sample taken then
+   * included: read before the machine stops, or its disk goes.
+   */
+  metrics?: SandboxMetrics;
+}
+
+/**
+ * The pressure of a resource, from `/proc/pressure/*`: the share of time, in percent, some tasks
+ * (`some`), or all of them (`full`), waited for it, averaged over 10 and 60 seconds.
+ */
+export interface PressureSample {
+  someAvg10: number;
+  someAvg60: number;
+  /** Not for the CPU on kernels before 5.13. */
+  fullAvg10?: number;
+  fullAvg60?: number;
+}
+
+/**
+ * What the agent of a sandbox's machine read of it at one instant, from `/proc`. The agent runs in
+ * the machine, where the sandbox's user has `sudo`: fit for sizing the machines, never for billing.
+ * A field is missing when the machine's kernel does not report it.
+ */
+export interface MetricSample {
+  /** When it was taken, an ISO 8601 timestamp. */
+  at: string;
+  /** The share of the time all the CPUs were busy since the sample before, in percent: none for the first after a boot. */
+  cpuPercent?: number;
+  /**
+   * The share of the time the hypervisor gave the CPUs to another machine, in percent: what a
+   * shared-core or an overcommitted machine loses.
+   */
+  cpuStealPercent?: number;
+  /** The CPUs the machine has. */
+  cpuCount?: number;
+  /** The memory in use, in bytes: `MemTotal` less `MemAvailable`. */
+  memoryUsedBytes?: number;
+  /** The memory of the machine, in bytes. */
+  memoryTotalBytes?: number;
+  /** How long tasks waited for a CPU, when the kernel reports pressure. */
+  cpuPressure?: PressureSample;
+  /** How long tasks waited for memory, when the kernel reports pressure. */
+  memoryPressure?: PressureSample;
+  /** The processes the kernel killed for want of memory since the machine booted (`oom_kill`). */
+  oomKills?: number;
+}
+
+/**
+ * The samples of a sandbox's machine, oldest first: `GET /v1/sandboxes/:name/metrics?since=`
+ * answers those taken after `since`. The agent keeps the last day of them on the machine's disk,
+ * across stops.
+ */
+export interface SandboxMetrics {
+  /** How often the agent samples, in seconds. */
+  intervalSeconds: number;
+  samples: MetricSample[];
 }
 
 /** A sandbox, as the service describes it: where its commands run by default, and its user's home. */

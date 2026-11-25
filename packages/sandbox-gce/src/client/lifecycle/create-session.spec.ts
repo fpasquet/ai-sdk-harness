@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FakeService } from '../../../test/fake-service.js';
-import type { GceNetworkSandboxSession } from '../../index.js';
+import type { GceNetworkSandboxSession, GceSandboxReport } from '../../index.js';
 
 import { startFakeService } from '../../../test/fake-service.js';
 import {
@@ -23,6 +23,7 @@ import {
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
+  getGceSandboxMetrics,
   getGceSandboxUsage,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
@@ -574,6 +575,39 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     ).rejects.toBeInstanceOf(GceSandboxCapacityError);
   });
 
+  it('samples its machine, keeps the samples across a stop, and reports the last ones', async () => {
+    const reports: GceSandboxReport[] = [];
+    const settings = {
+      ...options(),
+      sandboxId: 'box',
+      onUsageReport: (report: GceSandboxReport) => void reports.push(report),
+    };
+    const samplesOf = (report: number) => reports[report]?.metrics?.samples ?? [];
+    const sandbox = await createGceNetworkSandboxSession(settings);
+    // Every 30 s: none yet.
+    await expect(sandbox.metrics()).resolves.toEqual({ intervalSeconds: 30, samples: [] });
+
+    await sandbox.stop();
+    expect(samplesOf(0)).toHaveLength(1);
+    const [before = { at: '' }] = samplesOf(0);
+    expect(Date.parse(before.at)).not.toBeNaN();
+    await expect(sandbox.metrics()).rejects.toMatchObject({ status: 404 });
+
+    const resumed = await resumeGceNetworkSandboxSession(settings);
+    await expect(resumed.metrics()).resolves.toMatchObject({ samples: [before] });
+    await expect(resumed.metrics({ since: before.at })).resolves.toMatchObject({ samples: [] });
+    await expect(
+      getGceSandboxMetrics({ ...options(), sandboxId: 'box', since: new Date(0) }),
+    ).resolves.toMatchObject({ samples: [before] });
+    const invalid = await fetch(`${fake.url}/v1/sandboxes/box/metrics?since=yesterday`);
+    expect(invalid.status).toBe(400);
+
+    // Those since the machine last started: the one before its stop left out.
+    await resumed.destroy();
+    expect(samplesOf(1)).toHaveLength(1);
+    expect(samplesOf(1)[0]).not.toEqual(before);
+  });
+
   it('cannot resume a sandbox that does not exist', async () => {
     await expect(
       resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'ghost' }),
@@ -1016,6 +1050,7 @@ describe('the network of a Compute Engine sandbox', () => {
           bytesRead: usage.bytesRead,
           bytesWritten: usage.bytesWritten,
         }) as unknown,
+        metrics: expect.objectContaining({ intervalSeconds: 30 }) as unknown,
       },
     ]);
     expect(session.lastReport).toEqual(reports[0]);

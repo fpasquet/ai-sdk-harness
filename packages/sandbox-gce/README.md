@@ -737,8 +737,9 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 | `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                                                                                                        |
 | `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                                                                                             |
 | `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata                                                                             |
-| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's                                                                                    |
+| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration and the samples of the machine, root's                                                     |
 | `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone                                                                                      |
+| `SANDBOX_METRICS_INTERVAL` | `30`                                         | Seconds between two samples of the machine; `0` for none but those a stop or a deletion takes                                       |
 | `SANDBOX_RUN_DIR`          | `/run/ai-sdk-sandbox`                        | Where it marks it was configured since the machine booted, emptied at each boot: an agent restarted then never powers a machine off |
 
 A sandbox's commands run with nothing of the agent's environment: only their `PATH`, `HOME`, `USER`, the proxy and base URL variables, and the variables the command sets.
@@ -843,6 +844,24 @@ await deleteGceSandbox({ url, sandboxId: 'box', onUsageReport: saveUsage });
 ```
 
 `onUsageReport` is awaited, an error it throws ignored. `lastReport` holds the report of the last `stop()` or `destroy()` of that view. Reading the count of a stopped sandbox fails with `GceSandboxServiceError` (404): its stop answered it. A proxy of an earlier version counts nothing: its reports have no `egress`, and `usage()` fails with a 404.
+
+### What its machine went through
+
+The agent of each machine samples it every 30 s, from `/proc` alone: the share of the CPUs busy (`cpuPercent`) and stolen by the hypervisor (`cpuStealPercent`) since the sample before, the memory in use (`memoryUsedBytes` of `memoryTotalBytes`), the pressure on both when the kernel reports it (`cpuPressure`, `memoryPressure`, from `/proc/pressure`), and the processes the kernel killed for want of memory since the boot (`oomKills`). It keeps the last day of samples in its state directory (`/var/lib/ai-sdk-sandbox/metrics.jsonl`), on the machine's disk: they outlive a stop. `metrics()` of a session, or `getGceSandboxMetrics({ url, sandboxId, since })`, reads them while the sandbox runs, those after `since` when given:
+
+```ts
+import { getGceSandboxMetrics } from 'ai-sdk-sandbox-gce';
+
+let since: string | undefined;
+const { intervalSeconds, samples } = await getGceSandboxMetrics({ url, sandboxId: 'box', since });
+// samples: [{ at: '2026-11-25T18:01:00.000Z', cpuPercent: 37.5, cpuStealPercent: 0, cpuCount: 4,
+//   memoryUsedBytes: 2147483648, memoryTotalBytes: 16777216000,
+//   cpuPressure: { someAvg10: 2.1, someAvg60: 1.3, fullAvg10: 0, fullAvg60: 0 },
+//   memoryPressure: { someAvg10: 0, someAvg60: 0, fullAvg10: 0, fullAvg60: 0 }, oomKills: 0 }, …]
+since = samples.at(-1)?.at ?? since;
+```
+
+A stop and a deletion read the last ones before the machine goes, a sample taken then, those since the machine last started: the report handed to `onUsageReport` holds them in `metrics`, beside `egress`. The agent runs in the machine, where the sandbox's user has `sudo`: what it reports is fit for sizing the machines and `SANDBOX_MAX_RUNNING`, never for billing, which [the labels](#labels) and the proxy's count are for. An image built with an earlier version of the package samples nothing: `metrics()` fails with a 501, and the reports have no `metrics`. Build the image again to get them.
 
 ## Cost
 
