@@ -19,6 +19,7 @@ import {
   deleteGceSandbox,
   deleteGceSandboxTemplate,
   describeGceSandbox,
+  GceSandboxCapacityError,
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
@@ -550,6 +551,27 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     await expect(describeGceSandbox({ ...options(), sandboxId: 'box' })).rejects.toBeInstanceOf(
       GceSandboxNotFoundError,
     );
+  });
+
+  it('is refused with a capacity error beyond the most sandboxes the service runs', async () => {
+    await fake.dispose();
+    fake = await startFakeService({ maxRunning: 1 });
+    const first = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one' });
+
+    const error = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'two' }).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(GceSandboxCapacityError);
+    expect(error).toMatchObject({ status: 429, running: 1, max: 1, retryAfterSeconds: 30 });
+    expect(fake.compute.instance('sbx-two')).toBeUndefined();
+
+    await first.stop();
+    await expect(
+      createGceNetworkSandboxSession({ ...options(), sandboxId: 'two' }),
+    ).resolves.toMatchObject({ id: 'two' });
+    await expect(
+      resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'one' }),
+    ).rejects.toBeInstanceOf(GceSandboxCapacityError);
   });
 
   it('cannot resume a sandbox that does not exist', async () => {

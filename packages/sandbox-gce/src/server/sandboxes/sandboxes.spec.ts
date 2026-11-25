@@ -628,6 +628,11 @@ describe('the sandboxes of the service', () => {
     ).rejects.toMatchObject({
       status: 429,
       message: expect.stringContaining('SANDBOX_MAX_RUNNING=2') as unknown,
+      details: {
+        code: 'SANDBOX_MAX_RUNNING',
+        fields: { code: 'SANDBOX_MAX_RUNNING', running: 2, max: 2, retryAfterSeconds: 30 },
+        headers: { 'retry-after': '30' },
+      },
     });
     expect(full.insertInstance).not.toHaveBeenCalled();
     expect(full.listInstances).toHaveBeenCalledWith('ai-sdk-sandbox', 'sandbox');

@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import type { Logger } from '../../common/logger.js';
 import type {
+  CapacityRefusal,
   SandboxDescription,
   SandboxEgressUsage,
   SandboxInfo,
@@ -19,6 +20,7 @@ import type { ProxyAdmin } from './proxy-admin.js';
 import { HttpError } from '../../common/http-error.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
 import { AGENT_TOKEN_METADATA_KEY, IDLE_POWER_OFF_METADATA_KEY } from '../../protocol/agent.js';
+import { SANDBOX_MAX_RUNNING } from '../../protocol/api.js';
 import { labelsProblem, RESERVED_LABEL_PREFIX } from '../../protocol/labels.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
@@ -202,6 +204,12 @@ const STANDARD_SCHEDULING = { automaticRestart: true, onHostMaintenance: 'MIGRAT
  * a sandbox taken from the warm pool is only found by its label otherwise.
  */
 const MACHINE_KEPT_MS = 10 * 60_000;
+
+/**
+ * How long a caller refused for {@link SandboxesOptions.maxRunning} is told to wait: the service
+ * cannot know when a sandbox stops, and a stop takes some seconds.
+ */
+const CAPACITY_RETRY_SECONDS = 30;
 
 /** How long a resolved base image is trusted: a family moves on when a new image is built. */
 const IMAGE_KEPT_MS = 5 * 60_000;
@@ -889,9 +897,20 @@ export class Sandboxes {
     const machines = await this.options.compute.listInstances(LABEL, 'sandbox');
     const running = machines.filter(({ status }) => RUNNING.has(status)).length;
     if (running >= maxRunning) {
+      const refusal: Omit<CapacityRefusal, 'error'> = {
+        code: SANDBOX_MAX_RUNNING,
+        running,
+        max: maxRunning,
+        retryAfterSeconds: CAPACITY_RETRY_SECONDS,
+      };
       throw new HttpError(
         429,
         `${running} ${running === 1 ? 'sandbox runs' : 'sandboxes run'} already, the most this service runs at once (SANDBOX_MAX_RUNNING=${maxRunning}): stop or delete one, or try again later.`,
+        {
+          code: SANDBOX_MAX_RUNNING,
+          fields: refusal,
+          headers: { 'retry-after': String(CAPACITY_RETRY_SECONDS) },
+        },
       );
     }
   }

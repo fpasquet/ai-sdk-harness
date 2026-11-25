@@ -1,3 +1,4 @@
+export { GceSandboxCapacityError } from './client/errors/gce-sandbox-capacity-error.js';
 export { GceSandboxImageError } from './client/errors/gce-sandbox-image-error.js';
 export { GceSandboxNotFoundError } from './client/errors/gce-sandbox-not-found-error.js';
 export { GceSandboxServiceError } from './client/errors/gce-sandbox-service-error.js';

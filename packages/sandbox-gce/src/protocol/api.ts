@@ -103,6 +103,30 @@ export interface SandboxInfo {
   labels: Record<string, string>;
 }
 
+/**
+ * The `code` of the body of a 429 answered when a creation or a resume would run more sandboxes
+ * than `SANDBOX_MAX_RUNNING`: a {@link CapacityRefusal}, with a `Retry-After` header.
+ */
+export const SANDBOX_MAX_RUNNING = 'SANDBOX_MAX_RUNNING';
+
+/** The body of an error answer of the service. */
+export interface ErrorBody {
+  error: string;
+  /** What the caller tells the error by, when it has one: {@link SANDBOX_MAX_RUNNING}. */
+  code?: string;
+}
+
+/** The body of the 429 of {@link SANDBOX_MAX_RUNNING}. */
+export interface CapacityRefusal extends ErrorBody {
+  code: typeof SANDBOX_MAX_RUNNING;
+  /** The sandboxes running, or booting, when the call was refused. */
+  running: number;
+  /** The most the service runs at once: its `SANDBOX_MAX_RUNNING`. */
+  max: number;
+  /** How long to wait before trying again, in seconds: also in `Retry-After`. */
+  retryAfterSeconds: number;
+}
+
 /** What a sandbox may reach, on top of what the service allows every sandbox. */
 export interface SandboxNetwork {
   allowedHosts?: readonly string[];

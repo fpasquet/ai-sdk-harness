@@ -4,6 +4,7 @@ import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import type {
+  CapacityRefusal,
   SandboxCommand,
   SandboxDescription,
   SandboxEgressUsage,
@@ -13,7 +14,9 @@ import type {
 } from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
 
+import { SANDBOX_MAX_RUNNING } from '../../protocol/api.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
+import { GceSandboxCapacityError } from '../errors/gce-sandbox-capacity-error.js';
 import { GceSandboxServiceError } from '../errors/gce-sandbox-service-error.js';
 import { GCE_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 
@@ -63,6 +66,20 @@ async function reportOf(
   const text = response.status === 204 ? '' : await response.text();
   if (text === '') return { name, event, at: new Date().toISOString() };
   return JSON.parse(text) as SandboxReport;
+}
+
+/** The refusal of a call for the most sandboxes the service runs, as the service answered it. */
+function capacityError(
+  request: string,
+  message: string,
+  { body, response }: { body: Partial<CapacityRefusal>; response: Response },
+): GceSandboxCapacityError {
+  const header = response.headers.get('retry-after');
+  return new GceSandboxCapacityError(request, message, {
+    running: body.running ?? Number.NaN,
+    max: body.max ?? Number.NaN,
+    retryAfterSeconds: body.retryAfterSeconds ?? (header === null ? Number.NaN : Number(header)),
+  });
 }
 
 /** A call cut on the way, by the network or by Cloud Run's front end, which the service may go on with. */
@@ -380,12 +397,16 @@ export class SandboxServiceClient {
         message: `The Compute Engine sandbox service refused ${request} (${response.status}): grant the caller roles/run.invoker on the service, or check the \`auth\` option.`,
       });
     }
-    let message = text;
+    let body: Partial<CapacityRefusal> = {};
     try {
-      message = (JSON.parse(text) as { error?: string }).error ?? text;
+      body = JSON.parse(text) as Partial<CapacityRefusal>;
     } catch {
       // Not the service's JSON: Cloud Run's own error page, say.
     }
-    return new GceSandboxServiceError(request, response.status, message.trim());
+    const message = (body.error ?? text).trim();
+    if (response.status === 429 && body.code === SANDBOX_MAX_RUNNING) {
+      return capacityError(request, message, { body, response });
+    }
+    return new GceSandboxServiceError(request, response.status, message);
   }
 }
