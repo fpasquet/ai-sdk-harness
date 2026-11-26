@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      packages: ${{ steps.changesets.outputs.published-packages }}
       images: ${{ steps.images.outputs.packages }}
     steps:
       - name: Checkout
@@ -118,3 +120,14 @@ jobs:
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # The starters as a user installs them, from npm, once the release is on it.
+  starters:
+    name: Check the starters
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/starters.yml
+    with:
+      packages: ${{ needs.release.outputs.packages }}
