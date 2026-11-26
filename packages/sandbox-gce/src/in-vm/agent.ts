@@ -37,6 +37,11 @@ export interface AgentSettings extends CommandSettings {
   token: string;
   /** Root's, out of the commands' reach: the configuration the service gave, kept across restarts. */
   stateDirectory: string;
+  /**
+   * The id of the machine, from its metadata: the samples on a disk made from another machine's are
+   * not this one's. Unknown for an agent given its token, run by hand or in tests.
+   */
+  machineId?: string;
   /** Whom the commands run as, when the agent runs as root: itself otherwise. */
   commandUser?: CommandUser;
   /** Whether to point Docker at the egress proxy: as root, on a machine that has it. */
@@ -89,6 +94,7 @@ export class Agent {
     this.processes = new Processes(settings.commandUser);
     this.sampler = new MetricsSampler({
       stateDirectory: settings.stateDirectory,
+      machine: settings.machineId,
       intervalMs: settings.metrics?.intervalMs ?? 0,
       procDirectory: settings.metrics?.procDirectory,
       logger: settings.logger,

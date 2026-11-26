@@ -63,23 +63,43 @@ async function metadataIdleMinutes(url: string, logger: Logger): Promise<number 
 }
 
 /**
- * The token, from the environment or else the instance metadata, and with the latter, as root, when
- * to power the machine off unless configured.
+ * The id of the instance, beside its attributes in the metadata: a machine made from another's disk
+ * has its own. `undefined` when it cannot be read.
+ */
+async function metadataMachineId(url: string, logger: Logger): Promise<string | undefined> {
+  try {
+    const response = await fetch(new URL('../id', url), {
+      headers: { 'metadata-flavor': 'Google' },
+      signal: AbortSignal.timeout(5000),
+    });
+    const id = (await response.text()).trim();
+    if (response.ok && id !== '') return id;
+    logger.warn(`The id of the machine could not be read: ${response.status}.`);
+  } catch (error) {
+    logger.warn(`The id of the machine could not be read: ${String(error)}`);
+  }
+  return undefined;
+}
+
+/**
+ * The token, from the environment or else the instance metadata, and with the latter the id of the
+ * machine and, as root, when to power it off unless configured.
  */
 async function fromMetadata(
   env: Environment,
   logger: Logger,
-): Promise<Pick<AgentSettings, 'idlePowerOff' | 'token'>> {
+): Promise<Pick<AgentSettings, 'idlePowerOff' | 'machineId' | 'token'>> {
   const given = env['SANDBOX_AGENT_TOKEN'];
   if (given !== undefined) return { token: given };
   const url = env['METADATA_URL'] ?? METADATA;
   const token = await metadataToken(url);
+  const machineId = await metadataMachineId(url, logger);
   // Only root powers the machine off: an agent run by hand, or in tests, never does.
-  if (process.getuid?.() !== 0) return { token };
+  if (process.getuid?.() !== 0) return { token, machineId };
   const minutes = await metadataIdleMinutes(url, logger);
-  if (minutes === undefined) return { token };
+  if (minutes === undefined) return { token, machineId };
   const runDirectory = env['SANDBOX_RUN_DIR'] ?? '/run/ai-sdk-sandbox';
-  return { token, idlePowerOff: { afterMs: minutes * 60_000, runDirectory } };
+  return { token, machineId, idlePowerOff: { afterMs: minutes * 60_000, runDirectory } };
 }
 
 /** The ids of `user`, from `id`. */

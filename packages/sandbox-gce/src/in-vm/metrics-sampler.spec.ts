@@ -29,13 +29,31 @@ describe('the metrics sampler of the agent', () => {
       `cpu  ${user} 0 ${system} ${idle} 0 0 0 ${steal} 0 0\ncpu0 1 0 1 1 0 0 0 0 0 0\ncpu1 1 0 1 1 0 0 0 0 0 0\nintr 1\n`,
     );
 
-  const samplerOf = (intervalMs = 30_000): MetricsSampler =>
+  const samplerOf = (intervalMs = 30_000, machine?: string): MetricsSampler =>
     new MetricsSampler({
       stateDirectory: state,
+      machine,
       intervalMs,
       procDirectory: proc,
       logger: silentLogger,
     });
+
+  it("drops the samples of another machine, whose disk this one's was made from", () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-25T10:00:00.000Z') });
+    stat(1, 1, 1);
+    // The builder of a template samples its setup, and its disk becomes the template's image.
+    samplerOf(30_000, 'builder').sample();
+
+    vi.setSystemTime(Date.parse('2026-11-25T10:05:00.000Z'));
+    const sandbox = samplerOf(30_000, 'sandbox');
+    expect(sandbox.since().samples).toEqual([]);
+    sandbox.sample();
+
+    // The same machine, stopped then started: its samples are kept.
+    const resumed = samplerOf(30_000, 'sandbox');
+    expect(resumed.since().samples.map(({ at }) => at)).toEqual(['2026-11-25T10:05:00.000Z']);
+    expect(readFileSync(join(state, 'metrics.machine'), 'utf8')).toBe('sandbox\n');
+  });
 
   it('reads the CPU since the sample before, the memory, the pressure and the OOM kills', () => {
     stat(100, 50, 850);

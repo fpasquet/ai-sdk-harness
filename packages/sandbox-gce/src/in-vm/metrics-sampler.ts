@@ -1,4 +1,11 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import type { Logger } from '../common/logger.js';
@@ -13,10 +20,19 @@ const CAPACITY = 2880;
 /** The file the samples are kept in, one JSON object per line, under the agent's state directory. */
 const FILE = 'metrics.jsonl';
 
+/** The file that says which machine took the samples of {@link FILE}. */
+const MACHINE_FILE = 'metrics.machine';
+
 /** What the sampler is made with. */
 export interface MetricsSamplerSettings {
   /** Root's, on the machine's disk: the samples outlive a stop there. */
   stateDirectory: string;
+  /**
+   * The id of the machine. A disk made from another machine's, a template's builder for one,
+   * carries that machine's samples: they are dropped when the id differs. Without it, the samples of
+   * the file are all kept.
+   */
+  machine?: string;
   /** How often to sample, in milliseconds: never by itself with 0, only when asked. */
   intervalMs: number;
   /** Where `/proc` is. Tests only. */
@@ -176,8 +192,12 @@ export class MetricsSampler {
     }
   }
 
-  /** The samples of the file, the last {@link CAPACITY} of them, a line it cannot read skipped. */
+  /**
+   * The samples of the file, the last {@link CAPACITY} of them, a line it cannot read skipped: none
+   * when another machine took them.
+   */
   private load(): void {
+    if (!this.ownsFile()) return;
     let text: string;
     try {
       text = readFileSync(this.file, 'utf8');
@@ -196,6 +216,33 @@ export class MetricsSampler {
       }
     }
     this.samples.splice(0, Math.max(0, this.samples.length - CAPACITY));
+  }
+
+  /**
+   * Whether the samples of the file are this machine's. Those of another machine, whose disk this
+   * one's was made from, are deleted, and the file marked as this machine's.
+   */
+  private ownsFile(): boolean {
+    const { machine, stateDirectory } = this.settings;
+    if (machine === undefined) return true;
+    const marker = join(stateDirectory, MACHINE_FILE);
+    let taker: string | undefined;
+    try {
+      taker = readFileSync(marker, 'utf8').trim();
+    } catch {
+      // No sample taken yet, or by an agent of an earlier version.
+    }
+    if (taker === machine) return true;
+    try {
+      rmSync(this.file, { force: true });
+      mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
+      writeFileSync(marker, `${machine}\n`, { mode: 0o600 });
+    } catch (error) {
+      this.settings.logger.warn(
+        `The metrics of another machine could not be dropped: ${String(error)}`,
+      );
+    }
+    return false;
   }
 
   /**
