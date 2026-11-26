@@ -23,6 +23,7 @@ import {
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
+  gceSandboxTemplateExists,
   getGceSandboxMetrics,
   getGceSandboxUsage,
   prepareGceSandboxService,
@@ -874,6 +875,34 @@ describe('a template', () => {
     });
     expect(prepare).toHaveBeenCalledTimes(4);
     expect((await two.run({ command: 'cat "$HOME/setup.txt"' })).stdout).toBe('set-up\n');
+  });
+
+  it('says whether it is saved: once built, no longer once deleted, nor on another image', async () => {
+    const template: HarnessV1SandboxTemplate = {
+      identity: 'looked-up@1',
+      prepare: () => Promise.resolve(),
+    };
+    const setup = ['echo set-up'];
+    expect(await gceSandboxTemplateExists({ ...options(), template, setup })).toBe(false);
+
+    await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one', template, setup });
+
+    expect(await gceSandboxTemplateExists({ ...options(), template, setup })).toBe(true);
+    // Another harness version, other commands, another image: other templates, not built.
+    expect(
+      await gceSandboxTemplateExists({
+        ...options(),
+        template: { ...template, identity: 'looked-up@2' },
+        setup,
+      }),
+    ).toBe(false);
+    expect(await gceSandboxTemplateExists({ ...options(), template })).toBe(false);
+    expect(await gceSandboxTemplateExists({ ...options(), template, setup, image: 'python' })).toBe(
+      false,
+    );
+
+    await deleteGceSandboxTemplate({ ...options(), template, setup });
+    expect(await gceSandboxTemplateExists({ ...options(), template, setup })).toBe(false);
   });
 
   it('is deleted without error when it does not exist', async () => {

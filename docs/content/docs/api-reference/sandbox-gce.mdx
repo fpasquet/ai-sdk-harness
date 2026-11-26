@@ -33,6 +33,15 @@ Deletes the template that sandboxes created with `template`, `setup` and `image`
   name="GceTemplateDeletionSettings"
 />
 
+## `gceSandboxTemplateExists(options)`
+
+Whether the template that sandboxes created with `template`, `setup` and `image` boot from is saved on the service. It is not after a new base image, a new version of the service or a new harness version, which each name another template: the next sandbox created from it builds it first. Build it ahead when it is not.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceTemplateLookupSettings"
+/>
+
 ## `describeGceSandbox(options)`
 
 The sandbox's machine, running or stopped, as Compute Engine describes it, without starting it. Throws `GceSandboxNotFoundError` when there is none. `describe()` of a session answers the same.

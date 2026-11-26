@@ -13,6 +13,7 @@ export type {
   GceSandboxLookupSettings,
   GceSandboxMetricsSettings,
   GceTemplateDeletionSettings,
+  GceTemplateLookupSettings,
 } from './client/gce-settings.js';
 export type {
   GceSandboxEgressUsage,
@@ -27,6 +28,7 @@ export {
   deleteGceSandbox,
   deleteGceSandboxTemplate,
   describeGceSandbox,
+  gceSandboxTemplateExists,
   getGceSandboxMetrics,
   getGceSandboxUsage,
   prepareGceSandboxService,
