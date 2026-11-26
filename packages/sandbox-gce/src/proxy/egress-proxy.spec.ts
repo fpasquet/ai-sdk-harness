@@ -590,9 +590,12 @@ describe('the direct connections of programs that ignore the proxy variables', (
   });
 
   it('sends a plain HTTP request on to its allowed Host, and refuses another', async () => {
-    const answering = createHttpServer((req, res) =>
-      res.end(`seen ${req.headers.host} ${req.url}`),
-    );
+    // What reached the upstream, kept aside: its answer never echoes the request.
+    const seen: { host?: string; url?: string }[] = [];
+    const answering = createHttpServer((req, res) => {
+      seen.push({ host: req.headers.host, url: req.url });
+      res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+    });
     await new Promise<void>((resolve) => answering.listen(0, '127.0.0.1', resolve));
     opened.push({
       close: () => {
@@ -621,7 +624,8 @@ describe('the direct connections of programs that ignore the proxy variables', (
     const allowed = await get(`localhost:${upstreamPort}`);
     const other = await get('other.example.com');
 
-    expect(allowed).toEqual({ status: 200, body: `seen localhost:${upstreamPort} /simple/?q=1` });
+    expect(allowed).toEqual({ status: 200, body: 'ok' });
+    expect(seen).toEqual([{ host: `localhost:${upstreamPort}`, url: '/simple/?q=1' }]);
     expect(other.status).toBe(403);
   });
 });
