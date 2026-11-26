@@ -95,14 +95,28 @@ gcloud compute firewall-rules create proxy-admin-from-service --network=sandboxe
   --action=ALLOW --rules=tcp:3129 --source-ranges=10.8.17.0/26 --target-tags=ai-sdk-sandbox-proxy
 ```
 
-A sandbox resolves names through the metadata server, which the firewall does not filter: a DNS query for any name leaves the VPC, a channel for a few bytes at a time. Close it with a [response policy](https://cloud.google.com/dns/docs/zones/manage-response-policies) on the network that answers every name itself, so that no query leaves it:
+A sandbox resolves names through the metadata server, which the firewall does not filter: a DNS query for any name leaves the VPC, a channel for a few bytes at a time. Close it with a private zone for the root of the DNS on the network, which answers every name itself, for every type of query, so that no query leaves it. The service, on the same network, still reaches Google's APIs: a peering zone resolves `googleapis.com` in a network with no zone of its own, created for that alone and free without subnetworks.
 
 ```bash
 gcloud services enable dns.googleapis.com
-gcloud dns response-policies create sandboxes-no-dns --networks=sandboxes \
+gcloud dns managed-zones create sandboxes-root --dns-name=. --visibility=private --networks=sandboxes \
   --description="Every name answered locally: DNS is no way out of a sandbox."
-gcloud dns response-policies rules create every-name --response-policy=sandboxes-no-dns \
-  --dns-name="*." --local-data=name="*.",type=A,ttl=300,rrdatas=0.0.0.0
+gcloud dns record-sets create "*." --zone=sandboxes-root --type=A --ttl=300 --rrdatas=0.0.0.0
+
+gcloud compute networks create sandboxes-dns --subnet-mode=custom
+gcloud dns managed-zones create sandboxes-googleapis --dns-name=googleapis.com. --visibility=private \
+  --networks=sandboxes --target-network=sandboxes-dns --target-project=$PROJECT \
+  --description="Google's APIs for the service, through a network that answers them."
+```
+
+An `A` query then gets `0.0.0.0`, any other type (`AAAA`, `TXT`, `MX`…) an empty answer, and none of them leaves the network. The names of Google Cloud (`metadata.google.internal`, the machines' internal names) still resolve, and `googleapis.com` too: its queries reach only Google's servers. Should the service reach another domain by name, give it a peering zone of its own the same way.
+
+A network closed earlier with a response policy rule on `*.` (an earlier version of these steps) is not closed: such a rule answers only `A` queries, and the others leave the network. Create the zones above, then delete the policy:
+
+```bash
+gcloud dns response-policies rules delete every-name --response-policy=sandboxes-no-dns
+gcloud dns response-policies update sandboxes-no-dns --networks=""
+gcloud dns response-policies delete sandboxes-no-dns
 ```
 
 Keep the `service` subnetwork for the service alone: whatever else runs in it, a Cloud Run job or a machine, reaches the agents and the proxy's administration API like the service does.
@@ -142,7 +156,7 @@ changed() {
   if printf '%b' "$2" | cmp -s - "$1"; then return 1; fi
   printf '%b' "$2" > "$1"
 }
-# Public resolvers, not the metadata server's, which the sandboxes' response policy answers.
+# Public resolvers, not the metadata server's, which the sandboxes' root zone answers.
 # After gce-resolved.conf, which adds the metadata server: the empty DNS= resets the list.
 dns=false
 if changed /etc/systemd/resolved.conf.d/public-dns.conf '[Resolve]\nDNS=\nDNS=8.8.8.8 1.1.1.1\nDomains=~.\n'; then
@@ -656,11 +670,10 @@ A program then connects to `host:443` as it would anywhere, and reaches the prox
 
 To set it up:
 
-1. Have the response policy answer every name with the proxy's address rather than `0.0.0.0`. No query leaves the network, as before:
+1. Have the root zone answer every name with the proxy's address rather than `0.0.0.0`. No query leaves the network, as before:
 
    ```bash
-   gcloud dns response-policies rules update every-name --response-policy=sandboxes-no-dns \
-     --local-data=name="*.",type=A,ttl=300,rrdatas=10.8.16.2
+   gcloud dns record-sets update "*." --zone=sandboxes-root --type=A --ttl=300 --rrdatas=10.8.16.2
    ```
 
 2. Let the sandboxes reach the proxy on 80 and 443 as well:

@@ -625,6 +625,30 @@ describe('the sandboxes of the service', () => {
     }
   });
 
+  it('counts once the registration with the proxy that runs alongside the boot', async () => {
+    const slowly =
+      <T>(value: T) =>
+      async (): Promise<T> => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return value;
+      };
+    vi.spyOn(AgentClient.prototype, 'health').mockImplementation(slowly(PROTOCOL_VERSION));
+    vi.spyOn(AgentClient.prototype, 'configure').mockResolvedValue({
+      home: '/home/sandbox',
+      workingDirectory: '/workspace',
+    });
+    const proxy = proxyOf();
+    proxy.register.mockImplementation(slowly(undefined));
+    const sandboxes = sandboxesOf({ compute: computeOf([undefined, sandbox('RUNNING')]), proxy });
+
+    const { timings } = await sandboxes.create('box', {});
+
+    const { insertMs = 0, bootMs = 0, agentMs = 0, totalMs = 0 } = timings ?? {};
+    expect(bootMs).toBeGreaterThanOrEqual(99);
+    expect(agentMs).toBeLessThan(50);
+    expect(insertMs + bootMs + agentMs).toBeLessThanOrEqual(totalMs);
+  });
+
   it('logs each creation, resume, suspension and deletion as a structured event', async () => {
     agentAnswers(PROTOCOL_VERSION);
     const event = vi.fn();
