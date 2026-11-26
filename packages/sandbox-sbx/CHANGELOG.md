@@ -1,5 +1,11 @@
 # ai-sdk-sandbox-sbx
 
+## 0.2.6
+
+### Patch Changes
+
+- be187a8: Killing a process holds each process of its tree still while its children are stopped: a shell waiting for its children could exit 0 before the `TERM` reached it, and the killed process then looked like one that ended well. It now always ends with the status of a killed process.
+
 ## 0.2.5
 
 ### Patch Changes

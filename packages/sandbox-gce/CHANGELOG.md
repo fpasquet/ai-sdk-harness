@@ -1,5 +1,22 @@
 # ai-sdk-sandbox-gce
 
+## 0.6.0
+
+### Minor Changes
+
+- be187a8: A creation or a resume refused for `SANDBOX_MAX_RUNNING` now throws `GceSandboxCapacityError`, carrying `running`, `max` and `retryAfterSeconds`, for the caller to queue the call rather than read the message. It extends `GceSandboxServiceError`, its `status` still 429. The service answers that 429 with `code: 'SANDBOX_MAX_RUNNING'`, `running`, `max` and `retryAfterSeconds` in its body, and a `Retry-After` header.
+- be187a8: `describeGceSandbox({ url, sandboxId })`, and `describe()` of a session, read the sandbox's machine from Compute Engine without starting it (`GET /v1/sandboxes/:name` on the service): when it was made, last started and last stopped, whether it is billed as Spot or standard (`spotFallback` says when a service of Spot machines fell back to a standard one), its machine type, the size of its disk, its image, whether it came from the warm pool, and the caller's labels.
+- be187a8: The egress proxy counts the bytes each sandbox's connections carry, outside its machine. `usage()` of a session, or `getGceSandboxUsage()`, reads the count while the sandbox runs (`GET /v1/sandboxes/:name/usage` on the service, `GET /v1/sandboxes/:name/usage` on the proxy's administration API). The proxy keeps it in memory and forgets it with the sandbox: a stop and a deletion now answer the last count in a report (`POST …/suspend` and `DELETE /v1/sandboxes/:name` answer 200 with it, no longer 204), which `onUsageReport` is handed (by `stop()`, `destroy()` and `deleteGceSandbox()`) and `lastReport` of the session holds. Upgrade the proxy with the service: one of an earlier version counts nothing.
+- be187a8: `createGceNetworkSandboxSession()` takes `labels`, put on the sandbox's machine and on its disk beside the service's own, for a Cloud Billing export or a budget to group their cost by. Keys starting with `ai-sdk-` are refused, and so are labels Compute Engine would refuse. A machine taken from the warm pool gets them as it is taken, and so does its disk, now labelled `ai-sdk-sandbox=pool` until then and `ai-sdk-sandbox-name=<sandbox>` after.
+- be187a8: The service logs each creation, resume, suspension and deletion as a structured JSON line, `{ event, sandbox, at, … }`, beside its message: the machine, the image, the template, the caller's labels and the timings of a creation; the timings of a resume; the proxy's last count of a suspension or a deletion. Cloud Logging reads them as structured entries, for log-based metrics. With `LOG_FORMAT=text`, the message alone is written, as before.
+- be187a8: The agent of each machine samples it every 30 s from `/proc` (CPU busy and stolen shares, memory in use, CPU and memory pressure, OOM kills), keeping the last day of samples on the machine's disk, across stops. `metrics()` of a session, or `getGceSandboxMetrics({ since })`, reads them while the sandbox runs (`GET /v1/sandboxes/:name/metrics?since=` on the service, `GET /v1/metrics` on the agent), and a stop or a deletion reads the last ones before the machine goes, in the `metrics` of its report. Read in the machine, they are fit for sizing, never for billing. `SANDBOX_METRICS_INTERVAL` sets the interval on the agent. Build the sandbox image again with this version to get them: an earlier agent samples nothing.
+- be187a8: `timings` of a session says how long its creation or its resume took on the service, step by step: the egress proxy, Compute Engine making or starting the machine (or the warm pool handing one over, `fromPool`), its boot until the agent answered, then the agent's configuration, and the whole call. The service answers it with the sandbox, in the create and resume responses.
+
+### Patch Changes
+
+- e1994c7: The service's Docker image is now based on Debian 13 (`node:24-trixie-slim`) and no longer contains npm, corepack or yarn: the service only runs Node.js. An image of your own built `FROM` it that calls npm must install it.
+- be187a8: The sandbox service sends a Compute Engine call again, up to 3 times, when Compute Engine cannot be reached (a kept-alive connection closed while Cloud Run throttled the CPU), with a request id that makes a change safe to send twice; the last failure names the call and its cause instead of `fetch failed`. A sandbox created just after the last one stopped the egress proxy is registered again once the proxy is back, rather than failing with a 502 or a 500. Unexpected errors are logged with their cause.
+
 ## 0.5.2
 
 ### Patch Changes
