@@ -26,6 +26,7 @@ import { labelsProblem, RESERVED_LABEL_PREFIX } from '../../protocol/labels.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
+import { PROXY_UNREACHABLE } from './proxy-admin.js';
 
 /** What every sandbox's machine is made of: the service's to give. */
 export interface MachineSettings {
@@ -1324,15 +1325,30 @@ export class Sandboxes {
     const agent = new AgentClient(this.remember(name, instance));
     const baseUrls = { ...this.options.network.baseUrls, ...network.baseUrls };
     const registered = async (): Promise<number> => {
-      // Running already but for a race with the last sandbox stopping: then started again.
-      await this.proxyUp();
-      return timed(() =>
-        this.options.proxy.register(name, {
-          address,
-          allowedHosts: this.allowedHosts(network.allowedHosts ?? []),
-          baseUrls,
-        }),
-      );
+      const deadline = Date.now() + this.options.startTimeoutMs;
+      for (;;) {
+        // Running already but for a race with the last sandbox stopping: then started again.
+        await this.proxyUp();
+        try {
+          return await timed(() =>
+            this.options.proxy.register(name, {
+              address,
+              allowedHosts: this.allowedHosts(network.allowedHosts ?? []),
+              baseUrls,
+            }),
+          );
+        } catch (error) {
+          // The last sandbox stopped the proxy just before: Compute Engine still said it was
+          // running, and it still answered its health. proxyUp() waits for it to stop, then
+          // starts it again.
+          const down = error instanceof HttpError && error.details.code === PROXY_UNREACHABLE;
+          if (!down || Date.now() > deadline) throw error;
+          this.options.logger.warn(
+            `The egress proxy did not answer the registration of ${name}: waiting for it to start again.`,
+          );
+          await sleep(1000);
+        }
+      }
     };
     const [registerMs, bootMs] = await Promise.all([
       registered(),

@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import type { AccessToken } from './access-token.js';
 
 import { ComputeError } from './compute-error.js';
@@ -65,6 +68,26 @@ interface Operation {
 
 /** The longest an operation is waited for: creating an image takes some minutes. */
 const OPERATION_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * How many times a call is sent when Compute Engine cannot be reached: a connection kept open
+ * meanwhile, closed while Cloud Run throttled the CPU once the service had answered, fails the next
+ * call made on it.
+ */
+const ATTEMPTS = 3;
+
+/** How long before the next attempt, times the attempts made. */
+const RETRY_MS = 250;
+
+/** What a failed `fetch` says, with its cause: `fetch failed` alone says nothing. */
+export function networkFailure(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause as undefined | { code?: string; message?: string };
+  const reason = cause?.code ?? cause?.message;
+  return reason === undefined || reason === error.message
+    ? error.message
+    : `${error.message} (${reason})`;
+}
 
 /**
  * Whether a change is waited for until it is done, or only until Compute Engine accepted it: a stop
@@ -237,7 +260,9 @@ export class ComputeApi {
       wait = true,
     }: { body?: unknown; ignore?: readonly number[]; wait?: boolean } = {},
   ): Promise<void> {
-    const response = await this.call(method, url, body);
+    // Sent again when Compute Engine could not be reached: the same request id makes it ignore a
+    // request it already received.
+    const response = await this.call(method, url, { body, requestId: randomUUID() });
     if (ignore.includes(response.status)) return;
     const started = (await this.parse(response)) as Operation;
     // An operation done at once may have failed: read it even when not waiting.
@@ -265,16 +290,42 @@ export class ComputeApi {
     }
   }
 
-  private async call(method: string, url: string, body?: unknown): Promise<Response> {
-    const headers: Record<string, string> = {};
-    const token = await this.options.token.get();
-    if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
-    if (body !== undefined) headers['content-type'] = 'application/json';
-    return fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+  /**
+   * Sends a call, again up to {@link ATTEMPTS} times when Compute Engine cannot be reached. A change
+   * is sent with `requestId`, which makes Compute Engine ignore it the second time: a read or the
+   * wait for an operation can be sent again as they are.
+   */
+  private async call(
+    method: string,
+    url: string,
+    { body, requestId }: { body?: unknown; requestId?: string } = {},
+  ): Promise<Response> {
+    const target =
+      requestId === undefined
+        ? url
+        : `${url}${url.includes('?') ? '&' : '?'}requestId=${requestId}`;
+    for (let attempt = 1; ; attempt++) {
+      const headers: Record<string, string> = {};
+      const token = await this.options.token.get();
+      if (token !== undefined) headers['authorization'] = `Bearer ${token}`;
+      if (body !== undefined) headers['content-type'] = 'application/json';
+      try {
+        return await fetch(target, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (error) {
+        if (attempt >= ATTEMPTS) {
+          const path = new URL(url).pathname.replace(/^.*\/projects\/[^/]+\//, '');
+          throw new ComputeError(
+            502,
+            `${method} ${path} could not reach Compute Engine, ${ATTEMPTS} times: ${networkFailure(error)}`,
+          );
+        }
+        await sleep(RETRY_MS * attempt);
+      }
+    }
   }
 
   private async parse(response: Response): Promise<unknown> {

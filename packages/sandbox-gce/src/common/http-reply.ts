@@ -28,6 +28,16 @@ export function send(response: ServerResponse, { status, body, headers }: Reply)
  * Answers with the error's own status, or 500 for an error the server did not expect, which is
  * reported. A response already under way is cut.
  */
+/** `message`, with the cause of `error` when it has one, its code first. */
+function withCause(error: unknown, message: string): string {
+  const cause =
+    error instanceof Error
+      ? (error.cause as undefined | { code?: string; message?: string })
+      : undefined;
+  const reason = cause?.code ?? cause?.message;
+  return reason === undefined ? message : `${message} (cause: ${reason})`;
+}
+
 export function fail(
   response: ServerResponse,
   error: unknown,
@@ -35,7 +45,8 @@ export function fail(
 ): void {
   const known = error instanceof HttpError;
   const message = error instanceof Error ? error.message : String(error);
-  if (!known) report(message);
+  // What failed beneath, logged: `fetch failed` alone says nothing.
+  if (!known) report(withCause(error, message));
   if (response.headersSent) response.destroy();
   else if (!known) send(response, { status: 500, body: { error: message } });
   else {

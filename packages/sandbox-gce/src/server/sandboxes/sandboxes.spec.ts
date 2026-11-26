@@ -12,6 +12,7 @@ import { silentLogger } from '../../common/logger.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
+import { PROXY_UNREACHABLE } from './proxy-admin.js';
 import { Sandboxes } from './sandboxes.js';
 
 // The waits between two polls of a machine or an agent pass at once.
@@ -301,6 +302,36 @@ describe('the sandboxes of the service', () => {
 
     await sandboxes.delete('box');
     expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+  });
+
+  it('registers a sandbox again when the proxy stopped by the last one did not answer', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    // Just after the stop, Compute Engine still says the proxy runs, and it still answers its
+    // health: the registration is what fails.
+    const compute = machinesOf({ 'sandbox-proxy': 'RUNNING' });
+    const proxy = proxyOf();
+    proxy.register.mockRejectedValueOnce(
+      new HttpError(502, 'The egress proxy could not be reached: fetch failed (ECONNREFUSED)', {
+        code: PROXY_UNREACHABLE,
+      }),
+    );
+    const warn = vi.fn();
+    const sandboxes = sandboxesOf({
+      compute,
+      proxy,
+      proxyInstance: 'sandbox-proxy',
+      logger: { ...silentLogger, warn },
+    });
+
+    await sandboxes.create('box', {});
+    expect(proxy.register).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('registration of box'));
+
+    // A refusal of the proxy itself is no race: it is not sent again.
+    proxy.register.mockClear();
+    proxy.register.mockRejectedValueOnce(new HttpError(502, 'Egress proxy: invalid address'));
+    await expect(sandboxes.create('other', {})).rejects.toThrow('invalid address');
+    expect(proxy.register).toHaveBeenCalledTimes(1);
   });
 
   it('starts the stopped proxy ahead of a sandbox, without waiting for it', async () => {

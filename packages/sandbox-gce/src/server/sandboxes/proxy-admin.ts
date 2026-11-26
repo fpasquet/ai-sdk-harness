@@ -4,6 +4,10 @@ import type { ProxyRegistration, ProxyUsage } from '../../protocol/proxy.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
+import { networkFailure } from '../compute/compute-api.js';
+
+/** The code of the error when the proxy does not answer at all: its machine is down, or going. */
+export const PROXY_UNREACHABLE = 'PROXY_UNREACHABLE';
 
 /**
  * The administration API of the egress proxy (`protocol/proxy.ts`), where the service registers the
@@ -89,7 +93,9 @@ export class ProxyAdmin {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (error) {
-      throw new HttpError(502, `The egress proxy could not be reached: ${String(error)}`);
+      throw new HttpError(502, `The egress proxy could not be reached: ${networkFailure(error)}`, {
+        code: PROXY_UNREACHABLE,
+      });
     }
     if (response.ok) return response;
     const text = await response.text();
