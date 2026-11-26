@@ -25,6 +25,8 @@ interface BuildSettings {
   image?: string;
   /** Commands the image must have, checked before the setup. */
   requiredCommands: readonly string[];
+  /** The labels of the creation that builds it, put on its builder. */
+  labels?: Readonly<Record<string, string>>;
 }
 
 /** A template ready to boot from, and the builder it was made with, if this process made it. */
@@ -146,13 +148,19 @@ async function build(
     setup,
     network,
     image,
+    labels,
     requiredCommands,
     id,
   }: BuildSettings & TemplateSource & { id: string },
   abortSignal?: AbortSignal,
 ): Promise<string> {
   const builder = `${TEMPLATE_PREFIX}-${id.slice(-8)}-${randomBytes(3).toString('hex')}`;
-  const { workingDirectory } = await client.create(builder, { ...network, image, abortSignal });
+  const { workingDirectory } = await client.create(builder, {
+    ...network,
+    image,
+    labels,
+    abortSignal,
+  });
   // Answered once saved, for the caller to remove it; removed here when anything fails.
   try {
     const session = new GceNetworkSandboxSession(

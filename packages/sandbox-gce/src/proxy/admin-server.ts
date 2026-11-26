@@ -38,9 +38,10 @@ const ROUTES: Record<string, (registry: SandboxRegistry, call: SandboxCall) => R
     return NO_CONTENT;
   },
   'DELETE ': (registry, { name }) => {
-    registry.remove(name);
-    return NO_CONTENT;
+    const usage = registry.remove(name);
+    return usage === undefined ? NO_CONTENT : { status: 200, body: { usage } };
   },
+  'GET /usage': (registry, { name }) => ({ status: 200, body: registry.usage(name) }),
   'PUT /network': (registry, { name, body }) => {
     registry.setAllowedHosts(name, stringList(body, 'allowedHosts') ?? []);
     return NO_CONTENT;

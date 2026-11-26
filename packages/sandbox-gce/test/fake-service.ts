@@ -44,6 +44,8 @@ interface FakeServiceOverrides {
   tunnelPort?: number;
   /** How many machines the service keeps booted from the last template: none without it. */
   warmPool?: number;
+  /** The most sandboxes running at once: no limit without it. */
+  maxRunning?: number;
 }
 
 async function listen(server: Server): Promise<number> {
@@ -95,6 +97,7 @@ export async function startFakeService(overrides: FakeServiceOverrides = {}): Pr
     startTimeoutMs: 15_000,
     serviceToken: overrides.serviceToken,
     warmPool: overrides.warmPool,
+    maxRunning: overrides.maxRunning,
   });
   const port = await listen(service.server);
   return {

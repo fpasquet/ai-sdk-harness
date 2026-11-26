@@ -3,10 +3,21 @@ import type { HarnessV1PortEndpoint, HarnessV1RequestTransformation } from '@ai-
 import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import type { SandboxCommand, SandboxDescription, SandboxNetwork } from '../../protocol/api.js';
+import type {
+  CapacityRefusal,
+  SandboxCommand,
+  SandboxDescription,
+  SandboxEgressUsage,
+  SandboxInfo,
+  SandboxMetrics,
+  SandboxNetwork,
+  SandboxReport,
+} from '../../protocol/api.js';
 import type { IdentityToken } from './identity-token.js';
 
+import { SANDBOX_MAX_RUNNING } from '../../protocol/api.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION, SERVICE_TOKEN_HEADER } from '../../protocol/version.js';
+import { GceSandboxCapacityError } from '../errors/gce-sandbox-capacity-error.js';
 import { GceSandboxServiceError } from '../errors/gce-sandbox-service-error.js';
 import { GCE_SANDBOX_PROVIDER_ID } from '../provider-id.js';
 
@@ -42,6 +53,40 @@ const TEMPLATE_SAVE_TIMEOUT_MS = 30 * 60_000;
 function* templatePolls(): Generator<number> {
   yield* [1000, 2000, 5000];
   for (;;) yield 10_000;
+}
+
+/**
+ * The report a suspension or a deletion answers: one with no measure from a service of an earlier
+ * version, which answers nothing.
+ */
+async function reportOf(
+  response: Response,
+  name: string,
+  event: SandboxReport['event'],
+): Promise<SandboxReport> {
+  const text = response.status === 204 ? '' : await response.text();
+  if (text === '') return { name, event, at: new Date().toISOString() };
+  return JSON.parse(text) as SandboxReport;
+}
+
+/** The refusal of a call for the most sandboxes the service runs, as the service answered it. */
+function capacityError(
+  request: string,
+  message: string,
+  { body, response }: { body: Partial<CapacityRefusal>; response: Response },
+): GceSandboxCapacityError {
+  const header = response.headers.get('retry-after');
+  return new GceSandboxCapacityError(request, message, {
+    running: body.running ?? Number.NaN,
+    max: body.max ?? Number.NaN,
+    retryAfterSeconds: body.retryAfterSeconds ?? (header === null ? Number.NaN : Number(header)),
+  });
+}
+
+/** A time as the service reads it in a query: an ISO 8601 timestamp, or milliseconds. */
+function timeParam(time: Date | number | string): string {
+  if (time instanceof Date) return time.toISOString();
+  return String(time);
 }
 
 /** A call cut on the way, by the network or by Cloud Run's front end, which the service may go on with. */
@@ -95,10 +140,15 @@ export class SandboxServiceClient {
     return this.base.toString();
   }
 
-  /** Creates the sandbox `name`, from a template when given. */
+  /** Creates the sandbox `name`, from a template when given, its machine and disk labelled `labels`. */
   async create(
     name: string,
-    options: SandboxNetwork & { abortSignal?: AbortSignal; image?: string; template?: string },
+    options: SandboxNetwork & {
+      abortSignal?: AbortSignal;
+      image?: string;
+      labels?: Readonly<Record<string, string>>;
+      template?: string;
+    },
   ): Promise<SandboxDescription> {
     const { abortSignal, ...body } = options;
     const response = await this.call('POST', 'v1/sandboxes', {
@@ -122,14 +172,52 @@ export class SandboxServiceClient {
     return response.status === 404 ? undefined : ((await response.json()) as SandboxDescription);
   }
 
-  /** Stops the sandbox's machine, its disk kept. */
-  async suspend(name: string): Promise<void> {
-    await this.call('POST', `v1/sandboxes/${name}/suspend`);
+  /**
+   * The machine of the sandbox `name`, running or stopped, as Compute Engine describes it:
+   * `undefined` when there is none.
+   */
+  async describe(name: string, abortSignal?: AbortSignal): Promise<SandboxInfo | undefined> {
+    const response = await this.call('GET', `v1/sandboxes/${name}`, { abortSignal, accept: [404] });
+    return response.status === 404 ? undefined : ((await response.json()) as SandboxInfo);
   }
 
-  /** Deletes the sandbox, its disk included, running or stopped: one that does not exist is fine. */
-  async remove(name: string, abortSignal?: AbortSignal): Promise<void> {
-    await this.call('DELETE', `v1/sandboxes/${name}`, { abortSignal });
+  /**
+   * What the connections of the running sandbox `name` carried through the egress proxy since its
+   * creation or its last resume.
+   */
+  async usage(name: string, abortSignal?: AbortSignal): Promise<SandboxEgressUsage> {
+    const response = await this.call('GET', `v1/sandboxes/${name}/usage`, { abortSignal });
+    return (await response.json()) as SandboxEgressUsage;
+  }
+
+  /**
+   * The samples the agent of the running sandbox `name` took of its machine after `since`, every
+   * one it keeps without it.
+   */
+  async metrics(
+    name: string,
+    { since, abortSignal }: { since?: Date | number | string; abortSignal?: AbortSignal } = {},
+  ): Promise<SandboxMetrics> {
+    const query = since === undefined ? '' : `?since=${encodeURIComponent(timeParam(since))}`;
+    const response = await this.call('GET', `v1/sandboxes/${name}/metrics${query}`, {
+      abortSignal,
+    });
+    return (await response.json()) as SandboxMetrics;
+  }
+
+  /** Stops the sandbox's machine, its disk kept: its last measures. */
+  async suspend(name: string): Promise<SandboxReport> {
+    const response = await this.call('POST', `v1/sandboxes/${name}/suspend`);
+    return reportOf(response, name, 'suspend');
+  }
+
+  /**
+   * Deletes the sandbox, its disk included, running or stopped: one that does not exist is fine.
+   * Its last measures.
+   */
+  async remove(name: string, abortSignal?: AbortSignal): Promise<SandboxReport> {
+    const response = await this.call('DELETE', `v1/sandboxes/${name}`, { abortSignal });
+    return reportOf(response, name, 'delete');
   }
 
   /**
@@ -331,12 +419,16 @@ export class SandboxServiceClient {
         message: `The Compute Engine sandbox service refused ${request} (${response.status}): grant the caller roles/run.invoker on the service, or check the \`auth\` option.`,
       });
     }
-    let message = text;
+    let body: Partial<CapacityRefusal> = {};
     try {
-      message = (JSON.parse(text) as { error?: string }).error ?? text;
+      body = JSON.parse(text) as Partial<CapacityRefusal>;
     } catch {
       // Not the service's JSON: Cloud Run's own error page, say.
     }
-    return new GceSandboxServiceError(request, response.status, message.trim());
+    const message = (body.error ?? text).trim();
+    if (response.status === 429 && body.code === SANDBOX_MAX_RUNNING) {
+      return capacityError(request, message, { body, response });
+    }
+    return new GceSandboxServiceError(request, response.status, message);
   }
 }

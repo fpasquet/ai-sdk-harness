@@ -1,3 +1,4 @@
+export { GceSandboxCapacityError } from './client/errors/gce-sandbox-capacity-error.js';
 export { GceSandboxImageError } from './client/errors/gce-sandbox-image-error.js';
 export { GceSandboxNotFoundError } from './client/errors/gce-sandbox-not-found-error.js';
 export { GceSandboxServiceError } from './client/errors/gce-sandbox-service-error.js';
@@ -9,12 +10,25 @@ export type {
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
   GceSandboxDeletionSettings,
+  GceSandboxLookupSettings,
+  GceSandboxMetricsSettings,
   GceTemplateDeletionSettings,
 } from './client/gce-settings.js';
+export type {
+  GceSandboxEgressUsage,
+  GceSandboxInfo,
+  GceSandboxMetrics,
+  GceSandboxMetricSample,
+  GceSandboxReport,
+  GceSandboxTimings,
+} from './client/gce-usage.js';
 export {
   createGceNetworkSandboxSession,
   deleteGceSandbox,
   deleteGceSandboxTemplate,
+  describeGceSandbox,
+  getGceSandboxMetrics,
+  getGceSandboxUsage,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from './client/lifecycle/create-session.js';

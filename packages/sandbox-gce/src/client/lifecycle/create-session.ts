@@ -7,11 +7,15 @@ import type {
   GceNetworkSandboxSessionResumeOptions,
   GcePrepareSettings,
   GceSandboxDeletionSettings,
+  GceSandboxLookupSettings,
+  GceSandboxMetricsSettings,
   GceTemplateDeletionSettings,
 } from '../gce-settings.js';
+import type { GceSandboxEgressUsage, GceSandboxInfo, GceSandboxMetrics } from '../gce-usage.js';
 
+import { labelsProblem } from '../../protocol/labels.js';
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
-import { GceNetworkSandboxSession } from '../session/gce-network-sandbox-session.js';
+import { GceNetworkSandboxSession, reportUsage } from '../session/gce-network-sandbox-session.js';
 import { identityToken } from '../transport/identity-token.js';
 import { SandboxServiceClient } from '../transport/sandbox-service-client.js';
 import { abortReason } from '../utils/abort.js';
@@ -38,6 +42,12 @@ function assertSandboxName(name: string): void {
   }
 }
 
+/** Refuses labels the service would refuse, before anything is made. */
+function assertLabels(labels: Readonly<Record<string, string>> | undefined): void {
+  const problem = labels === undefined ? undefined : labelsProblem(labels);
+  if (problem !== undefined) throw new Error(problem);
+}
+
 function clientOf({
   url,
   auth = 'gcloud',
@@ -48,11 +58,12 @@ function clientOf({
 
 function sessionOf(
   client: SandboxServiceClient,
-  { name, workingDirectory }: SandboxDescription,
+  { name, workingDirectory, timings }: SandboxDescription,
   settings: GceConnectionSettings,
 ): GceNetworkSandboxSession {
+  const { onUsageReport } = settings;
   return new GceNetworkSandboxSession(
-    { client, name, workingDirectory, processes: new Set() },
+    { client, name, workingDirectory, timings, onUsageReport, processes: new Set() },
     settings.ports ?? [],
   );
 }
@@ -99,19 +110,21 @@ export async function createGceNetworkSandboxSession(
     baseUrls,
     nodeUseEnvProxy,
     image,
+    labels,
   } = options;
   const requiredCommands = options.requiredCommands ?? DEFAULT_REQUIRED_COMMANDS;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   const name = options.sandboxId ?? `ai-sdk-${randomBytes(4).toString('hex')}`;
   assertSandboxName(name);
+  assertLabels(labels);
   const client = clientOf(options);
   const network = { allowedHosts, baseUrls, nodeUseEnvProxy };
   const create = (ready?: ReadyTemplate): Promise<SandboxDescription> =>
-    createFrom(client, name, { ...network, image, template: ready, abortSignal });
+    createFrom(client, name, { ...network, image, labels, template: ready, abortSignal });
   const description = await (template
     ? withTemplate(
         client,
-        { template, setup, network, image, requiredCommands, abortSignal },
+        { template, setup, network, image, labels, requiredCommands, abortSignal },
         create,
       )
     : create());
@@ -176,13 +189,66 @@ export async function deleteGceSandboxTemplate(
  * which `destroy()` of a session would first have to resume, a minute of a billed machine for
  * nothing. Deleting a sandbox that does not exist, or no longer does, is no error. The
  * `remove` of `sandboxPerSession()` of `ai-sdk-harness-sessions`, for the sessions closed while
- * suspended.
+ * suspended. `onUsageReport` is handed the sandbox's last measures.
  */
 export async function deleteGceSandbox(options: GceSandboxDeletionSettings): Promise<void> {
+  const { sandboxId, abortSignal, onUsageReport } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  await reportUsage(onUsageReport, await clientOf(options).remove(sandboxId, abortSignal));
+}
+
+/**
+ * What the connections of the running sandbox `sandboxId` carried through the egress proxy since
+ * its creation or its last resume, counted outside its machine: fit for billing, where what the
+ * agent samples in the machine is only fit for sizing. The proxy keeps it in memory, and forgets it
+ * with the sandbox: a suspension or a deletion answers the last count. Fails with
+ * `GceSandboxServiceError` (404) while the sandbox is stopped.
+ */
+export async function getGceSandboxUsage(
+  options: GceSandboxLookupSettings,
+): Promise<GceSandboxEgressUsage> {
   const { sandboxId, abortSignal } = options;
   if (abortSignal?.aborted) throw abortReason(abortSignal);
   assertSandboxName(sandboxId);
-  await clientOf(options).remove(sandboxId, abortSignal);
+  return clientOf(options).usage(sandboxId, abortSignal);
+}
+
+/**
+ * The sandbox `sandboxId`'s machine, running or stopped, as Compute Engine describes it, without
+ * starting it: when it was made, last started and last stopped, whether it is billed as Spot or
+ * standard (a service of Spot machines falls back to standard ones when the zone has none left),
+ * its machine type, the size of its disk and its labels. Throws `GceSandboxNotFoundError` when
+ * there is none: some 50 s after a deletion returns, Compute Engine done, the machine answered
+ * `STOPPING` meanwhile.
+ */
+export async function describeGceSandbox(
+  options: GceSandboxLookupSettings,
+): Promise<GceSandboxInfo> {
+  const { sandboxId, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  const info = await clientOf(options).describe(sandboxId, abortSignal);
+  if (info === undefined) throw new GceSandboxNotFoundError(sandboxId);
+  return info;
+}
+
+/**
+ * What the agent of the running sandbox `sandboxId`'s machine sampled of it every 30 s, after
+ * `since` when given: CPU, memory, their pressure, the processes the kernel killed for want of
+ * memory. Read in the machine, where the sandbox's user has `sudo`: fit for sizing, never for
+ * billing. The agent keeps the last day of samples on the disk, across stops; a stop or a deletion
+ * answers those since the machine last started, to `onUsageReport`. Fails with
+ * `GceSandboxServiceError` while the sandbox is stopped (404), or when its image predates the
+ * metrics (501).
+ */
+export async function getGceSandboxMetrics(
+  options: GceSandboxMetricsSettings,
+): Promise<GceSandboxMetrics> {
+  const { sandboxId, since, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  assertSandboxName(sandboxId);
+  return clientOf(options).metrics(sandboxId, { since, abortSignal });
 }
 
 /**

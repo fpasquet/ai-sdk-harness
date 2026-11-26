@@ -11,16 +11,20 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FakeService } from '../../../test/fake-service.js';
-import type { GceNetworkSandboxSession } from '../../index.js';
+import type { GceNetworkSandboxSession, GceSandboxReport } from '../../index.js';
 
 import { startFakeService } from '../../../test/fake-service.js';
 import {
   createGceNetworkSandboxSession,
   deleteGceSandbox,
   deleteGceSandboxTemplate,
+  describeGceSandbox,
+  GceSandboxCapacityError,
   GceSandboxImageError,
   GceSandboxNotFoundError,
   GceSandboxServiceError,
+  getGceSandboxMetrics,
+  getGceSandboxUsage,
   prepareGceSandboxService,
   resumeGceNetworkSandboxSession,
 } from '../../index.js';
@@ -87,6 +91,37 @@ describe('a Compute Engine sandbox', () => {
     await expect(
       createGceNetworkSandboxSession({ ...options(), sandboxId: 'Not_Valid' }),
     ).rejects.toThrow('Invalid sandbox id');
+  });
+
+  it("labels its machine and its disk with the caller's labels, and refuses invalid ones", async () => {
+    await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      labels: { team: 'studio', session: 's-1' },
+    });
+
+    expect(fake.compute.instance('sbx-box')?.labels).toEqual({
+      team: 'studio',
+      session: 's-1',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-image': 'default',
+    });
+    expect(fake.compute.disks.get('sbx-box')?.labels).toEqual({
+      team: 'studio',
+      session: 's-1',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'box',
+    });
+    await expect(
+      createGceNetworkSandboxSession({ ...options(), labels: { 'ai-sdk-sandbox': 'x' } }),
+    ).rejects.toThrow('which the package keeps for its own');
+    const refused = await fetch(`${fake.url}/v1/sandboxes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'other', labels: { Team: 'a' } }),
+    });
+    expect(refused.status).toBe(400);
+    expect(fake.compute.instance('sbx-other')).toBeUndefined();
   });
 
   it('refuses to create a sandbox whose name is taken', async () => {
@@ -423,6 +458,25 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     });
   });
 
+  it('says how long its creation and its resume took, step by step', async () => {
+    const created = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    expect(created.timings).toEqual({
+      fromPool: false,
+      proxyMs: expect.any(Number) as unknown,
+      insertMs: expect.any(Number) as unknown,
+      bootMs: expect.any(Number) as unknown,
+      agentMs: expect.any(Number) as unknown,
+      totalMs: expect.any(Number) as unknown,
+    });
+    const { insertMs = 0, bootMs = 0, agentMs = 0, totalMs = 0 } = created.timings ?? {};
+    expect(insertMs + bootMs + agentMs).toBeLessThanOrEqual(totalMs);
+
+    await created.stop();
+    const resumed = await resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' });
+    expect(resumed.timings).toMatchObject({ fromPool: false });
+    expect(resumed.timings?.insertMs).toBeGreaterThan(0);
+  });
+
   it('resumes a running sandbox as it is', async () => {
     await createGceNetworkSandboxSession({ ...options(), sandboxId: 'box', ports: [4000] });
 
@@ -449,10 +503,109 @@ describe('the lifecycle of a Compute Engine sandbox', () => {
     await expect(
       resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'box' }),
     ).rejects.toBeInstanceOf(GceSandboxNotFoundError);
-    await expect(deleteGceSandbox({ ...options(), sandboxId: 'box' })).resolves.toBeUndefined();
+    const reports: unknown[] = [];
+    await deleteGceSandbox({
+      ...options(),
+      sandboxId: 'box',
+      onUsageReport: (report) => void reports.push(report),
+    });
+    expect(reports).toEqual([{ name: 'box', event: 'delete', at: expect.any(String) as unknown }]);
     await expect(deleteGceSandbox({ ...options(), sandboxId: 'Bad_Name' })).rejects.toThrow(
       'Invalid sandbox id',
     );
+  });
+
+  it('is described as its machine is, when it started and stopped, running or not', async () => {
+    const sandbox = await createGceNetworkSandboxSession({
+      ...options(),
+      sandboxId: 'box',
+      labels: { team: 'studio' },
+    });
+
+    const running = await sandbox.describe();
+    expect(running).toMatchObject({
+      name: 'box',
+      instance: 'sbx-box',
+      zone: 'test-zone',
+      status: 'RUNNING',
+      provisioningModel: 'STANDARD',
+      spotFallback: false,
+      machineType: 'e2-standard-4',
+      diskSizeGb: 20,
+      image: 'default',
+      fromPool: false,
+      labels: { team: 'studio' },
+    });
+    expect(Date.parse(running.creationTimestamp ?? '')).not.toBeNaN();
+    expect(running.lastStartTimestamp).toBeDefined();
+    expect(running.lastStopTimestamp).toBeUndefined();
+
+    await sandbox.stop();
+    const stopped = await describeGceSandbox({ ...options(), sandboxId: 'box' });
+    expect(stopped.status).toBe('TERMINATED');
+    expect(Date.parse(stopped.lastStopTimestamp ?? '')).toBeGreaterThanOrEqual(
+      Date.parse(running.lastStartTimestamp ?? ''),
+    );
+
+    await sandbox.destroy();
+    await expect(sandbox.describe()).rejects.toBeInstanceOf(GceSandboxNotFoundError);
+    await expect(describeGceSandbox({ ...options(), sandboxId: 'box' })).rejects.toBeInstanceOf(
+      GceSandboxNotFoundError,
+    );
+  });
+
+  it('is refused with a capacity error beyond the most sandboxes the service runs', async () => {
+    await fake.dispose();
+    fake = await startFakeService({ maxRunning: 1 });
+    const first = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'one' });
+
+    const error = await createGceNetworkSandboxSession({ ...options(), sandboxId: 'two' }).catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(GceSandboxCapacityError);
+    expect(error).toMatchObject({ status: 429, running: 1, max: 1, retryAfterSeconds: 30 });
+    expect(fake.compute.instance('sbx-two')).toBeUndefined();
+
+    await first.stop();
+    await expect(
+      createGceNetworkSandboxSession({ ...options(), sandboxId: 'two' }),
+    ).resolves.toMatchObject({ id: 'two' });
+    await expect(
+      resumeGceNetworkSandboxSession({ ...options(), sandboxId: 'one' }),
+    ).rejects.toBeInstanceOf(GceSandboxCapacityError);
+  });
+
+  it('samples its machine, keeps the samples across a stop, and reports the last ones', async () => {
+    const reports: GceSandboxReport[] = [];
+    const settings = {
+      ...options(),
+      sandboxId: 'box',
+      onUsageReport: (report: GceSandboxReport) => void reports.push(report),
+    };
+    const samplesOf = (report: number) => reports[report]?.metrics?.samples ?? [];
+    const sandbox = await createGceNetworkSandboxSession(settings);
+    // Every 30 s: none yet.
+    await expect(sandbox.metrics()).resolves.toEqual({ intervalSeconds: 30, samples: [] });
+
+    await sandbox.stop();
+    expect(samplesOf(0)).toHaveLength(1);
+    const [before = { at: '' }] = samplesOf(0);
+    expect(Date.parse(before.at)).not.toBeNaN();
+    await expect(sandbox.metrics()).rejects.toMatchObject({ status: 404 });
+
+    const resumed = await resumeGceNetworkSandboxSession(settings);
+    await expect(resumed.metrics()).resolves.toMatchObject({ samples: [before] });
+    await expect(resumed.metrics({ since: before.at })).resolves.toMatchObject({ samples: [] });
+    await expect(
+      getGceSandboxMetrics({ ...options(), sandboxId: 'box', since: new Date(0) }),
+    ).resolves.toMatchObject({ samples: [before] });
+    const invalid = await fetch(`${fake.url}/v1/sandboxes/box/metrics?since=yesterday`);
+    expect(invalid.status).toBe(400);
+
+    // Those since the machine last started: the one before its stop left out.
+    await resumed.destroy();
+    expect(samplesOf(1)).toHaveLength(1);
+    expect(samplesOf(1)[0]).not.toEqual(before);
   });
 
   it('cannot resume a sandbox that does not exist', async () => {
@@ -772,10 +925,22 @@ describe('a sandbox from the warm pool', () => {
     await createGceNetworkSandboxSession({ ...options, sandboxId: 'one', template });
     const [ahead = ''] = pool();
     expect(ahead).toMatch(/^sbx-pool-[0-9a-f]{8}$/);
+    expect(fake.compute.disks.get(ahead)?.labels).toEqual({ 'ai-sdk-sandbox': 'pool' });
 
-    const two = await createGceNetworkSandboxSession({ ...options, sandboxId: 'two', template });
+    const two = await createGceNetworkSandboxSession({
+      ...options,
+      sandboxId: 'two',
+      template,
+      labels: { team: 'studio' },
+    });
     expect(fake.compute.instance('sbx-two')).toBeUndefined();
     expect(fake.compute.instance(ahead)?.labels).toMatchObject({
+      team: 'studio',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'two',
+    });
+    expect(fake.compute.disks.get(ahead)?.labels).toEqual({
+      team: 'studio',
       'ai-sdk-sandbox': 'sandbox',
       'ai-sdk-sandbox-name': 'two',
     });
@@ -852,6 +1017,54 @@ describe('the network of a Compute Engine sandbox', () => {
       `fetch(process.env.${variable} + "${path}", { headers: { authorization: "Bearer placeholder" } })` +
         '.then(async (r) => console.log(r.status, await r.text()))',
     );
+
+  it('counts the bytes its connections carry through the proxy, until its stop reports the last', async () => {
+    const reports: unknown[] = [];
+    const onUsageReport = (report: unknown): void => {
+      reports.push(report);
+      throw new Error('ignored');
+    };
+    const session = await createGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+      onUsageReport,
+    });
+    await expect(session.usage()).resolves.toMatchObject({ bytesRead: 0, connections: 0 });
+
+    const { stdout } = await session.run({ command: fetchFrom('MODEL_BASE_URL', '/v1/messages') });
+    expect(stdout).toBe('200 from upstream\n');
+
+    const usage = await getGceSandboxUsage({ url: fake.url, auth: 'none', sandboxId: 'box' });
+    expect(usage.connections).toBeGreaterThanOrEqual(1);
+    expect(usage.bytesRead).toBeGreaterThan(100);
+    expect(usage.bytesWritten).toBeGreaterThan(100);
+
+    await session.stop();
+    expect(reports).toEqual([
+      {
+        name: 'box',
+        event: 'suspend',
+        at: expect.any(String) as unknown,
+        egress: expect.objectContaining({
+          bytesRead: usage.bytesRead,
+          bytesWritten: usage.bytesWritten,
+        }) as unknown,
+        metrics: expect.objectContaining({ intervalSeconds: 30 }) as unknown,
+      },
+    ]);
+    expect(session.lastReport).toEqual(reports[0]);
+    await expect(session.usage()).rejects.toMatchObject({ status: 404 });
+    // Counted anew from its resume.
+    const resumed = await resumeGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+    });
+    await expect(resumed.usage()).resolves.toMatchObject({ bytesRead: 0 });
+    await deleteGceSandbox({ url: fake.url, auth: 'none', sandboxId: 'box', onUsageReport });
+    expect(reports.at(-1)).toMatchObject({ event: 'delete', egress: { bytesRead: 0 } });
+  });
 
   it('routes the base URLs through the proxy, and swaps the placeholder for the credential', async () => {
     const session = await createGceNetworkSandboxSession({

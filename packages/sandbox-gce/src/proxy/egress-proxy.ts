@@ -320,6 +320,7 @@ export class EgressProxy {
     machine.open += 1;
     this.all.open += 1;
     this.machines.set(address, machine);
+    this.policyFor(address)?.meter?.count(socket);
     socket.once('close', () => {
       machine.open -= 1;
       this.all.open -= 1;

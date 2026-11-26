@@ -4,6 +4,7 @@ import { HarnessSandboxAuthenticationError } from '@ai-sdk/harness';
 import { createServer } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { GceSandboxCapacityError } from '../errors/gce-sandbox-capacity-error.js';
 import { GceSandboxServiceError } from '../errors/gce-sandbox-service-error.js';
 import { IdentityToken } from './identity-token.js';
 import { SandboxServiceClient } from './sandbox-service-client.js';
@@ -11,9 +12,9 @@ import { SandboxServiceClient } from './sandbox-service-client.js';
 describe('SandboxServiceClient', () => {
   let server: ReturnType<typeof createServer>;
   let url: string;
-  let answer: { body: string; status: number };
+  let answer: { body: string; headers?: Record<string, string>; status: number };
   /** Answers to give before `answer`, one per request. */
-  let firstAnswers: { body: string; status: number }[];
+  let firstAnswers: { body: string; headers?: Record<string, string>; status: number }[];
   let requests: string[];
   /** The bodies of the requests, as text. */
   let bodies: string[];
@@ -30,8 +31,8 @@ describe('SandboxServiceClient', () => {
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
         bodies.push(Buffer.concat(chunks).toString());
-        const { status, body } = firstAnswers.shift() ?? answer;
-        response.writeHead(status).end(body);
+        const { status, body, headers = {} } = firstAnswers.shift() ?? answer;
+        response.writeHead(status, headers).end(body);
       });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -94,6 +95,43 @@ describe('SandboxServiceClient', () => {
     const error = await client.remove('box').catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(GceSandboxServiceError);
     expect(error).toMatchObject({ status: 502, request: 'DELETE /v1/sandboxes/box' });
+  });
+
+  it('tells a refusal for the most sandboxes running apart, as a service error still', async () => {
+    const client = new SandboxServiceClient(url);
+    const refusal = {
+      error: '2 sandboxes run already.',
+      code: 'SANDBOX_MAX_RUNNING',
+      running: 2,
+      max: 2,
+      retryAfterSeconds: 30,
+    };
+    answer = { status: 429, body: JSON.stringify(refusal), headers: { 'retry-after': '30' } };
+
+    const error = await client.create('box', {}).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GceSandboxCapacityError);
+    expect(error).toBeInstanceOf(GceSandboxServiceError);
+    expect(error).toMatchObject({
+      name: 'GceSandboxCapacityError',
+      status: 429,
+      request: 'POST /v1/sandboxes',
+      running: 2,
+      max: 2,
+      retryAfterSeconds: 30,
+      message: 'POST /v1/sandboxes failed with 429: 2 sandboxes run already.',
+    });
+
+    // The header alone, from a body that leaves it out; any other 429 stays a service error.
+    answer = {
+      status: 429,
+      body: JSON.stringify({ ...refusal, retryAfterSeconds: undefined }),
+      headers: { 'retry-after': '12' },
+    };
+    await expect(client.resume('box', {})).rejects.toMatchObject({ retryAfterSeconds: 12 });
+    answer = { status: 429, body: 'Rate exceeded.' };
+    const other = await client.create('box', {}).catch((caught: unknown) => caught);
+    expect(other).not.toBeInstanceOf(GceSandboxCapacityError);
+    expect(other).toMatchObject({ status: 429 });
   });
 
   it('waits for a template whose save was cut on the way, and reports a refusal at once', async () => {

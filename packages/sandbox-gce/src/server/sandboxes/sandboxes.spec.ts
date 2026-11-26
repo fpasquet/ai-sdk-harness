@@ -1,20 +1,25 @@
 import type { Mock } from 'vitest';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProxyUsage } from '../../protocol/proxy.js';
 import type { ComputeApi, Image, Instance } from '../compute/compute-api.js';
 import type { ProxyAdmin } from './proxy-admin.js';
 import type { MachineSettings, SandboxesOptions } from './sandboxes.js';
 
+import { HttpError } from '../../common/http-error.js';
 import { silentLogger } from '../../common/logger.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
 import { ComputeError } from '../compute/compute-error.js';
 import { AgentClient, agentToken } from './agent-client.js';
+import { PROXY_UNREACHABLE } from './proxy-admin.js';
 import { Sandboxes } from './sandboxes.js';
 
 // The waits between two polls of a machine or an agent pass at once.
 vi.mock('node:timers/promises', () => ({ setTimeout: () => Promise.resolve() }));
 
+// No agent answers the last metrics of a machine but where a test says so.
+beforeEach(() => vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValue(undefined));
 afterEach(() => vi.restoreAllMocks());
 
 const sandbox = (status: string, labels: Record<string, string> = {}): Instance => ({
@@ -49,6 +54,8 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
     setScheduling: vi.fn(() => Promise.resolve()),
     setMetadata: vi.fn(() => Promise.resolve()),
     setLabels: vi.fn(() => Promise.resolve()),
+    getDisk: vi.fn((name: string) => Promise.resolve({ name, labelFingerprint: 'd0' })),
+    setDiskLabels: vi.fn(() => Promise.resolve()),
     deleteInstance: vi.fn(() => {
       statuses.splice(0, statuses.length, undefined);
       return Promise.resolve();
@@ -60,6 +67,15 @@ function computeOf(statuses: (Instance | undefined)[] = []): Stub<ComputeApi> {
   };
 }
 
+/** What a sandbox's connections carried through the proxy: `bytes` each way. */
+const usageOf = (bytes: number): ProxyUsage => ({
+  bytesRead: bytes,
+  bytesWritten: bytes,
+  connections: 1,
+  openConnections: 0,
+  since: '2026-11-25T10:00:00.000Z',
+});
+
 function proxyOf(): Stub<ProxyAdmin> {
   return {
     register: vi.fn(() => Promise.resolve()),
@@ -67,7 +83,8 @@ function proxyOf(): Stub<ProxyAdmin> {
     addTransformations: vi.fn(() => Promise.resolve()),
     setTransformations: vi.fn(() => Promise.resolve()),
     holdsSecret: vi.fn(() => Promise.resolve(false)),
-    remove: vi.fn(() => Promise.resolve()),
+    remove: vi.fn((_name: string): Promise<ProxyUsage | undefined> => Promise.resolve(undefined)),
+    usage: vi.fn((_name: string) => Promise.resolve(usageOf(0))),
     healthy: vi.fn(() => Promise.resolve(true)),
   };
 }
@@ -192,6 +209,87 @@ describe('the sandboxes of the service', () => {
     return compute;
   }
 
+  it('reads what the connections of a sandbox carried from the proxy, and the last count as it goes', async () => {
+    const compute = computeOf([sandbox('RUNNING')]);
+    const proxy = proxyOf();
+    const order: string[] = [];
+    proxy.remove.mockImplementation(() => {
+      order.push('forget');
+      return Promise.resolve(usageOf(10));
+    });
+    const stop = compute.stopInstance.getMockImplementation();
+    compute.stopInstance.mockImplementation((name: string) => {
+      order.push('stop');
+      return stop?.(name) ?? Promise.resolve();
+    });
+    proxy.usage.mockResolvedValueOnce(usageOf(5));
+    proxy.usage.mockRejectedValueOnce(new HttpError(404, 'Egress proxy: unknown'));
+    const sandboxes = sandboxesOf({ compute, proxy });
+
+    await expect(sandboxes.usage('box')).resolves.toEqual(usageOf(5));
+    await expect(sandboxes.usage('box')).rejects.toMatchObject({ status: 404 });
+    await expect(sandboxes.suspend('box')).resolves.toEqual({
+      name: 'box',
+      event: 'suspend',
+      at: expect.any(String) as unknown,
+      egress: usageOf(10),
+    });
+    expect(order).toEqual(['forget', 'stop']);
+    await expect(
+      sandboxesOf({ compute: computeOf([sandbox('RUNNING')]), proxy }).delete('box'),
+    ).resolves.toMatchObject({ event: 'delete', egress: usageOf(10) });
+
+    // A proxy that cannot be reached: the sandbox goes all the same, with no count.
+    proxy.remove.mockRejectedValue(new HttpError(502, 'unreachable'));
+    await expect(
+      sandboxesOf({ compute: computeOf([sandbox('RUNNING')]), proxy }).delete('box'),
+    ).resolves.not.toHaveProperty('egress', expect.anything());
+  });
+
+  it('reads the last samples of a running machine before it stops or goes, whatever comes of it', async () => {
+    const samples = { intervalSeconds: 30, samples: [{ at: '2026-11-25T10:01:00.000Z' }] };
+    const metrics = vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValue(samples);
+    const running = {
+      ...sandbox('RUNNING'),
+      lastStartTimestamp: '2026-11-25T10:00:00.000Z',
+    };
+
+    await expect(
+      sandboxesOf({ compute: computeOf([running]) }).suspend('box'),
+    ).resolves.toMatchObject({ metrics: samples });
+    expect(metrics).toHaveBeenLastCalledWith({
+      since: Date.parse('2026-11-25T10:00:00.000Z'),
+      fresh: true,
+      timeoutMs: 5000,
+    });
+    await sandboxesOf({ compute: computeOf([running]) }).delete('box', { metricsSince: 42 });
+    expect(metrics).toHaveBeenLastCalledWith({ since: 42, fresh: true, timeoutMs: 5000 });
+
+    // A stopped machine has no agent to ask; one that cannot answer stops all the same.
+    metrics.mockClear();
+    await sandboxesOf({ compute: computeOf([sandbox('TERMINATED')]) }).delete('box');
+    expect(metrics).not.toHaveBeenCalled();
+    metrics.mockRejectedValueOnce(new HttpError(502, 'no answer'));
+    const warn = vi.fn();
+    const compute = computeOf([running]);
+    await expect(
+      sandboxesOf({ compute, logger: { ...silentLogger, warn } }).suspend('box'),
+    ).resolves.not.toHaveProperty('metrics', expect.anything());
+    expect(compute.stopInstance).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('The last metrics of box'));
+  });
+
+  it('relays the samples of a running machine, and says when its agent has none', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const samples = { intervalSeconds: 30, samples: [] };
+    const metrics = vi.spyOn(AgentClient.prototype, 'metrics').mockResolvedValueOnce(samples);
+    const sandboxes = sandboxesOf({ compute: computeOf([sandbox('RUNNING')]) });
+
+    await expect(sandboxes.metrics('box', 7)).resolves.toEqual(samples);
+    expect(metrics).toHaveBeenCalledWith({ since: 7, timeoutMs: 10_000 });
+    await expect(sandboxes.metrics('box')).rejects.toMatchObject({ status: 501 });
+  });
+
   it('starts the stopped proxy with a sandbox, and stops it with the last one', async () => {
     agentAnswers(PROTOCOL_VERSION);
     const compute = machinesOf({ 'sandbox-proxy': 'TERMINATED', 'sbx-other': 'TERMINATED' });
@@ -204,6 +302,36 @@ describe('the sandboxes of the service', () => {
 
     await sandboxes.delete('box');
     expect(compute.stopInstance).toHaveBeenCalledWith('sandbox-proxy', { wait: false });
+  });
+
+  it('registers a sandbox again when the proxy stopped by the last one did not answer', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    // Just after the stop, Compute Engine still says the proxy runs, and it still answers its
+    // health: the registration is what fails.
+    const compute = machinesOf({ 'sandbox-proxy': 'RUNNING' });
+    const proxy = proxyOf();
+    proxy.register.mockRejectedValueOnce(
+      new HttpError(502, 'The egress proxy could not be reached: fetch failed (ECONNREFUSED)', {
+        code: PROXY_UNREACHABLE,
+      }),
+    );
+    const warn = vi.fn();
+    const sandboxes = sandboxesOf({
+      compute,
+      proxy,
+      proxyInstance: 'sandbox-proxy',
+      logger: { ...silentLogger, warn },
+    });
+
+    await sandboxes.create('box', {});
+    expect(proxy.register).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('registration of box'));
+
+    // A refusal of the proxy itself is no race: it is not sent again.
+    proxy.register.mockClear();
+    proxy.register.mockRejectedValueOnce(new HttpError(502, 'Egress proxy: invalid address'));
+    await expect(sandboxes.create('other', {})).rejects.toThrow('invalid address');
+    expect(proxy.register).toHaveBeenCalledTimes(1);
   });
 
   it('starts the stopped proxy ahead of a sandbox, without waiting for it', async () => {
@@ -322,6 +450,7 @@ describe('the sandboxes of the service', () => {
       name: 'box',
       home: '/home/sandbox',
       workingDirectory: '/home/sandbox/workspace',
+      timings: expect.objectContaining({ fromPool: false }) as unknown,
     });
 
     expect(compute.insertInstance).toHaveBeenCalledWith(
@@ -336,6 +465,209 @@ describe('the sandboxes of the service', () => {
       allowedHosts: ['registry.npmjs.org', 'github.com'],
       baseUrls: {},
     });
+  });
+
+  it("puts the caller's labels on the machine and on its disk, beside the service's", async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const compute = computeOf([undefined, sandbox('RUNNING')]);
+
+    await sandboxesOf({ compute }).create('box', { labels: { team: 'studio', run: 'r-42' } });
+
+    expect(compute.insertInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        labels: {
+          team: 'studio',
+          run: 'r-42',
+          'ai-sdk-sandbox': 'sandbox',
+          'ai-sdk-sandbox-image': 'default',
+        },
+        disks: [
+          expect.objectContaining({
+            initializeParams: expect.objectContaining({
+              labels: {
+                team: 'studio',
+                run: 'r-42',
+                'ai-sdk-sandbox': 'sandbox',
+                'ai-sdk-sandbox-name': 'box',
+              },
+            }) as unknown,
+          }),
+        ],
+      }),
+      { wait: true },
+    );
+  });
+
+  it.each([
+    [{ 'ai-sdk-sandbox': 'mine' }, 'starts with "ai-sdk-"'],
+    [{ Team: 'a' }, 'Invalid label key "Team"'],
+    [{ '1team': 'a' }, 'Invalid label key "1team"'],
+    [{ team: 'Studio' }, 'Invalid value of the label "team"'],
+    [{ team: 'a'.repeat(64) }, 'Invalid value of the label "team"'],
+    [{ ['k'.repeat(64)]: 'a' }, 'Invalid label key'],
+    [Object.fromEntries(Array.from({ length: 57 }, (_, i) => [`k${i}`, ''])), '57 labels'],
+  ])('refuses the labels %j before making anything', async (labels, message) => {
+    const compute = computeOf([undefined]);
+
+    const created = sandboxesOf({ compute }).create('box', { labels });
+
+    await expect(created).rejects.toMatchObject({ status: 400 });
+    await expect(created).rejects.toThrow(message);
+    expect(compute.insertInstance).not.toHaveBeenCalled();
+  });
+
+  it('describes the machine of a sandbox as Compute Engine does, its labels but the package own', async () => {
+    const compute = computeOf([
+      {
+        ...sandbox('TERMINATED', { 'ai-sdk-sandbox-image': 'python', team: 'studio' }),
+        creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+        lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+        lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+        machineType:
+          'https://compute.googleapis.com/compute/v1/projects/p/zones/z/machineTypes/e2-custom-2-4096',
+        scheduling: { provisioningModel: 'STANDARD' },
+        disks: [{ boot: true, source: 'zones/z/disks/sbx-box', diskSizeGb: '30' }],
+      },
+    ]);
+
+    await expect(
+      sandboxesOf({ compute, machine: { ...machine, spot: true } }).describe('box'),
+    ).resolves.toEqual({
+      name: 'box',
+      instance: 'sbx-box',
+      zone: 'z',
+      status: 'TERMINATED',
+      creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+      lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+      lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+      provisioningModel: 'STANDARD',
+      spotFallback: true,
+      machineType: 'e2-custom-2-4096',
+      diskSizeGb: 30,
+      image: 'python',
+      fromPool: false,
+      labels: { team: 'studio' },
+    });
+  });
+
+  it('describes a Spot machine taken from the pool, and refuses a sandbox that is gone', async () => {
+    const taken: Instance = {
+      ...sandbox('RUNNING', { 'ai-sdk-sandbox-name': 'box' }),
+      name: 'sbx-pool-a',
+      scheduling: { provisioningModel: 'SPOT' },
+    };
+    const compute = computeOf([undefined]);
+    compute.listInstances.mockResolvedValueOnce([taken]);
+    const sandboxes = sandboxesOf({ compute, machine: { ...machine, spot: true } });
+
+    await expect(sandboxes.describe('box')).resolves.toMatchObject({
+      instance: 'sbx-pool-a',
+      provisioningModel: 'SPOT',
+      spotFallback: false,
+      machineType: 'e2-standard-4',
+      diskSizeGb: undefined,
+      fromPool: true,
+      labels: {},
+    });
+    await expect(sandboxes.describe('gone')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('says how long each step of a creation and of a resume took', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const pass = (ms: number): void => void vi.setSystemTime(Date.now() + ms);
+      const compute = computeOf([undefined, sandbox('RUNNING')]);
+      // Once the proxy, up already, answered.
+      compute.insertInstance.mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        pass(3000);
+      });
+      compute.startInstance.mockImplementation(async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        pass(4000);
+      });
+      let booting = true;
+      vi.spyOn(AgentClient.prototype, 'health').mockImplementation(() => {
+        pass(booting ? 20_000 : 1000);
+        booting = false;
+        return Promise.resolve(PROTOCOL_VERSION);
+      });
+      vi.spyOn(AgentClient.prototype, 'configure').mockImplementation(() => {
+        pass(500);
+        return Promise.resolve({ home: '/home/sandbox', workingDirectory: '/workspace' });
+      });
+      const sandboxes = sandboxesOf({ compute });
+
+      await expect(sandboxes.create('box', {})).resolves.toMatchObject({
+        timings: {
+          fromPool: false,
+          proxyMs: 0,
+          insertMs: 3000,
+          bootMs: 20_000,
+          agentMs: 500,
+          totalMs: 23_500,
+        },
+      });
+
+      compute.getInstance.mockResolvedValueOnce(sandbox('TERMINATED'));
+      await expect(sandboxes.resume('box', {})).resolves.toMatchObject({
+        timings: {
+          fromPool: false,
+          proxyMs: 0,
+          insertMs: 4000,
+          bootMs: 1000,
+          agentMs: 500,
+          totalMs: 5500,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('logs each creation, resume, suspension and deletion as a structured event', async () => {
+    agentAnswers(PROTOCOL_VERSION);
+    const event = vi.fn();
+    const proxy = proxyOf();
+    proxy.remove.mockResolvedValue(usageOf(10));
+    const sandboxes = (statuses: (Instance | undefined)[]): Sandboxes =>
+      sandboxesOf({ compute: computeOf(statuses), proxy, logger: { ...silentLogger, event } });
+
+    await sandboxes([undefined, sandbox('RUNNING')]).create('box', { labels: { team: 'studio' } });
+    await sandboxes([sandbox('RUNNING')]).suspend('box');
+    await sandboxes([sandbox('TERMINATED'), sandbox('RUNNING')]).resume('box', {});
+    await sandboxes([sandbox('RUNNING')]).delete('box');
+    await sandboxes([undefined]).delete('gone');
+
+    expect(event.mock.calls.map(([logged]) => logged as unknown)).toEqual([
+      {
+        event: 'create',
+        sandbox: 'box',
+        message: expect.stringMatching(/^box created in \d+ ms$/) as unknown,
+        instance: 'sbx-box',
+        image: 'default',
+        template: undefined,
+        labels: { team: 'studio' },
+        timings: expect.objectContaining({ fromPool: false }) as unknown,
+      },
+      {
+        event: 'suspend',
+        sandbox: 'box',
+        message: 'box stopping',
+        instance: 'sbx-box',
+        status: 'RUNNING',
+        egress: usageOf(10),
+        samples: undefined,
+      },
+      {
+        event: 'resume',
+        sandbox: 'box',
+        message: expect.stringMatching(/^box resumed in \d+ ms$/) as unknown,
+        instance: 'sbx-box',
+        timings: expect.objectContaining({ fromPool: false }) as unknown,
+      },
+      expect.objectContaining({ event: 'delete', sandbox: 'box', message: 'box deleting' }),
+    ]);
   });
 
   it('refuses a name taken meanwhile, and an image the service does not offer', async () => {
@@ -421,6 +753,11 @@ describe('the sandboxes of the service', () => {
     ).rejects.toMatchObject({
       status: 429,
       message: expect.stringContaining('SANDBOX_MAX_RUNNING=2') as unknown,
+      details: {
+        code: 'SANDBOX_MAX_RUNNING',
+        fields: { code: 'SANDBOX_MAX_RUNNING', running: 2, max: 2, retryAfterSeconds: 30 },
+        headers: { 'retry-after': '30' },
+      },
     });
     expect(full.insertInstance).not.toHaveBeenCalled();
     expect(full.listInstances).toHaveBeenCalledWith('ai-sdk-sandbox', 'sandbox');
@@ -822,12 +1159,12 @@ describe('the warm pool', () => {
     agentAnswers(PROTOCOL_VERSION);
     const { compute, machines } = zoneOf([poolMachine('sbx-pool-a', deps)]);
     const proxy = proxyOf();
-    const info = vi.fn();
+    const event = vi.fn();
     const sandboxes = sandboxesOf({
       compute,
       proxy,
       warmPool: 1,
-      logger: { ...silentLogger, info },
+      logger: { ...silentLogger, event },
     });
 
     await expect(sandboxes.create('box', { template: 'deps' })).resolves.toMatchObject({
@@ -839,14 +1176,28 @@ describe('the warm pool', () => {
       'ai-sdk-sandbox': 'sandbox',
       'ai-sdk-sandbox-name': 'box',
     });
+    // Its disk, labelled the pool's until then, is the sandbox's now.
+    expect(compute.setDiskLabels).toHaveBeenCalledWith(
+      'sbx-pool-a',
+      { 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+      'd0',
+    );
     expect(proxy.register).toHaveBeenCalledWith(
       'box',
       expect.objectContaining({ address: '10.0.2.1' }),
     );
     const [next] = poolIn(machines);
     expect(next?.name).toMatch(/^sbx-pool-/);
-    expect(info).toHaveBeenCalledWith(
-      expect.stringMatching(/^box created in \d+ ms on sbx-pool-a of the warm pool$/),
+    expect(event).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'create',
+        sandbox: 'box',
+        instance: 'sbx-pool-a',
+        message: expect.stringMatching(
+          /^box created in \d+ ms on sbx-pool-a of the warm pool$/,
+        ) as unknown,
+        timings: expect.objectContaining({ fromPool: true }) as unknown,
+      }),
     );
 
     // The machine keeps its name: its agent's token is still the one of its machine.
@@ -975,6 +1326,38 @@ describe('the warm pool', () => {
     expect(machines.get('sbx-pool-a')?.labels?.['ai-sdk-sandbox-name']).toBe('box');
     expect(poolIn(machines)).toEqual([]);
     expect(compute.insertInstance).not.toHaveBeenCalled();
+  });
+
+  it("labels a machine of the pool and its disk with the caller's labels, its disk at best", async () => {
+    const deps = await depsLabel();
+    agentAnswers(PROTOCOL_VERSION);
+    const { compute, machines } = zoneOf([
+      poolMachine('sbx-pool-a', deps, {
+        disks: [{ boot: true, source: 'zones/z/disks/sbx-pool-a-disk' }],
+      }),
+    ]);
+    compute.setDiskLabels.mockRejectedValueOnce(new ComputeError(403, 'Required permission'));
+    const warn = vi.fn();
+
+    await sandboxesOf({ compute, warmPool: 0, logger: { ...silentLogger, warn } }).create('box', {
+      template: 'deps',
+      labels: { team: 'studio' },
+    });
+
+    expect(machines.get('sbx-pool-a')?.labels).toMatchObject({
+      team: 'studio',
+      'ai-sdk-sandbox': 'sandbox',
+      'ai-sdk-sandbox-name': 'box',
+    });
+    expect(compute.getDisk).toHaveBeenCalledWith('sbx-pool-a-disk');
+    expect(compute.setDiskLabels).toHaveBeenCalledWith(
+      'sbx-pool-a-disk',
+      { team: 'studio', 'ai-sdk-sandbox': 'sandbox', 'ai-sdk-sandbox-name': 'box' },
+      'd0',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('The disk of sbx-pool-a keeps its labels'),
+    );
   });
 
   it('makes a machine of its own when another creation took the one of the pool first, which refills it', async () => {

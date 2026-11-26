@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 
 import type { AgentConfig, AgentDescription } from '../../protocol/agent.js';
+import type { SandboxMetrics } from '../../protocol/api.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { AGENT_TOKEN_HEADER } from '../../protocol/agent.js';
@@ -51,7 +52,7 @@ export class AgentClient {
   }
 
   async configure(config: AgentConfig): Promise<AgentDescription> {
-    const response = await this.call('PUT', '/v1/config', config);
+    const response = await this.call('PUT', '/v1/config', { body: config });
     return (await response.json()) as AgentDescription;
   }
 
@@ -66,11 +67,9 @@ export class AgentClient {
 
   /** Gives a process started with `stdin` the bytes of its input from `offset` on. */
   async writeInput(id: string, offset: number, bytes: Uint8Array): Promise<void> {
-    await this.call(
-      'POST',
-      `/v1/processes/${encodeURIComponent(id)}/stdin?offset=${offset}`,
-      bytes,
-    );
+    await this.call('POST', `/v1/processes/${encodeURIComponent(id)}/stdin?offset=${offset}`, {
+      body: bytes,
+    });
   }
 
   /** Ends the input of a process started with `stdin`. */
@@ -80,6 +79,33 @@ export class AgentClient {
 
   async killAll(): Promise<void> {
     await this.call('DELETE', '/v1/processes');
+  }
+
+  /**
+   * The samples the agent took of its machine after `since`, milliseconds since the epoch, every
+   * one it keeps without it, one taken first when `fresh`: `undefined` from an agent of an earlier
+   * version, which has none. Given up after `timeoutMs`.
+   */
+  async metrics({
+    since,
+    fresh = false,
+    timeoutMs,
+  }: {
+    since?: number;
+    fresh?: boolean;
+    timeoutMs: number;
+  }): Promise<SandboxMetrics | undefined> {
+    const query = new URLSearchParams({ fresh: String(fresh) });
+    if (since !== undefined) query.set('since', String(Math.max(0, Math.floor(since))));
+    try {
+      const response = await this.call('GET', `/v1/metrics?${query.toString()}`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return (await response.json()) as SandboxMetrics;
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) return undefined;
+      throw error;
+    }
   }
 
   /**
@@ -107,12 +133,17 @@ export class AgentClient {
     };
   }
 
-  private async call(method: string, path: string, body?: unknown): Promise<Response> {
+  private async call(
+    method: string,
+    path: string,
+    { body, signal }: { body?: unknown; signal?: AbortSignal } = {},
+  ): Promise<Response> {
     let response: Response;
     try {
       const bytes = body instanceof Uint8Array;
       response = await fetch(`${this.origin}${path}`, {
         method,
+        signal,
         headers: this.headers(
           body === undefined || bytes ? {} : { 'content-type': 'application/json' },
         ),

@@ -18,17 +18,22 @@ const SHELL = 'if command -v bash >/dev/null 2>&1; then bash -c "$1"; else sh -c
  */
 export const TRACKED = `mkdir -p ${PROCESS_DIR} && echo $$ > "$0" && { ${SHELL}; }; code=$?; rm -f "$0"; exit $code`;
 
-/** Stops the process recorded in `$0` and everything it started, children first. */
+// Each process is held still (STOP) while its children are stopped, then stopped itself: a shell
+// whose `wait` returned once its children were gone would otherwise exit 0 before the TERM reached
+// it, and a killed process would look like one that ended well.
+const KILL_TREE_FUNCTION =
+  'kill_tree() { kill -STOP "$1" 2>/dev/null; for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null; }';
+
+/** Stops the process recorded in `$0` and everything it started, children first, held still meanwhile. */
 export const KILL_TREE =
-  'kill_tree() { for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; }; ' +
-  'pid=$(cat "$0" 2>/dev/null) && kill_tree "$pid"; rm -f "$0"';
+  `${KILL_TREE_FUNCTION}; ` + 'pid=$(cat "$0" 2>/dev/null) && kill_tree "$pid"; rm -f "$0"';
 
 /**
  * Stops every process recorded in {@link PROCESS_DIR}, whichever session started it, sparing the
  * shells running this very script, which `sbx exec` started like any other.
  */
 export const KILL_ALL = [
-  'kill_tree() { for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; }',
+  KILL_TREE_FUNCTION,
   'mine=" $$ "; p=$$',
   'while [ "$p" -gt 1 ] 2>/dev/null; do p=$(ps -o ppid= -p "$p" | tr -d " "); mine="$mine$p "; done',
   `for file in ${PROCESS_DIR}/*; do`,

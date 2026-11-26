@@ -636,15 +636,18 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 ## Lifecycle
 
-| Method                     | What it does                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `release()`                | Stops the processes this session started and forgets its credentials, leaving the sandbox running |
-| `killAllProcesses()`       | Stops every process the machine's agent started                                                   |
-| `stop()`                   | Stops the machine, its disk kept. Idempotent                                                      |
-| `destroy()`                | Deletes the machine and its disk. Idempotent                                                      |
-| `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                          |
-| `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                |
-| `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own                |
+| Method                     | What it does                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `release()`                | Stops the processes this session started and forgets its credentials, leaving the sandbox running                 |
+| `killAllProcesses()`       | Stops every process the machine's agent started                                                                   |
+| `stop()`                   | Stops the machine, its disk kept. Idempotent                                                                      |
+| `destroy()`                | Deletes the machine and its disk. Idempotent                                                                      |
+| `setNetworkPolicy(policy)` | Replaces the hosts the sandbox may reach                                                                          |
+| `restricted()`             | The files-and-processes view of the same sandbox, to hand to tools                                                |
+| `fork({ ports })`          | Another view of the same sandbox, with ports, processes and credentials of its own                                |
+| `describe()`               | The sandbox's machine, as Compute Engine describes it: see [Its machine](#its-machine)                            |
+| `usage()`                  | What its connections carried through the proxy: see [What its connections carried](#what-its-connections-carried) |
+| `lastReport`               | The last measures the last `stop()` or `destroy()` of this view answered                                          |
 
 `fork()` lets several harness sessions run side by side in one machine, each with a bridge on its own port, as with `ai-sdk-sandbox-cloud-run`.
 
@@ -654,61 +657,62 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 `createGceNetworkSandboxSession(options)` takes every option below; `resumeGceNetworkSandboxSession(options)` takes `sandboxId`, `abortSignal` and the connection settings.
 
-| Option             | Default           | Description                                                                                                           |
-| ------------------ | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `url`              | required          | _Connection._ The URL of the sandbox service                                                                          |
-| `auth`             | `'gcloud'`        | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token                           |
-| `ports`            | `[]`              | _Connection._ Ports the harness may reach, through the service                                                        |
-| `allowedHosts`     | `[]`              | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                                         |
-| `baseUrls`         | `{}`              | _Connection._ Base URL variables routed through the proxy, on top of the service's                                    |
-| `nodeUseEnvProxy`  | the service's     | _Connection._ `true` sets `NODE_USE_ENV_PROXY=1` for the commands: see [Node.js and the proxy](#nodejs-and-the-proxy) |
-| `serviceToken`     | none              | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                                  |
-| `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken                   |
-| `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                                    |
-| `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`                                |
-| `requiredCommands` | `['node', 'git']` | Commands the sandbox must have once `setup` ran                                                                       |
-| `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template                       |
-| `abortSignal`      | none              | Aborts the creation or the resume                                                                                     |
+| Option             | Default           | Description                                                                                                                   |
+| ------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `url`              | required          | _Connection._ The URL of the sandbox service                                                                                  |
+| `auth`             | `'gcloud'`        | _Connection._ `'gcloud'`, `'metadata'`, `'none'`, or a function returning an identity token                                   |
+| `ports`            | `[]`              | _Connection._ Ports the harness may reach, through the service                                                                |
+| `allowedHosts`     | `[]`              | _Connection._ Hosts the sandbox may reach over HTTPS, on top of the service's                                                 |
+| `baseUrls`         | `{}`              | _Connection._ Base URL variables routed through the proxy, on top of the service's                                            |
+| `nodeUseEnvProxy`  | the service's     | _Connection._ `true` sets `NODE_USE_ENV_PROXY=1` for the commands: see [Node.js and the proxy](#nodejs-and-the-proxy)         |
+| `serviceToken`     | none              | _Connection._ The service's `SANDBOX_SERVICE_TOKEN`, when it has one                                                          |
+| `sandboxId`        | `ai-sdk-<hex>`    | The sandbox's name: lowercase letters, digits and dashes, 55 at most. Creation fails if it is taken                           |
+| `template`         | none              | `await agent.getSandboxTemplate()`: prepare once, boot every later sandbox from it                                            |
+| `image`            | `default`         | The image the machine boots from, by the name the service gives it in `SANDBOX_IMAGES`                                        |
+| `labels`           | `{}`              | Labels put on the machine and its disk, for a billing export: see [Usage and cost of a sandbox](#usage-and-cost-of-a-sandbox) |
+| `requiredCommands` | `['node', 'git']` | Commands the sandbox must have once `setup` ran                                                                               |
+| `setup`            | `[]`              | Commands run once after creation, as the sandbox's user (who has `sudo`), saved in the template                               |
+| `abortSignal`      | none              | Aborts the creation or the resume                                                                                             |
 
 ## Configuration
 
 ### The service (`serve`)
 
-| Variable                     | Default                                                                                  | Description                                                                                                                                                                           |
-| ---------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SANDBOX_ZONE`               | required                                                                                 | The zone of the machines                                                                                                                                                              |
-| `SANDBOX_IMAGE`              | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`                                                                                                 |
-| `SANDBOX_IMAGES`             | none                                                                                     | Other images callers may pick by name, as `NAME=image` pairs: `python=family/ai-sdk-sandbox-python`                                                                                   |
-| `SANDBOX_AGENT_SECRET`       | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager                                                                                             |
-| `SANDBOX_PROXY_URL`          | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                                                                                                          |
-| `SANDBOX_PROXY_ADMIN_URL`    | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                                                                                                       |
-| `SANDBOX_PROXY_TOKEN`        | required                                                                                 | The proxy's token                                                                                                                                                                     |
-| `SANDBOX_PROJECT`            | the service's project                                                                    | The project of the machines                                                                                                                                                           |
-| `SANDBOX_NETWORK`            | the default network                                                                      | The machines' VPC network                                                                                                                                                             |
-| `SANDBOX_SUBNETWORK`         | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                                                                                                               |
-| `SANDBOX_NETWORK_TAGS`       | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                                                                                                                 |
-| `SANDBOX_MACHINE_TYPE`       | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                                                                                                         |
-| `SANDBOX_DISK_GB`            | `20`                                                                                     | The size of their disk                                                                                                                                                                |
-| `SANDBOX_DISK_TYPE`          | `pd-balanced`                                                                            | Its type                                                                                                                                                                              |
-| `SANDBOX_SPOT`               | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after                                                                                       |
-| `SANDBOX_SPOT_FALLBACK`      | `true`                                                                                   | With Spot, a machine the zone has no Spot capacity for is created or started as a standard one, billed as such; `false` fails instead                                                 |
-| `SANDBOX_INSTANCE_PREFIX`    | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                                                                                                               |
-| `SANDBOX_AGENT_PORT`         | `8100`                                                                                   | The port of the agents                                                                                                                                                                |
-| `SANDBOX_START_TIMEOUT`      | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                                                                                                                 |
-| `SANDBOX_MAX_RUNNING`        | none                                                                                     | The most sandboxes running at once: a creation or a resume beyond it is answered with a 429. Counted at each call, so two at the same instant may both pass                           |
-| `SANDBOX_MAX_RUN_HOURS`      | none                                                                                     | The longest a machine runs at a time: Compute Engine stops it then (`maxRunDuration`), disk kept, whatever the service or the application do. 30 s at least                           |
-| `SANDBOX_PROXY_INSTANCE`     | none                                                                                     | The egress proxy's machine, in the sandboxes' zone: started with the first sandbox that runs, stopped once none does and no prepared machine waits for one. Always on without it      |
-| `SANDBOX_PROFILE`            | `cost`                                                                                   | `cost` or `fast`: the defaults of the two settings below, see [Speed or cost](#speed-or-cost)                                                                                         |
-| `SANDBOX_WARM_POOL`          | `0`, `1` with `fast`                                                                     | How many machines are kept booted from each template used in the last 24 h, for the next creations from it to take at once. Each one is billed all the time                           |
-| `SANDBOX_PROXY_ALWAYS_ON`    | `false`, `true` with `fast`                                                              | `true`: the service starts the proxy's machine of `SANDBOX_PROXY_INSTANCE` with the first sandbox, and never stops it. No sandbox waits for it to boot, and it is billed all the time |
-| `SANDBOX_ALLOWED_HOSTS`      | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed. `*`, any host, is logged as a warning at startup                                                       |
-| `SANDBOX_BASE_URLS`          | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                                                                                                      |
-| `SANDBOX_NODE_USE_ENV_PROXY` | `false`                                                                                  | `true` sets `NODE_USE_ENV_PROXY=1` for the commands of every sandbox that does not say otherwise: see [Node.js and the proxy](#nodejs-and-the-proxy)                                  |
-| `SANDBOX_SERVICE_TOKEN`      | required on Cloud Run                                                                    | A secret every call must carry, beside Cloud Run's IAM                                                                                                                                |
-| `SANDBOX_INSECURE_NO_TOKEN`  | `false`                                                                                  | `true` to run on Cloud Run without `SANDBOX_SERVICE_TOKEN`, its IAM the only lock                                                                                                     |
-| `COMPUTE_AUTH`               | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                                                                                                                     |
-| `PORT`, `HOST`               | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                                                                             |
-| `LOG_FORMAT`                 | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                                                                                           |
+| Variable                     | Default                                                                                  | Description                                                                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_ZONE`               | required                                                                                 | The zone of the machines                                                                                                                                                                                    |
+| `SANDBOX_IMAGE`              | required                                                                                 | The sandbox image: a name, `family/<family>`, or `projects/<project>/global/images/…`                                                                                                                       |
+| `SANDBOX_IMAGES`             | none                                                                                     | Other images callers may pick by name, as `NAME=image` pairs: `python=family/ai-sdk-sandbox-python`                                                                                                         |
+| `SANDBOX_AGENT_SECRET`       | required                                                                                 | 32 characters at least: the agents' tokens are derived from it. Keep it in Secret Manager                                                                                                                   |
+| `SANDBOX_PROXY_URL`          | required                                                                                 | The proxy, as the machines reach it: `http://10.8.16.2:3128`                                                                                                                                                |
+| `SANDBOX_PROXY_ADMIN_URL`    | required                                                                                 | Its administration API: `http://10.8.16.2:3129`                                                                                                                                                             |
+| `SANDBOX_PROXY_TOKEN`        | required                                                                                 | The proxy's token                                                                                                                                                                                           |
+| `SANDBOX_PROJECT`            | the service's project                                                                    | The project of the machines                                                                                                                                                                                 |
+| `SANDBOX_NETWORK`            | the default network                                                                      | The machines' VPC network                                                                                                                                                                                   |
+| `SANDBOX_SUBNETWORK`         | none                                                                                     | Their subnetwork: `regions/<region>/subnetworks/<name>`                                                                                                                                                     |
+| `SANDBOX_NETWORK_TAGS`       | `ai-sdk-sandbox`                                                                         | Their network tags, which the firewall rules apply to                                                                                                                                                       |
+| `SANDBOX_MACHINE_TYPE`       | `e2-standard-4`                                                                          | Their machine type, a custom one included: `e2-custom-4-8192`                                                                                                                                               |
+| `SANDBOX_DISK_GB`            | `20`                                                                                     | The size of their disk                                                                                                                                                                                      |
+| `SANDBOX_DISK_TYPE`          | `pd-balanced`                                                                            | Its type                                                                                                                                                                                                    |
+| `SANDBOX_SPOT`               | `false`                                                                                  | `true` for Spot machines: cheaper, stopped when Compute Engine takes them back, resumable after                                                                                                             |
+| `SANDBOX_SPOT_FALLBACK`      | `true`                                                                                   | With Spot, a machine the zone has no Spot capacity for is created or started as a standard one, billed as such; `false` fails instead                                                                       |
+| `SANDBOX_INSTANCE_PREFIX`    | `sbx-`                                                                                   | Put before a sandbox's name to make its machine's, 8 characters at most                                                                                                                                     |
+| `SANDBOX_AGENT_PORT`         | `8100`                                                                                   | The port of the agents                                                                                                                                                                                      |
+| `SANDBOX_START_TIMEOUT`      | `300`                                                                                    | Seconds a machine has to boot and its agent to answer                                                                                                                                                       |
+| `SANDBOX_MAX_RUNNING`        | none                                                                                     | The most sandboxes running at once: a creation or a resume beyond it is answered with a 429 (`GceSandboxCapacityError`, with `Retry-After`). Counted at each call, so two at the same instant may both pass |
+| `SANDBOX_MAX_RUN_HOURS`      | none                                                                                     | The longest a machine runs at a time: Compute Engine stops it then (`maxRunDuration`), disk kept, whatever the service or the application do. 30 s at least                                                 |
+| `SANDBOX_PROXY_INSTANCE`     | none                                                                                     | The egress proxy's machine, in the sandboxes' zone: started with the first sandbox that runs, stopped once none does and no prepared machine waits for one. Always on without it                            |
+| `SANDBOX_PROFILE`            | `cost`                                                                                   | `cost` or `fast`: the defaults of the two settings below, see [Speed or cost](#speed-or-cost)                                                                                                               |
+| `SANDBOX_WARM_POOL`          | `0`, `1` with `fast`                                                                     | How many machines are kept booted from each template used in the last 24 h, for the next creations from it to take at once. Each one is billed all the time                                                 |
+| `SANDBOX_PROXY_ALWAYS_ON`    | `false`, `true` with `fast`                                                              | `true`: the service starts the proxy's machine of `SANDBOX_PROXY_INSTANCE` with the first sandbox, and never stops it. No sandbox waits for it to boot, and it is billed all the time                       |
+| `SANDBOX_ALLOWED_HOSTS`      | none                                                                                     | Hosts every sandbox may reach over HTTPS, comma-separated; `*.domain` allowed. `*`, any host, is logged as a warning at startup                                                                             |
+| `SANDBOX_BASE_URLS`          | `ANTHROPIC_BASE_URL=https://api.anthropic.com,OPENAI_BASE_URL=https://api.openai.com/v1` | Base URL variables routed through the proxy, as `NAME=url` pairs                                                                                                                                            |
+| `SANDBOX_NODE_USE_ENV_PROXY` | `false`                                                                                  | `true` sets `NODE_USE_ENV_PROXY=1` for the commands of every sandbox that does not say otherwise: see [Node.js and the proxy](#nodejs-and-the-proxy)                                                        |
+| `SANDBOX_SERVICE_TOKEN`      | required on Cloud Run                                                                    | A secret every call must carry, beside Cloud Run's IAM                                                                                                                                                      |
+| `SANDBOX_INSECURE_NO_TOKEN`  | `false`                                                                                  | `true` to run on Cloud Run without `SANDBOX_SERVICE_TOKEN`, its IAM the only lock                                                                                                                           |
+| `COMPUTE_AUTH`               | `metadata` on Cloud Run, `gcloud` elsewhere                                              | How the service gets its access tokens for the Compute Engine API                                                                                                                                           |
+| `PORT`, `HOST`               | `8080`, `0.0.0.0` on Cloud Run and `127.0.0.1` elsewhere                                 | Where the service listens                                                                                                                                                                                   |
+| `LOG_FORMAT`                 | `json` on Cloud Run, `text` elsewhere                                                    | JSON lines for Cloud Logging, or plain text                                                                                                                                                                 |
 
 ### The proxy (`proxy`)
 
@@ -733,8 +737,9 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 | `SANDBOX_PATH`             | `/usr/local/sbin:/usr/local/bin:/usr/sbin:…` | Their `PATH`                                                                                                                        |
 | `SANDBOX_AGENT_PORT`       | `8100`                                       | Where the agent listens                                                                                                             |
 | `SANDBOX_AGENT_TOKEN`      | the instance's `ai-sdk-sandbox-agent-token`  | Its token: the service puts it in the instance metadata                                                                             |
-| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration, root's                                                                                    |
+| `SANDBOX_STATE_DIR`        | `/var/lib/ai-sdk-sandbox`                    | Where it keeps the network configuration and the samples of the machine, root's                                                     |
 | `SANDBOX_CONFIGURE_DOCKER` | `true`                                       | `false` to leave Docker's proxy settings alone                                                                                      |
+| `SANDBOX_METRICS_INTERVAL` | `30`                                         | Seconds between two samples of the machine; `0` for none but those a stop or a deletion takes                                       |
 | `SANDBOX_RUN_DIR`          | `/run/ai-sdk-sandbox`                        | Where it marks it was configured since the machine booted, emptied at each boot: an agent restarted then never powers a machine off |
 
 A sandbox's commands run with nothing of the agent's environment: only their `PATH`, `HOME`, `USER`, the proxy and base URL variables, and the variables the command sets.
@@ -743,9 +748,149 @@ A sandbox's commands run with nothing of the agent's environment: only their `PA
 
 - `GceSandboxImageError`: the image of a new sandbox lacks a command of `requiredCommands`. Carries `sandboxId` and `missing`.
 - `GceSandboxNotFoundError`: `resumeGceNetworkSandboxSession()` found no sandbox of that name, running or stopped. Carries `sandboxId`.
+- `GceSandboxCapacityError`: the service runs as many sandboxes as `SANDBOX_MAX_RUNNING` allows, and refused to create or resume one more. Carries `running`, `max` and `retryAfterSeconds` (also the answer's `Retry-After`): queue the call and try again after it, or stop a sandbox. A `GceSandboxServiceError` with `status` 429, so code that checks the status goes on working. The count is made at each call: two calls at the same instant may both pass, and run one sandbox more than the most.
 - `GceSandboxServiceError`: the service answered with an error status: 409 for a name already taken, 400 for an image it does not offer or a command carrying a credential, 504 for a machine whose agent did not answer in time. Carries `request` and `status`.
 - `HarnessSandboxAuthenticationError` (from `@ai-sdk/harness`): Cloud Run refused the call (401 or 403), or the service token is missing or wrong.
 - `HarnessCapabilityUnsupportedError` (from `@ai-sdk/harness`): a port that is not exposed, or a network policy with CIDR rules.
+
+## Usage and cost of a sandbox
+
+The machine has no service account, and reaches nothing but the egress proxy: what a sandbox costs is read from outside, from the service, by the application.
+
+### Labels
+
+`labels` puts labels of yours on the sandbox's machine and on its disk, beside the service's own (`ai-sdk-sandbox`, `ai-sdk-sandbox-name`…): a [Cloud Billing export](https://cloud.google.com/billing/docs/how-to/export-data-bigquery) or a budget then groups their cost by them.
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({
+  url,
+  template: await agent.getSandboxTemplate(),
+  labels: { app: 'studio', tenant: 'acme', session: 's-42' },
+});
+```
+
+Keys start with a lowercase letter, then lowercase letters, digits, `_` or `-`; values take the same characters and may be empty; 63 characters at most each, 56 labels at most. Keys starting with `ai-sdk-` are the package's and are refused. A machine taken from the warm pool gets them as it is taken, and so does its disk, the pool's until then; a template's builder gets those of the creation that builds it. A resume keeps them as they are.
+
+### Its machine
+
+`describeGceSandbox({ url, sandboxId })`, or `describe()` of a session, reads the sandbox's machine from Compute Engine, running or stopped, without starting it:
+
+```ts
+import { describeGceSandbox } from 'ai-sdk-sandbox-gce';
+
+const machine = await describeGceSandbox({ url, sandboxId: 'box' });
+// {
+//   name: 'box', instance: 'sbx-box', zone: 'europe-west1-b', status: 'TERMINATED',
+//   creationTimestamp: '2026-11-25T10:00:00.000-08:00',
+//   lastStartTimestamp: '2026-11-25T10:00:20.000-08:00',
+//   lastStopTimestamp: '2026-11-25T11:00:00.000-08:00',
+//   provisioningModel: 'STANDARD', spotFallback: true,
+//   machineType: 'e2-standard-4', diskSizeGb: 20, image: 'default', fromPool: false,
+//   labels: { app: 'studio', tenant: 'acme', session: 's-42' },
+// }
+```
+
+`provisioningModel` is what the machine is billed as: a service of Spot machines (`SANDBOX_SPOT`) creates or starts a standard one when the zone has no Spot capacity left (`SANDBOX_SPOT_FALLBACK`), and `spotFallback` says so. The machine of a sandbox taken from the warm pool (`fromPool`) was made before the sandbox took it: `creationTimestamp` is the pool's. `labels` leaves the package's own out. It throws `GceSandboxNotFoundError` once the sandbox is deleted: Compute Engine deletes the machine some 50 s after the deletion returns, and it is answered `STOPPING` meanwhile, as a stopped one is until it is `TERMINATED`, its `lastStopTimestamp` set then. A service of an earlier version answers 405.
+
+### How long it took
+
+`timings` of the session returned by `createGceNetworkSandboxSession()` or `resumeGceNetworkSandboxSession()` says how long the call took on the service, in milliseconds, step by step:
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({ url, template });
+console.log(sandbox.timings);
+// { fromPool: true, proxyMs: 3, insertMs: 412, bootMs: 1210, agentMs: 95, totalMs: 1890 }
+```
+
+| Field      | What it measures                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `fromPool` | The creation took a machine of the warm pool, booted ahead of it. Always `false` on a resume                                          |
+| `proxyMs`  | Waiting for the egress proxy, booting when the service had stopped it (`SANDBOX_PROXY_INSTANCE`). It overlaps the steps below         |
+| `insertMs` | Compute Engine creating the machine, or the warm pool handing one over; on a resume, starting the stopped machine, or waiting for one |
+| `bootMs`   | The machine running and its guest booting, until its agent answers, while the proxy is waited for                                     |
+| `agentMs`  | Registering the sandbox with the proxy and configuring its agent, the waits for either left out                                       |
+| `totalMs`  | The whole call on the service, its checks included                                                                                    |
+
+A template built by the creation is not counted: the creation of its builder, its setup and the image take minutes, once. A service of an earlier version answers no `timings`.
+
+### What its connections carried
+
+The egress proxy counts the bytes each sandbox's connections carry, outside the machine, where nothing the sandbox runs changes them: `bytesRead`, what the proxy read from the sandbox (its requests, its uploads, the TLS it sent through its tunnels), and `bytesWritten`, what it wrote to it (answers, downloads). `usage()` of a session, or `getGceSandboxUsage({ url, sandboxId })`, reads them while the sandbox runs:
+
+```ts
+import { getGceSandboxUsage } from 'ai-sdk-sandbox-gce';
+
+const usage = await getGceSandboxUsage({ url, sandboxId: 'box' });
+// { bytesRead: 48211, bytesWritten: 9134877, connections: 12, openConnections: 2,
+//   since: '2026-11-25T18:00:21.120Z' }
+```
+
+The count starts when the proxy registers the sandbox, at its creation or its resume from a stop, and covers the connections still open as they stand. The proxy keeps it in memory only: it forgets it with the sandbox, at a stop or a deletion, and loses it when it restarts. So **a stop and a deletion answer the last count**, read just before the proxy forgets the sandbox, in a report:
+
+```ts
+const sandbox = await createGceNetworkSandboxSession({
+  url,
+  // Each time a view of the sandbox stops or destroys it, ai-sdk-harness-sessions included.
+  onUsageReport: async (report) => {
+    // { name: 'box', event: 'suspend', at: '2026-11-25T19:02:00.000Z', egress: { … } }
+    await saveUsage(report);
+  },
+});
+await sandbox.stop();
+console.log(sandbox.lastReport);
+
+// Deleting a sandbox by its id reports too.
+await deleteGceSandbox({ url, sandboxId: 'box', onUsageReport: saveUsage });
+```
+
+`onUsageReport` is awaited, an error it throws ignored. `lastReport` holds the report of the last `stop()` or `destroy()` of that view. Reading the count of a stopped sandbox fails with `GceSandboxServiceError` (404): its stop answered it. A proxy of an earlier version counts nothing: its reports have no `egress`, and `usage()` fails with a 404.
+
+### What its machine went through
+
+The agent of each machine samples it every 30 s, from `/proc` alone: the share of the CPUs busy (`cpuPercent`) and stolen by the hypervisor (`cpuStealPercent`) since the sample before, the memory in use (`memoryUsedBytes` of `memoryTotalBytes`), the pressure on both when the kernel reports it (`cpuPressure`, `memoryPressure`, from `/proc/pressure`), and the processes the kernel killed for want of memory since the boot (`oomKills`). It keeps the last day of samples in its state directory (`/var/lib/ai-sdk-sandbox/metrics.jsonl`), on the machine's disk: they outlive a stop. A machine made from a template does not inherit the samples of the machine that built it: the agent keeps only those of its own machine, by the id of the instance. `metrics()` of a session, or `getGceSandboxMetrics({ url, sandboxId, since })`, reads them while the sandbox runs, those after `since` when given:
+
+```ts
+import { getGceSandboxMetrics } from 'ai-sdk-sandbox-gce';
+
+let since: string | undefined;
+const { intervalSeconds, samples } = await getGceSandboxMetrics({ url, sandboxId: 'box', since });
+// samples: [{ at: '2026-11-25T18:01:00.000Z', cpuPercent: 37.5, cpuStealPercent: 0, cpuCount: 4,
+//   memoryUsedBytes: 2147483648, memoryTotalBytes: 16777216000,
+//   cpuPressure: { someAvg10: 2.1, someAvg60: 1.3, fullAvg10: 0, fullAvg60: 0 },
+//   memoryPressure: { someAvg10: 0, someAvg60: 0, fullAvg10: 0, fullAvg60: 0 }, oomKills: 0 }, …]
+since = samples.at(-1)?.at ?? since;
+```
+
+A stop and a deletion read the last ones before the machine goes, a sample taken then, those since the machine last started: the report handed to `onUsageReport` holds them in `metrics`, beside `egress`. The agent runs in the machine, where the sandbox's user has `sudo`: what it reports is fit for sizing the machines and `SANDBOX_MAX_RUNNING`, never for billing, which [the labels](#labels) and the proxy's count are for. An image built with an earlier version of the package samples nothing: `metrics()` fails with a 501, and the reports have no `metrics`. Build the image again to get them.
+
+### Its logs
+
+The service logs each creation, resume, suspension and deletion as a JSON line (`LOG_FORMAT=json`, the default on Cloud Run), which Cloud Logging reads as a structured entry, for a log-based metric or a BigQuery sink:
+
+```json
+{
+  "event": "create",
+  "sandbox": "box",
+  "at": "2026-11-25T18:00:21.120Z",
+  "instance": "sbx-pool-1a2b3c4d",
+  "image": "default",
+  "template": "ai-sdk-harness-template-…",
+  "labels": { "app": "studio" },
+  "timings": {
+    "fromPool": true,
+    "proxyMs": 3,
+    "insertMs": 412,
+    "bootMs": 1210,
+    "agentMs": 95,
+    "totalMs": 1890
+  },
+  "severity": "INFO",
+  "message": "box created in 1890 ms on sbx-pool-1a2b3c4d of the warm pool",
+  "time": "2026-11-25T18:00:21.120Z"
+}
+```
+
+`resume` carries `instance` and `timings`; `suspend` and `delete` carry `instance`, its `status`, `egress` (the proxy's last count) and `samples` (how many samples the report holds). With `LOG_FORMAT=text`, only the message is written. A Spot machine Compute Engine took back is in its audit logs (`compute.instances.preempted`), not in the service's.
 
 ## Cost
 

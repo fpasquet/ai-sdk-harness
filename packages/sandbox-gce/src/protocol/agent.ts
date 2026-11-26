@@ -11,7 +11,9 @@
  * - `POST /v1/processes/:id/stdin?offset=…`: bytes of the standard input of a process started with
  *   `stdin`, from that offset on; `DELETE /v1/processes/:id/stdin` ends it;
  * - `DELETE /v1/processes/:id`, `DELETE /v1/processes`: stop one process, or every one;
- * - `GET /v1/ports/:port/…` with `Upgrade`: the request passed on to `127.0.0.1:<port>`.
+ * - `GET /v1/ports/:port/…` with `Upgrade`: the request passed on to `127.0.0.1:<port>`;
+ * - `GET /v1/metrics?since=<ms>&fresh=true`: the `SandboxMetrics` taken after `since`, milliseconds
+ *   since the epoch, every one kept without it; `fresh` takes one first.
  */
 
 /** The header every call but the health check carries: the agent's token, see {@link agentToken}. */

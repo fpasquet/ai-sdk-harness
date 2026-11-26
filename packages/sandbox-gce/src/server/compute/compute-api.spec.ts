@@ -12,13 +12,27 @@ describe('the Compute Engine API', () => {
   let answers: Record<string, unknown>[];
   let calls: string[];
   let authorizations: (string | undefined)[];
+  let requestIds: (string | undefined)[];
+  let drops: number;
 
   beforeEach(async () => {
     calls = [];
     answers = [];
     authorizations = [];
+    requestIds = [];
+    drops = 0;
     server = createServer((request, response) => {
-      calls.push(`${request.method} ${request.url}`);
+      // A connection closed before any answer: what a stale kept-alive one does.
+      if (drops > 0) {
+        drops--;
+        calls.push(`dropped ${request.method}`);
+        requestIds.push(/requestId=([^&]+)/.exec(request.url ?? '')?.[1]);
+        return void request.socket.destroy();
+      }
+      // The request id of a change, told apart: tested once, below.
+      const url = (request.url ?? '').replace(/[?&]requestId=[^&]*/, '');
+      calls.push(`${request.method} ${url}`);
+      requestIds.push(/requestId=([^&]+)/.exec(request.url ?? '')?.[1]);
       authorizations.push(request.headers.authorization);
       const answer = answers.shift() ?? {};
       const status = typeof answer['status'] === 'number' ? answer['status'] : 200;
@@ -161,6 +175,22 @@ describe('the Compute Engine API', () => {
     expect(calls[0]).toBe('POST /projects/p/zones/z/instances/box/setLabels');
   });
 
+  it('reads a disk, and changes its labels read with their fingerprint, not waiting', async () => {
+    answers.push(
+      { name: 'box', labels: { team: 'a' }, labelFingerprint: 'abc=' },
+      { name: 'op', status: 'RUNNING', selfLink: `${endpoint}/op` },
+    );
+
+    const disk = await api().getDisk('box');
+    await api().setDiskLabels('box', { team: 'b' }, disk?.labelFingerprint);
+
+    expect(disk).toEqual({ name: 'box', labels: { team: 'a' }, labelFingerprint: 'abc=' });
+    expect(calls).toEqual([
+      'GET /projects/p/zones/z/disks/box',
+      'POST /projects/p/zones/z/disks/box/setLabels',
+    ]);
+  });
+
   it('reports a failed operation that says little, and an error that is not JSON', async () => {
     answers.push(
       { name: 'op', status: 'DONE', selfLink: `${endpoint}/op`, error: { errors: [{}] } },
@@ -194,5 +224,31 @@ describe('the Compute Engine API', () => {
     });
     clock.mockRestore();
     expect(authorizations).toEqual(['Bearer ya29.token']);
+  });
+  it('sends a call again when Compute Engine cannot be reached, a change with the same request id', async () => {
+    drops = 2;
+    answers.push({ status: 'DONE', selfLink: `${endpoint}/op` });
+    await api().stopInstance('box', { wait: false });
+    expect(calls).toEqual([
+      'dropped POST',
+      'dropped POST',
+      'POST /projects/p/zones/z/instances/box/stop',
+    ]);
+    expect(new Set(requestIds).size).toBe(1);
+    expect(requestIds[0]).toMatch(/^[0-9a-f-]{36}$/);
+
+    // A read, sent again without a request id; given up after 3 attempts, saying why.
+    drops = 3;
+    calls = [];
+    requestIds = [];
+    const failure = await api()
+      .getInstance('box')
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({ status: 502 });
+    expect((failure as Error).message).toMatch(
+      /^Compute Engine: GET zones\/z\/instances\/box could not reach Compute Engine, 3 times: fetch failed \(.+\)$/,
+    );
+    expect(calls).toEqual(['dropped GET', 'dropped GET', 'dropped GET']);
+    expect(requestIds).toEqual([undefined, undefined, undefined]);
   });
 });

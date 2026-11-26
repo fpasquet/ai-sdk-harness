@@ -4,6 +4,8 @@ import type {
   HarnessV1SandboxTemplate,
 } from '@ai-sdk/harness';
 
+import type { GceSandboxReport } from './gce-usage.js';
+
 /**
  * How calls to the sandbox service are authenticated. The service runs on Cloud Run, deployed with
  * `--no-allow-unauthenticated`: each call carries a Google identity token, granted
@@ -75,6 +77,14 @@ export interface GceConnectionSettings {
    * @defaultValue the service's `SANDBOX_NODE_USE_ENV_PROXY`, `false` by default
    */
   nodeUseEnvProxy?: boolean;
+  /**
+   * Called with the last measures of the sandbox each time this session, or a view of it, stops or
+   * destroys it, and by `deleteGceSandbox()`: what its connections carried through the egress
+   * proxy, and what the agent of its machine sampled, which the proxy and the disk lose then. What
+   * an application that leaves the stops to `ai-sdk-harness-sessions` keeps them with. Awaited; an
+   * error it throws is ignored, the stop done all the same.
+   */
+  onUsageReport?: (report: GceSandboxReport) => Promise<void> | void;
 }
 
 /** What a new sandbox is made of. */
@@ -87,6 +97,17 @@ export interface GceCreationSettings extends GceConnectionSettings {
    * @defaultValue the service's `SANDBOX_IMAGE`
    */
   image?: string;
+  /**
+   * Labels put on the sandbox's machine and on its disk, beside the service's own: what a Cloud
+   * Billing export, or a budget, groups their cost by. Keys start with a lowercase letter, then
+   * lowercase letters, digits, `_` or `-`, values the same but may be empty, 63 characters at most
+   * each, 56 labels at most. Keys starting with `ai-sdk-` are the package's: refused. A machine
+   * taken from the warm pool gets them as it is taken, its disk too. A template's builder gets those
+   * of the creation that builds it.
+   *
+   * @defaultValue `{}`
+   */
+  labels?: Readonly<Record<string, string>>;
   /**
    * Commands the sandbox must have once `setup` ran, which may install them: a harness needs Node.js for
    * its bridge and git for the repositories, whatever the project's language. A missing one fails
@@ -150,13 +171,30 @@ export interface GceTemplateDeletionSettings extends GceConnectionSettings {
   abortSignal?: AbortSignal;
 }
 
-/** Options of `deleteGceSandbox()`: the sandbox, and the service it was created through. */
-export interface GceSandboxDeletionSettings extends GceConnectionSettings {
+/**
+ * Options of `describeGceSandbox()` and of the other calls about one sandbox: the sandbox, and the
+ * service it was created through.
+ */
+export interface GceSandboxLookupSettings extends GceConnectionSettings {
   /** The id the sandbox was created with. */
   sandboxId: string;
   /** Aborts the call. */
   abortSignal?: AbortSignal;
 }
+
+/** Options of `getGceSandboxMetrics()`: the sandbox, and since when. */
+export interface GceSandboxMetricsSettings extends GceSandboxLookupSettings {
+  /**
+   * Only the samples taken after this time: a `Date`, an ISO 8601 timestamp, or milliseconds since
+   * the epoch. The `at` of the last sample read, to read the next ones.
+   *
+   * @defaultValue every sample the agent keeps, the last day of them
+   */
+  since?: Date | number | string;
+}
+
+/** Options of `deleteGceSandbox()`: the sandbox, and the service it was created through. */
+export type GceSandboxDeletionSettings = GceSandboxLookupSettings;
 
 /** Options of `createGceNetworkSandboxSession()`. */
 export type GceNetworkSandboxSessionCreateOptions =

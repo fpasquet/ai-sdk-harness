@@ -4,26 +4,40 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { HttpError } from './http-error.js';
 
-/** What a route answers with: JSON, or nothing (204). */
+/** What a route answers with: JSON, or nothing (204), and headers of its own. */
 export interface Reply {
   status: number;
   body?: unknown;
+  headers?: Readonly<Record<string, string>>;
 }
 
 export const NO_CONTENT: Reply = { status: 204 };
 
-export function send(response: ServerResponse, { status, body }: Reply): void {
+export function send(response: ServerResponse, { status, body, headers }: Reply): void {
   if (body === undefined) {
-    response.writeHead(status).end();
+    if (headers === undefined) response.writeHead(status).end();
+    else response.writeHead(status, headers).end();
     return;
   }
-  response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+  response
+    .writeHead(status, { ...headers, 'content-type': 'application/json' })
+    .end(JSON.stringify(body));
 }
 
 /**
  * Answers with the error's own status, or 500 for an error the server did not expect, which is
  * reported. A response already under way is cut.
  */
+/** `message`, with the cause of `error` when it has one, its code first. */
+function withCause(error: unknown, message: string): string {
+  const cause =
+    error instanceof Error
+      ? (error.cause as undefined | { code?: string; message?: string })
+      : undefined;
+  const reason = cause?.code ?? cause?.message;
+  return reason === undefined ? message : `${message} (cause: ${reason})`;
+}
+
 export function fail(
   response: ServerResponse,
   error: unknown,
@@ -31,9 +45,18 @@ export function fail(
 ): void {
   const known = error instanceof HttpError;
   const message = error instanceof Error ? error.message : String(error);
-  if (!known) report(message);
+  // What failed beneath, logged: `fetch failed` alone says nothing.
+  if (!known) report(withCause(error, message));
   if (response.headersSent) response.destroy();
-  else send(response, { status: known ? error.status : 500, body: { error: message } });
+  else if (!known) send(response, { status: 500, body: { error: message } });
+  else {
+    const { code, fields, headers } = error.details;
+    send(response, {
+      status: error.status,
+      body: { ...fields, error: message, ...(code === undefined ? {} : { code }) },
+      headers,
+    });
+  }
 }
 
 /** Compares a secret in constant time: how long it takes says nothing of the expected one. */

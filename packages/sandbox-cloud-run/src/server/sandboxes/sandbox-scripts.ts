@@ -11,13 +11,16 @@
 export const COMMAND =
   'if command -v bash >/dev/null 2>&1; then exec bash -c "$1"; fi; exec sh -c "$1"';
 
+// Each process is held still (STOP) while its children are stopped, then stopped itself: a shell
+// whose `wait` returned once its children were gone would otherwise exit 0 before the TERM reached
+// it, and a killed process would look like one that ended well.
 const KILL_TREE_FUNCTION =
-  'kill_tree() { for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; }';
+  'kill_tree() { kill -STOP "$1" 2>/dev/null; for child in $(pgrep -P "$1"); do kill_tree "$child"; done; kill -TERM "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null; }';
 
 /** Exit status of {@link KILL_TREE} when no pid is recorded in `$0`: not yet, or no longer. */
 const KILL_TREE_UNRECORDED = 3;
 
-/** Stops the process recorded in `$0` and everything it started, children first. */
+/** Stops the process recorded in `$0` and everything it started, children first, held still meanwhile. */
 export const KILL_TREE = `${KILL_TREE_FUNCTION}; pid=$(cat "$0" 2>/dev/null) || exit ${KILL_TREE_UNRECORDED}; kill_tree "$pid"; rm -f "$0"`;
 
 /** Stops every process recorded in the directory `$0`. */

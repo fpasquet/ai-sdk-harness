@@ -3,11 +3,185 @@
  * them, so they are declared once, here.
  */
 
+import type { ProxyUsage } from './proxy.js';
+
+/**
+ * The bytes a sandbox's connections carried through the egress proxy since its creation or its last
+ * resume from a stop: `GET /v1/sandboxes/:name/usage` answers it while the sandbox runs, and a
+ * suspension or a deletion answers the last one in its {@link SandboxReport}.
+ */
+export type SandboxEgressUsage = ProxyUsage;
+
+/**
+ * What a suspension or a deletion answers: the last measures of the sandbox, read before they are
+ * lost, the proxy forgetting the sandbox and the deletion its disk. Each is missing when it could not
+ * be read: a sandbox stopped already, or a service, a proxy or an image of an earlier version.
+ */
+export interface SandboxReport {
+  /** The sandbox's name. */
+  name: string;
+  /** What was done to the sandbox. */
+  event: 'delete' | 'suspend';
+  /** When, an ISO 8601 timestamp. */
+  at: string;
+  /** What its connections carried through the proxy since its creation or its last resume. */
+  egress?: SandboxEgressUsage;
+  /**
+   * What the agent of its machine sampled since the machine last started, a sample taken then
+   * included: read before the machine stops, or its disk goes.
+   */
+  metrics?: SandboxMetrics;
+}
+
+/**
+ * The pressure of a resource, from `/proc/pressure/*`: the share of time, in percent, some tasks
+ * (`some`), or all of them (`full`), waited for it, averaged over 10 and 60 seconds.
+ */
+export interface PressureSample {
+  someAvg10: number;
+  someAvg60: number;
+  /** Not for the CPU on kernels before 5.13. */
+  fullAvg10?: number;
+  fullAvg60?: number;
+}
+
+/**
+ * What the agent of a sandbox's machine read of it at one instant, from `/proc`. The agent runs in
+ * the machine, where the sandbox's user has `sudo`: fit for sizing the machines, never for billing.
+ * A field is missing when the machine's kernel does not report it.
+ */
+export interface MetricSample {
+  /** When it was taken, an ISO 8601 timestamp. */
+  at: string;
+  /** The share of the time all the CPUs were busy since the sample before, in percent: none for the first after a boot. */
+  cpuPercent?: number;
+  /**
+   * The share of the time the hypervisor gave the CPUs to another machine, in percent: what a
+   * shared-core or an overcommitted machine loses.
+   */
+  cpuStealPercent?: number;
+  /** The CPUs the machine has. */
+  cpuCount?: number;
+  /** The memory in use, in bytes: `MemTotal` less `MemAvailable`. */
+  memoryUsedBytes?: number;
+  /** The memory of the machine, in bytes. */
+  memoryTotalBytes?: number;
+  /** How long tasks waited for a CPU, when the kernel reports pressure. */
+  cpuPressure?: PressureSample;
+  /** How long tasks waited for memory, when the kernel reports pressure. */
+  memoryPressure?: PressureSample;
+  /** The processes the kernel killed for want of memory since the machine booted (`oom_kill`). */
+  oomKills?: number;
+}
+
+/**
+ * The samples of a sandbox's machine, oldest first: `GET /v1/sandboxes/:name/metrics?since=`
+ * answers those taken after `since`. The agent keeps the last day of them on the machine's disk,
+ * across stops.
+ */
+export interface SandboxMetrics {
+  /** How often the agent samples, in seconds. */
+  intervalSeconds: number;
+  samples: MetricSample[];
+}
+
 /** A sandbox, as the service describes it: where its commands run by default, and its user's home. */
 export interface SandboxDescription {
   name: string;
   home: string;
   workingDirectory: string;
+  /** How long its creation or resume took, step by step: none from a service of an earlier version. */
+  timings?: SandboxTimings;
+}
+
+/**
+ * How long a creation or a resume took on the service, in milliseconds, step by step. The proxy
+ * boots alongside the machine: `proxyMs` overlaps the others, which follow one another.
+ */
+export interface SandboxTimings {
+  /** Whether the creation took a machine of the warm pool, booted ahead of it. Never on a resume. */
+  fromPool: boolean;
+  /** Waiting for the egress proxy, its machine booting when the service had stopped it: 0 or so when it was up. */
+  proxyMs: number;
+  /**
+   * Compute Engine creating the machine, or taking one of the warm pool, on a creation; starting
+   * the stopped machine, or waiting for one on its way, on a resume: 0 or so when it ran.
+   */
+  insertMs: number;
+  /** The machine running and its guest booting, until its agent answers, alongside the proxy. */
+  bootMs: number;
+  /** Registering the sandbox with the proxy and configuring its agent, the wait for either left out. */
+  agentMs: number;
+  /** The whole call, on the service, checks included. */
+  totalMs: number;
+}
+
+/**
+ * A sandbox's machine, as Compute Engine describes it: when it ran, how it is billed, what it is
+ * made of. `GET /v1/sandboxes/:name` answers it, running or stopped.
+ */
+export interface SandboxInfo {
+  /** The sandbox's name. */
+  name: string;
+  /**
+   * The Compute Engine instance holding it: `<prefix><name>`, or `<prefix>pool-<hex>` for a machine
+   * taken from the warm pool, which Compute Engine cannot rename.
+   */
+  instance: string;
+  /** The zone of the machine. */
+  zone: string;
+  /** `RUNNING`, `STOPPING`, `TERMINATED` (stopped, its disk kept)… as Compute Engine says. */
+  status: string;
+  /**
+   * When the machine was made, an RFC 3339 timestamp: for a machine of the warm pool, before the
+   * sandbox took it.
+   */
+  creationTimestamp?: string;
+  /** When the machine last started: none before it first did. */
+  lastStartTimestamp?: string;
+  /** When the machine last stopped: none before it first did. */
+  lastStopTimestamp?: string;
+  /**
+   * How it is billed: `SPOT`, or `STANDARD`. A service of Spot machines makes a standard one when
+   * the zone has no Spot capacity left, which `spotFallback` says.
+   */
+  provisioningModel: 'SPOT' | 'STANDARD';
+  /** Whether the service makes Spot machines but this one is standard, for want of Spot capacity. */
+  spotFallback: boolean;
+  /** The machine type: `e2-standard-4`, `e2-custom-4-8192`… */
+  machineType: string;
+  /** The size of its boot disk, in GB. */
+  diskSizeGb?: number;
+  /** The service's name of the image it was made on: `default` and the like. */
+  image?: string;
+  /** Whether the machine was taken from the warm pool. */
+  fromPool: boolean;
+  /** The caller's labels, as the machine holds them: those of the package left out. */
+  labels: Record<string, string>;
+}
+
+/**
+ * The `code` of the body of a 429 answered when a creation or a resume would run more sandboxes
+ * than `SANDBOX_MAX_RUNNING`: a {@link CapacityRefusal}, with a `Retry-After` header.
+ */
+export const SANDBOX_MAX_RUNNING = 'SANDBOX_MAX_RUNNING';
+
+/** The body of an error answer of the service. */
+export interface ErrorBody {
+  error: string;
+  /** What the caller tells the error by, when it has one: {@link SANDBOX_MAX_RUNNING}. */
+  code?: string;
+}
+
+/** The body of the 429 of {@link SANDBOX_MAX_RUNNING}. */
+export interface CapacityRefusal extends ErrorBody {
+  code: typeof SANDBOX_MAX_RUNNING;
+  /** The sandboxes running, or booting, when the call was refused. */
+  running: number;
+  /** The most the service runs at once: its `SANDBOX_MAX_RUNNING`. */
+  max: number;
+  /** How long to wait before trying again, in seconds: also in `Retry-After`. */
+  retryAfterSeconds: number;
 }
 
 /** What a sandbox may reach, on top of what the service allows every sandbox. */

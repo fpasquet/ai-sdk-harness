@@ -14,6 +14,7 @@ import {
   stringRecord,
   transformationList,
 } from '../../common/http-body.js';
+import { HttpError } from '../../common/http-error.js';
 import { NO_CONTENT } from '../../common/http-reply.js';
 import { PACKAGE_VERSION } from '../../common/package-version.js';
 import { MAX_INPUT_WRITE_BYTES } from '../../protocol/api.js';
@@ -46,12 +47,30 @@ const network = async (request: IncomingMessage) => {
     template: optionalString(body, 'template'),
     image: optionalString(body, 'image'),
     name: optionalString(body, 'name'),
+    labels: stringRecord(body, 'labels'),
   };
 };
 
 /** The image a template is made on, from the query: the service's default without. */
 const imageOf = (request: IncomingMessage): string | undefined =>
   new URL(request.url ?? '/', 'http://service').searchParams.get('image') ?? undefined;
+
+/**
+ * A time of the query, `key`: an ISO 8601 timestamp, or milliseconds since the epoch. In
+ * milliseconds; `undefined` without it.
+ */
+function timeOf(request: IncomingMessage, key: string): number | undefined {
+  const value = new URL(request.url ?? '/', 'http://service').searchParams.get(key);
+  if (value === null) return undefined;
+  const time = /^\d+$/.test(value) ? Number(value) : Date.parse(value);
+  if (Number.isNaN(time)) {
+    throw new HttpError(
+      400,
+      `\`${key}\` must be an ISO 8601 timestamp, or milliseconds since the epoch.`,
+    );
+  }
+  return time;
+}
 
 const SANDBOX = '/v1/sandboxes/([^/]+)';
 
@@ -91,14 +110,38 @@ export const ROUTES: Route[] = [
       body: await sandboxes.resume(name, await network(request)),
     }),
   ),
-  route('POST', new RegExp(`^${SANDBOX}/suspend$`), async ({ sandboxes, params: [name = ''] }) => {
-    await sandboxes.suspend(name);
-    return NO_CONTENT;
-  }),
-  route('DELETE', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => {
-    await sandboxes.delete(name);
-    return NO_CONTENT;
-  }),
+  route(
+    'POST',
+    new RegExp(`^${SANDBOX}/suspend$`),
+    async ({ sandboxes, params: [name = ''], request }) => ({
+      status: 200,
+      body: await sandboxes.suspend(name, { metricsSince: timeOf(request, 'metricsSince') }),
+    }),
+  ),
+  route(
+    'GET',
+    new RegExp(`^${SANDBOX}/metrics$`),
+    async ({ sandboxes, params: [name = ''], request }) => ({
+      status: 200,
+      body: await sandboxes.metrics(name, timeOf(request, 'since')),
+    }),
+  ),
+  route('GET', new RegExp(`^${SANDBOX}/usage$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.usage(name),
+  })),
+  route('GET', new RegExp(`^${SANDBOX}$`), async ({ sandboxes, params: [name = ''] }) => ({
+    status: 200,
+    body: await sandboxes.describe(name),
+  })),
+  route(
+    'DELETE',
+    new RegExp(`^${SANDBOX}$`),
+    async ({ sandboxes, params: [name = ''], request }) => ({
+      status: 200,
+      body: await sandboxes.delete(name, { metricsSince: timeOf(request, 'metricsSince') }),
+    }),
+  ),
   route(
     'POST',
     new RegExp(`^${SANDBOX}/exec$`),

@@ -11,6 +11,7 @@ import {
   DEFAULT_AGENT_PORT,
   IDLE_POWER_OFF_METADATA_KEY,
 } from '../protocol/agent.js';
+import { DEFAULT_METRICS_INTERVAL_MS } from './metrics-sampler.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -62,23 +63,43 @@ async function metadataIdleMinutes(url: string, logger: Logger): Promise<number 
 }
 
 /**
- * The token, from the environment or else the instance metadata, and with the latter, as root, when
- * to power the machine off unless configured.
+ * The id of the instance, beside its attributes in the metadata: a machine made from another's disk
+ * has its own. `undefined` when it cannot be read.
+ */
+async function metadataMachineId(url: string, logger: Logger): Promise<string | undefined> {
+  try {
+    const response = await fetch(new URL('../id', url), {
+      headers: { 'metadata-flavor': 'Google' },
+      signal: AbortSignal.timeout(5000),
+    });
+    const id = (await response.text()).trim();
+    if (response.ok && id !== '') return id;
+    logger.warn(`The id of the machine could not be read: ${response.status}.`);
+  } catch (error) {
+    logger.warn(`The id of the machine could not be read: ${String(error)}`);
+  }
+  return undefined;
+}
+
+/**
+ * The token, from the environment or else the instance metadata, and with the latter the id of the
+ * machine and, as root, when to power it off unless configured.
  */
 async function fromMetadata(
   env: Environment,
   logger: Logger,
-): Promise<Pick<AgentSettings, 'idlePowerOff' | 'token'>> {
+): Promise<Pick<AgentSettings, 'idlePowerOff' | 'machineId' | 'token'>> {
   const given = env['SANDBOX_AGENT_TOKEN'];
   if (given !== undefined) return { token: given };
   const url = env['METADATA_URL'] ?? METADATA;
   const token = await metadataToken(url);
+  const machineId = await metadataMachineId(url, logger);
   // Only root powers the machine off: an agent run by hand, or in tests, never does.
-  if (process.getuid?.() !== 0) return { token };
+  if (process.getuid?.() !== 0) return { token, machineId };
   const minutes = await metadataIdleMinutes(url, logger);
-  if (minutes === undefined) return { token };
+  if (minutes === undefined) return { token, machineId };
   const runDirectory = env['SANDBOX_RUN_DIR'] ?? '/run/ai-sdk-sandbox';
-  return { token, idlePowerOff: { afterMs: minutes * 60_000, runDirectory } };
+  return { token, machineId, idlePowerOff: { afterMs: minutes * 60_000, runDirectory } };
 }
 
 /** The ids of `user`, from `id`. */
@@ -99,6 +120,19 @@ export function agentListenConfig(env: Environment): AgentListenConfig {
     port: Number.parseInt(env['SANDBOX_AGENT_PORT'] ?? String(DEFAULT_AGENT_PORT), 10),
     host: env['HOST'] ?? '0.0.0.0',
   };
+}
+
+/**
+ * How often the agent samples its machine, in milliseconds: `SANDBOX_METRICS_INTERVAL` seconds,
+ * 30 without it, never with 0.
+ */
+function metricsInterval(seconds: string | undefined): number {
+  if (seconds === undefined) return DEFAULT_METRICS_INTERVAL_MS;
+  const parsed = Number(seconds);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`SANDBOX_METRICS_INTERVAL must be a number of seconds, 0 for none: ${seconds}`);
+  }
+  return parsed * 1000;
 }
 
 /** Whom the commands run as: `SANDBOX_USER` (`agent`) as root, the agent's own user otherwise. */
@@ -141,6 +175,7 @@ export async function agentSettings(env: Environment, logger: Logger): Promise<A
       env['SANDBOX_CONFIGURE_DOCKER'] !== 'false' &&
       commandUser !== undefined &&
       existsSync('/usr/bin/dockerd'),
+    metrics: { intervalMs: metricsInterval(env['SANDBOX_METRICS_INTERVAL']) },
     logger,
   };
 }

@@ -1,6 +1,8 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 import type { IncomingHttpHeaders } from 'node:http';
 
+import type { EgressMeter } from './egress-meter.js';
+
 type Matcher = { exact: string } | { regex: string } | { startsWith: string };
 type KeyValueMatcher = { key?: Matcher; value?: Matcher };
 
@@ -16,6 +18,8 @@ export interface EgressPolicy {
   readonly transformations: readonly HarnessV1RequestTransformation[];
   /** Let it reach private addresses and plain HTTP base URLs: tests and local runs only. */
   readonly allowPrivateNetwork: boolean;
+  /** What counts the bytes of its connections, when they are counted. */
+  readonly meter?: EgressMeter;
 }
 
 /** What the egress proxy knows of one request on its way out. */

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { Reply } from '../common/http-reply.js';
 import type { Logger } from '../common/logger.js';
 import type { AgentConfig, AgentDescription } from '../protocol/agent.js';
+import type { SandboxMetrics } from '../protocol/api.js';
 import type { CommandSettings } from './environment.js';
 import type { IdlePowerOffSettings } from './idle-power-off.js';
 import type { CommandUser } from './processes.js';
@@ -27,6 +28,7 @@ import { encodeData, encodeFrame, FrameType, STDERR, STDOUT } from '../protocol/
 import { configureDocker } from './docker-proxy.js';
 import { commandEnvironment } from './environment.js';
 import { watchIdlePowerOff } from './idle-power-off.js';
+import { MetricsSampler } from './metrics-sampler.js';
 import { Processes } from './processes.js';
 
 /** What the agent is made with: its machine's to give. */
@@ -35,10 +37,20 @@ export interface AgentSettings extends CommandSettings {
   token: string;
   /** Root's, out of the commands' reach: the configuration the service gave, kept across restarts. */
   stateDirectory: string;
+  /**
+   * The id of the machine, from its metadata: the samples on a disk made from another machine's are
+   * not this one's. Unknown for an agent given its token, run by hand or in tests.
+   */
+  machineId?: string;
   /** Whom the commands run as, when the agent runs as root: itself otherwise. */
   commandUser?: CommandUser;
   /** Whether to point Docker at the egress proxy: as root, on a machine that has it. */
   configureDocker: boolean;
+  /**
+   * How often the agent samples its machine, in milliseconds: only when asked without it, or with
+   * 0. `procDirectory`, where `/proc` is, for tests only.
+   */
+  metrics?: { intervalMs: number; procDirectory?: string };
   /**
    * Powers the machine off when the agent is not configured soon enough after its boot: on a
    * machine the service booted ahead of a sandbox. Never without it.
@@ -76,9 +88,18 @@ export class Agent {
   readonly processes: Processes;
   private config?: AgentConfig;
   private readonly idle?: { configured(): void; stop(): void };
+  private readonly sampler: MetricsSampler;
 
   constructor(private readonly settings: AgentSettings) {
     this.processes = new Processes(settings.commandUser);
+    this.sampler = new MetricsSampler({
+      stateDirectory: settings.stateDirectory,
+      machine: settings.machineId,
+      intervalMs: settings.metrics?.intervalMs ?? 0,
+      procDirectory: settings.metrics?.procDirectory,
+      logger: settings.logger,
+    });
+    this.sampler.start();
     if (settings.idlePowerOff !== undefined) {
       this.idle = watchIdlePowerOff({ ...settings.idlePowerOff, logger: settings.logger });
     }
@@ -92,6 +113,7 @@ export class Agent {
   /** Stops the processes and the idle watch: the agent is closing. */
   async close(): Promise<void> {
     this.idle?.stop();
+    this.sampler.stop();
     await this.processes.killAll();
   }
 
@@ -115,6 +137,8 @@ export class Agent {
       case 'DELETE /v1/processes':
         await this.processes.killAll();
         return NO_CONTENT;
+      case 'GET /v1/metrics':
+        return { status: 200, body: this.metrics(request) };
     }
     const reply = this.processCall(method, path, request);
     if (reply === undefined) throw new HttpError(404, `No route for ${method} ${path}.`);
@@ -136,6 +160,17 @@ export class Agent {
       return this.process(method, decodeURIComponent(id));
     }
     return undefined;
+  }
+
+  /** `GET /v1/metrics?since=<ms>&fresh=true`: the samples after `since`, one taken first when `fresh`. */
+  private metrics(request: IncomingMessage): SandboxMetrics {
+    const query = new URL(request.url ?? '/', 'http://agent').searchParams;
+    const since = query.get('since');
+    if (since !== null && !/^\d+$/.test(since)) {
+      throw new HttpError(400, '`since` must be milliseconds since the epoch.');
+    }
+    if (query.get('fresh') === 'true') this.sampler.sample();
+    return this.sampler.since(since === null ? undefined : Number(since));
   }
 
   private async configure(config: AgentConfig): Promise<AgentDescription> {

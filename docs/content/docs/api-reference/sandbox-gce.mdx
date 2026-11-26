@@ -32,3 +32,41 @@ Deletes the template that sandboxes created with `template`, `setup` and `image`
   path="packages/sandbox-gce/src/client/gce-settings.ts"
   name="GceTemplateDeletionSettings"
 />
+
+## `describeGceSandbox(options)`
+
+The sandbox's machine, running or stopped, as Compute Engine describes it, without starting it. Throws `GceSandboxNotFoundError` when there is none. `describe()` of a session answers the same.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceSandboxLookupSettings"
+/>
+
+What it answers, `GceSandboxInfo`:
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="SandboxInfo" />
+
+## `getGceSandboxUsage(options)`
+
+What the connections of the running sandbox carried through the egress proxy since its creation or its last resume, counted outside its machine. `usage()` of a session answers the same. It takes the options of `describeGceSandbox()`.
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/proxy.ts" name="ProxyUsage" />
+
+## `GceSandboxReport`
+
+The last measures of a sandbox, read as it is stopped or deleted: what `onUsageReport` is handed and `lastReport` of a session holds.
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="SandboxReport" />
+
+## `getGceSandboxMetrics(options)`
+
+What the agent of the running sandbox's machine sampled of it every 30 s, after `since` when given: fit for sizing, never for billing. `metrics()` of a session answers the same.
+
+<AutoTypeTable
+  path="packages/sandbox-gce/src/client/gce-settings.ts"
+  name="GceSandboxMetricsSettings"
+/>
+
+Each sample, `GceSandboxMetricSample`:
+
+<AutoTypeTable path="packages/sandbox-gce/src/protocol/api.ts" name="MetricSample" />

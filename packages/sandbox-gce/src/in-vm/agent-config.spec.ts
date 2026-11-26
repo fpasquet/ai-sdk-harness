@@ -77,6 +77,19 @@ describe('the settings of the agent', () => {
 
     expect(settings.token).toBe('given');
     expect(settings.idlePowerOff).toBeUndefined();
+    expect(settings.machineId).toBeUndefined();
     expect(reads).toEqual([]);
+  });
+
+  it('reads the id of its machine, beside the attributes, and does without it', async () => {
+    metadata['id'] = '4471985322118862144';
+    expect((await agentSettings(env, silentLogger)).machineId).toBe('4471985322118862144');
+
+    delete metadata['id'];
+    const warn = vi.fn();
+    expect((await agentSettings(env, { ...silentLogger, warn })).machineId).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('The id of the machine could not be read'),
+    );
   });
 });

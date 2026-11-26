@@ -1,9 +1,13 @@
 import type { HarnessV1RequestTransformation } from '@ai-sdk/harness';
 
-import type { ProxyRegistration } from '../../protocol/proxy.js';
+import type { ProxyRegistration, ProxyUsage } from '../../protocol/proxy.js';
 
 import { HttpError } from '../../common/http-error.js';
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from '../../protocol/version.js';
+import { networkFailure } from '../compute/compute-api.js';
+
+/** The code of the error when the proxy does not answer at all: its machine is down, or going. */
+export const PROXY_UNREACHABLE = 'PROXY_UNREACHABLE';
 
 /**
  * The administration API of the egress proxy (`protocol/proxy.ts`), where the service registers the
@@ -56,9 +60,19 @@ export class ProxyAdmin {
     }
   }
 
-  /** Forgets the sandbox `name` and its credentials. Idempotent. */
-  async remove(name: string): Promise<void> {
-    await this.call('DELETE', name);
+  /** The bytes the connections of the sandbox `name` carried through the proxy. */
+  async usage(name: string): Promise<ProxyUsage> {
+    return (await (await this.call('GET', `${name}/usage`)).json()) as ProxyUsage;
+  }
+
+  /**
+   * Forgets the sandbox `name` and its credentials: what its connections carried until then,
+   * `undefined` when the proxy knew none, or is of an earlier version. Idempotent.
+   */
+  async remove(name: string): Promise<ProxyUsage | undefined> {
+    const response = await this.call('DELETE', name);
+    if (response.status === 204) return undefined;
+    return ((await response.json()) as { usage?: ProxyUsage }).usage;
   }
 
   /** Calls `/v1/sandboxes/<path>`. */
@@ -79,7 +93,9 @@ export class ProxyAdmin {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (error) {
-      throw new HttpError(502, `The egress proxy could not be reached: ${String(error)}`);
+      throw new HttpError(502, `The egress proxy could not be reached: ${networkFailure(error)}`, {
+        code: PROXY_UNREACHABLE,
+      });
     }
     if (response.ok) return response;
     const text = await response.text();

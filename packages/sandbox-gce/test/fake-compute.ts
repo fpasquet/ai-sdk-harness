@@ -27,6 +27,16 @@ interface FakeInstance {
   agent?: ChildProcess;
   /** What the service asked for when it created it. */
   body: Record<string, unknown>;
+  /** When it was made, last started and last stopped, as Compute Engine writes them. */
+  creationTimestamp: string;
+  lastStartTimestamp?: string;
+  lastStopTimestamp?: string;
+}
+
+/** The boot disk of a machine, named after it. */
+interface FakeDisk {
+  labels: Record<string, string>;
+  labelFingerprint: string;
 }
 
 type Json = Record<string, unknown>;
@@ -66,6 +76,12 @@ async function readBody(request: IncomingMessage): Promise<Json> {
 const tokenOf = ({ items }: Metadata): string =>
   items.find(({ key }) => key === 'ai-sdk-sandbox-agent-token')?.value ?? '';
 
+/** The size of the boot disk an instance is made with. */
+function diskSizeOf(body: Json): string | undefined {
+  const [disk] = (body['disks'] ?? []) as { initializeParams?: { diskSizeGb?: string } }[];
+  return disk?.initializeParams?.diskSizeGb;
+}
+
 /** The image an instance boots from, by the last segment of its `sourceImage`. */
 function sourceImageOf(body: Json): string {
   const [disk] = (body['disks'] ?? []) as { initializeParams?: { sourceImage?: string } }[];
@@ -93,6 +109,8 @@ export class FakeCompute {
   endpoint = '';
 
   private readonly instances = new Map<string, FakeInstance>();
+  /** The machines' boot disks, by name: gone with their machine. */
+  readonly disks = new Map<string, FakeDisk>();
   private readonly server: Server;
   private operations = 0;
 
@@ -114,6 +132,12 @@ export class FakeCompute {
       (name, body) => Promise.resolve(this.setLabels(name, body)),
     ],
     ['DELETE', /\/zones\/[^/]+\/instances\/([^/]+)$/, (name) => this.remove(name)],
+    ['GET', /\/zones\/[^/]+\/disks\/([^/]+)$/, (name) => Promise.resolve(this.getDisk(name))],
+    [
+      'POST',
+      /\/zones\/[^/]+\/disks\/([^/]+)\/setLabels$/,
+      (name, body) => Promise.resolve(this.setDiskLabels(name, body)),
+    ],
     [
       'GET',
       /\/global\/images\/family\/([^/]+)$/,
@@ -192,6 +216,18 @@ export class FakeCompute {
         labelFingerprint: instance.labelFingerprint,
         networkInterfaces: [{ networkIP: '127.0.0.1' }],
         metadata: instance.metadata,
+        creationTimestamp: instance.creationTimestamp,
+        lastStartTimestamp: instance.lastStartTimestamp,
+        lastStopTimestamp: instance.lastStopTimestamp,
+        machineType: instance.body['machineType'],
+        scheduling: instance.body['scheduling'],
+        disks: [
+          {
+            boot: true,
+            source: `zones/${this.zone}/disks/${instance.name}`,
+            diskSizeGb: diskSizeOf(instance.body),
+          },
+        ],
       },
     ];
   }
@@ -215,8 +251,16 @@ export class FakeCompute {
       disk,
       metadata: { fingerprint: 'f0', items: [], ...(body['metadata'] as Partial<Metadata>) },
       body,
+      creationTimestamp: new Date().toISOString(),
     };
     this.instances.set(name, instance);
+    const [bootDisk] = (body['disks'] ?? []) as {
+      initializeParams?: { labels?: Record<string, string> };
+    }[];
+    this.disks.set(name, {
+      labels: { ...bootDisk?.initializeParams?.labels },
+      labelFingerprint: `d${++this.operations}`,
+    });
     await this.boot(instance);
     return this.operation();
   }
@@ -262,11 +306,29 @@ export class FakeCompute {
     return this.operation();
   }
 
+  private getDisk(name: string): Answer {
+    const disk = this.disks.get(name);
+    return disk === undefined ? NOT_FOUND : [200, { name, ...disk }];
+  }
+
+  /** Replaces the labels of the disk `name`, unless they changed since their fingerprint was read. */
+  private setDiskLabels(name: string, body: Json): Answer {
+    const disk = this.disks.get(name);
+    if (disk === undefined) return NOT_FOUND;
+    if (body['labelFingerprint'] !== disk.labelFingerprint) {
+      return [412, { error: { message: 'Labels fingerprint either invalid or labels changed' } }];
+    }
+    disk.labels = (body['labels'] ?? {}) as Record<string, string>;
+    disk.labelFingerprint = `d${++this.operations}`;
+    return this.operation();
+  }
+
   private async remove(name: string): Promise<Answer> {
     const instance = this.instances.get(name);
     if (instance === undefined) return NOT_FOUND;
     await this.halt(instance);
     this.instances.delete(name);
+    this.disks.delete(name);
     rmSync(instance.disk, { recursive: true, force: true });
     return this.operation();
   }
@@ -318,6 +380,7 @@ export class FakeCompute {
         instance.agent = agent;
         instance.port = port;
         instance.status = 'RUNNING';
+        instance.lastStartTimestamp = new Date().toISOString();
         return;
       }
     }
@@ -348,6 +411,7 @@ export class FakeCompute {
     const { agent } = instance;
     instance.agent = undefined;
     instance.port = undefined;
+    if (instance.status === 'RUNNING') instance.lastStopTimestamp = new Date().toISOString();
     instance.status = 'TERMINATED';
     // A signal ends a process without an exit code: one a test killed has exited all the same.
     if (agent?.exitCode === null && agent.signalCode === null) {

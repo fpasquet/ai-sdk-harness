@@ -58,8 +58,20 @@ describe('the administration API of the egress proxy', () => {
     });
     expect(await screened.json()).toEqual({ refused: true });
 
-    expect((await call('DELETE', '/v1/sandboxes/box')).status).toBe(204);
+    const usage = await call('GET', '/v1/sandboxes/box/usage');
+    expect(await usage.json()).toEqual({
+      bytesRead: 0,
+      bytesWritten: 0,
+      connections: 0,
+      openConnections: 0,
+      since: expect.any(String) as unknown,
+    });
+    const forgotten = await call('DELETE', '/v1/sandboxes/box');
+    expect(forgotten.status).toBe(200);
+    expect(await forgotten.json()).toMatchObject({ usage: { bytesRead: 0, connections: 0 } });
     expect(registry.policyFor('10.0.0.3')).toBeUndefined();
+    expect((await call('DELETE', '/v1/sandboxes/box')).status).toBe(204);
+    expect((await call('GET', '/v1/sandboxes/box/usage')).status).toBe(404);
   });
 
   it('answers its health to anyone, and nothing else without its token', async () => {

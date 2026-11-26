@@ -46,6 +46,30 @@ describe('the replies of the servers', () => {
     expect(report).toHaveBeenCalledExactlyOnceWith('broken');
   });
 
+  it('answers the code, the fields and the headers of a known error', () => {
+    const response = responseOf();
+
+    fail(
+      asResponse(response),
+      new HttpError(429, 'full', {
+        code: 'FULL',
+        fields: { running: 2, error: 'not this one' },
+        headers: { 'retry-after': '30' },
+      }),
+      () => undefined,
+    );
+
+    expect(response.writeHead).toHaveBeenCalledWith(429, {
+      'retry-after': '30',
+      'content-type': 'application/json',
+    });
+    expect(JSON.parse(String(response.end.mock.calls[0]?.[0 as never]))).toEqual({
+      running: 2,
+      error: 'full',
+      code: 'FULL',
+    });
+  });
+
   it('cuts a response already under way', () => {
     const response = responseOf(true);
 
