@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { silentLogger } from '../common/logger.js';
+import { EgressMeter } from './egress-meter.js';
 import { EgressProxy } from './egress-proxy.js';
 
 const policy: EgressPolicy = {
@@ -474,5 +475,153 @@ describe('the egress proxy', () => {
       expect.stringMatching(/^Refused denied\.example\.com to box: /),
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain('placeholder');
+  });
+});
+
+describe('the direct connections of programs that ignore the proxy variables', () => {
+  const directPolicy: EgressPolicy = {
+    ...policy,
+    allowedHosts: ['localhost'],
+    allowPrivateNetwork: true,
+  };
+  let proxy: EgressProxy;
+  /** What each test opened, closed after it: its upstream and every socket. */
+  let opened: { close: () => void }[] = [];
+
+  afterEach(() => {
+    proxy.close();
+    for (const one of opened) one.close();
+    opened = [];
+  });
+
+  /**
+   * An upstream on 127.0.0.1: the first bytes a connection to it carries, empty once it is cut,
+   * and whether any connection reached it.
+   */
+  async function listenUpstream(): Promise<{
+    port: number;
+    first: Promise<Buffer>;
+    reached: () => boolean;
+  }> {
+    const upstream = createServer();
+    const sockets: Socket[] = [];
+    let reached = false;
+    const first = new Promise<Buffer>((resolve) => {
+      upstream.on('connection', (socket) => {
+        reached = true;
+        sockets.push(socket);
+        socket.once('data', resolve);
+        socket.once('close', () => resolve(Buffer.alloc(0)));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    opened.push({
+      close: () => {
+        for (const socket of sockets) socket.destroy();
+        upstream.close();
+      },
+    });
+    return { port: (upstream.address() as AddressInfo).port, first, reached: () => reached };
+  }
+
+  /** A connection to the proxy's TLS listener, made by `open`: settled once the proxy closes it. */
+  async function direct(open: (port: number) => Socket): Promise<void> {
+    if (!proxy.tlsServer.listening) {
+      await new Promise<void>((resolve) => proxy.tlsServer.listen(0, '127.0.0.1', resolve));
+    }
+    const socket = open((proxy.tlsServer.address() as AddressInfo).port);
+    socket.on('error', () => undefined);
+    opened.push({ close: () => socket.destroy() });
+    await new Promise<void>((resolve) => socket.once('close', () => resolve()));
+  }
+
+  it('relays a TLS connection to the allowed host it names, as it is, its bytes counted', async () => {
+    const { port, first } = await listenUpstream();
+    const meter = new EgressMeter();
+    proxy = new EgressProxy(() => ({ ...directPolicy, meter }), silentLogger, { tunnelPort: port });
+    await new Promise<void>((resolve) => proxy.tlsServer.listen(0, '127.0.0.1', resolve));
+    const client = tlsConnect({
+      host: '127.0.0.1',
+      port: (proxy.tlsServer.address() as AddressInfo).port,
+      servername: 'localhost',
+    });
+    client.on('error', () => undefined);
+    opened.push({ close: () => client.destroy() });
+
+    const received = await first;
+
+    // A TLS handshake record: the ClientHello, passed on untouched.
+    expect(received[0]).toBe(0x16);
+    expect(meter.usage()).toMatchObject({ connections: 1, bytesRead: received.length });
+  });
+
+  it('cuts a TLS connection to a host the sandbox may not reach, or that names none, or no TLS', async () => {
+    const info = vi.fn();
+    const { port, reached } = await listenUpstream();
+    proxy = new EgressProxy(() => directPolicy, { ...silentLogger, info }, { tunnelPort: port });
+
+    await direct((at) =>
+      tlsConnect({ host: '127.0.0.1', port: at, servername: 'other.example.com' }),
+    );
+    await direct((at) => tlsConnect({ host: '127.0.0.1', port: at }));
+    await direct((at) => {
+      const socket = connect(at, '127.0.0.1');
+      socket.write('GET / HTTP/1.1\r\nHost: localhost\r\n\r\n');
+      return socket;
+    });
+
+    expect(reached()).toBe(false);
+    expect(info).toHaveBeenCalledWith(
+      'Refused other.example.com to box: other.example.com is not reachable from the sandbox.',
+    );
+    expect(info).toHaveBeenCalledWith(
+      'Refused ? to box: A direct TLS connection must name its host (SNI).',
+    );
+    expect(info).toHaveBeenCalledWith('Refused ? to box: Only TLS reaches the proxy on 443.');
+  });
+
+  it('cuts a TLS connection from a machine that is no sandbox', async () => {
+    const { port, reached } = await listenUpstream();
+    proxy = new EgressProxy(() => undefined, silentLogger, { tunnelPort: port });
+
+    await direct((at) => tlsConnect({ host: '127.0.0.1', port: at, servername: 'localhost' }));
+
+    expect(reached()).toBe(false);
+  });
+
+  it('sends a plain HTTP request on to its allowed Host, and refuses another', async () => {
+    const answering = createHttpServer((req, res) =>
+      res.end(`seen ${req.headers.host} ${req.url}`),
+    );
+    await new Promise<void>((resolve) => answering.listen(0, '127.0.0.1', resolve));
+    opened.push({
+      close: () => {
+        answering.closeAllConnections();
+        answering.close();
+      },
+    });
+    const upstreamPort = (answering.address() as AddressInfo).port;
+    proxy = new EgressProxy(() => directPolicy);
+    await new Promise<void>((resolve) => proxy.httpServer.listen(0, '127.0.0.1', resolve));
+    const { port } = proxy.httpServer.address() as AddressInfo;
+    const get = (host: string): Promise<{ status?: number; body: string }> =>
+      new Promise((resolve, reject) => {
+        request(
+          { host: '127.0.0.1', port, path: '/simple/?q=1', headers: { host } },
+          (response) => {
+            let body = '';
+            response.on('data', (chunk: Buffer) => (body += chunk.toString()));
+            response.on('end', () => resolve({ status: response.statusCode, body }));
+          },
+        )
+          .on('error', reject)
+          .end();
+      });
+
+    const allowed = await get(`localhost:${upstreamPort}`);
+    const other = await get('other.example.com');
+
+    expect(allowed).toEqual({ status: 200, body: `seen localhost:${upstreamPort} /simple/?q=1` });
+    expect(other.status).toBe(403);
   });
 });

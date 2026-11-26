@@ -15,6 +15,23 @@ describe('the settings of the proxy', () => {
     ).toThrow('SANDBOX_PROXY_IDLE_EXIT_MINUTES: `0.5` is not a positive integer.');
   });
 
+  it('takes direct connections only on the ports it is given', () => {
+    expect(proxyConfig({ SANDBOX_PROXY_TOKEN: token })).toMatchObject({
+      tlsPort: undefined,
+      httpPort: undefined,
+    });
+    expect(
+      proxyConfig({
+        SANDBOX_PROXY_TOKEN: token,
+        SANDBOX_PROXY_TLS_PORT: '443',
+        SANDBOX_PROXY_HTTP_PORT: '80',
+      }),
+    ).toMatchObject({ tlsPort: 443, httpPort: 80 });
+    expect(() =>
+      proxyConfig({ SANDBOX_PROXY_TOKEN: token, SANDBOX_PROXY_TLS_PORT: 'https' }),
+    ).toThrow('SANDBOX_PROXY_TLS_PORT: `https` is not a port.');
+  });
+
   it('keeps connections for the base URL routes beyond those of the commands', () => {
     expect(proxyConfig({ SANDBOX_PROXY_TOKEN: token })).toMatchObject({
       maxConnections: 128,

@@ -29,6 +29,12 @@ export function proxyConfig(
   idleExitMs?: number;
   maxConnections: number;
   port: number;
+  /**
+   * Where the proxy takes the direct connections of programs that ignore the proxy variables: TLS
+   * on `tlsPort` (443), plain HTTP on `httpPort` (80). Unset, it takes none.
+   */
+  tlsPort?: number;
+  httpPort?: number;
   routeConnections: number;
   token: string;
   totalConnections: number;
@@ -41,6 +47,8 @@ export function proxyConfig(
   }
   return {
     port: Number.parseInt(env['SANDBOX_PROXY_PORT'] ?? String(DEFAULT_PROXY_PORT), 10),
+    tlsPort: directPort('SANDBOX_PROXY_TLS_PORT', env),
+    httpPort: directPort('SANDBOX_PROXY_HTTP_PORT', env),
     adminPort: Number.parseInt(
       env['SANDBOX_PROXY_ADMIN_PORT'] ?? String(DEFAULT_PROXY_ADMIN_PORT),
       10,
@@ -62,6 +70,17 @@ export function proxyConfig(
     idleExitMs: idleExitMs(env['SANDBOX_PROXY_IDLE_EXIT_MINUTES']),
     token,
   };
+}
+
+/** A port of the direct connections, 1 to 65535; `undefined` when unset or empty. */
+function directPort(name: string, env: Environment): number | undefined {
+  const value = env[name];
+  if (value === undefined || value === '') return undefined;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name}: \`${value}\` is not a port.`);
+  }
+  return port;
 }
 
 /** `SANDBOX_PROXY_IDLE_EXIT_MINUTES`, a positive integer: never exits when unset. */
@@ -134,6 +153,19 @@ export function main(env: Environment): void {
   admin.listen(config.adminPort, config.host, () =>
     logger.info(`Administration API listening on ${config.host}:${config.adminPort}`),
   );
+  // The direct connections, once the sandboxes' DNS answers the proxy's address for every name.
+  if (config.tlsPort !== undefined) {
+    const { tlsPort } = config;
+    proxy.tlsServer.listen(tlsPort, config.host, () =>
+      logger.info(`Direct TLS connections taken on ${config.host}:${tlsPort}`),
+    );
+  }
+  if (config.httpPort !== undefined) {
+    const { httpPort } = config;
+    proxy.httpServer.listen(httpPort, config.host, () =>
+      logger.info(`Direct HTTP requests taken on ${config.host}:${httpPort}`),
+    );
+  }
   const shutDown = (code: number): void => {
     proxy.close();
     admin.closeAllConnections();
