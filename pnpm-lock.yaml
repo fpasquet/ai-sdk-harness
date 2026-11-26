@@ -226,7 +226,7 @@ importers:
         specifier: ^0.4.3
         version: link:../../packages/sandbox-cloud-run
       ai-sdk-sandbox-gce:
-        specifier: ^0.6.0
+        specifier: ^0.7.0
         version: link:../../packages/sandbox-gce
       ai-sdk-sandbox-microsandbox:
         specifier: ^0.1.4

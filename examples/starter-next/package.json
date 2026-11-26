@@ -46,7 +46,7 @@
     "ai-sdk-harness-sessions": "^0.4.4",
     "ai-sdk-harness-workspace": "^0.1.4",
     "ai-sdk-sandbox-cloud-run": "^0.4.3",
-    "ai-sdk-sandbox-gce": "^0.6.0",
+    "ai-sdk-sandbox-gce": "^0.7.0",
     "ai-sdk-sandbox-microsandbox": "^0.1.4",
     "ai-sdk-sandbox-runtime": "^0.1.4",
     "ai-sdk-sandbox-sbx": "^0.2.6",
