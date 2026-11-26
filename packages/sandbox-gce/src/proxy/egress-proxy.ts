@@ -1,9 +1,9 @@
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'node:http';
-import type { Socket } from 'node:net';
+import type { Server as NetServer, Socket } from 'node:net';
 
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { connect, isIP } from 'node:net';
+import { connect, createServer as createNetServer, isIP } from 'node:net';
 
 import type { Logger } from '../common/logger.js';
 import type { EgressPolicy } from './egress-policy.js';
@@ -151,6 +151,15 @@ function helloRefusal(host: string, hello: ClientHello | undefined): string | un
     : `A tunnel to ${host} may not name ${named} in its TLS.`;
 }
 
+/** The host a direct TLS connection names (SNI), or why it may not leave. */
+function directHost(hello: ClientHello | undefined): { host: string } | { why: string } {
+  if (hello?.kind !== 'hello') return { why: 'Only TLS reaches the proxy on 443.' };
+  if (hello.serverName === undefined) {
+    return { why: 'A direct TLS connection must name its host (SNI).' };
+  }
+  return { host: canonical(hello.serverName) };
+}
+
 const connections = (count: number): string => `${count} connection${count === 1 ? '' : 's'}`;
 
 /** What a connection carries, from its first request on: a command's traffic, or a route. */
@@ -229,6 +238,13 @@ function targetOf(url: string): undefined | URL {
  * - a plain HTTP request through `HTTP_PROXY` to an allowed host, as package mirrors still serve:
  *   sent on as it is, no credential put in.
  *
+ * With the sandboxes' DNS answering the proxy's address for every name, the programs that ignore
+ * `HTTPS_PROXY` (Node.js's `fetch` without `NODE_USE_ENV_PROXY`, Go, Java…) reach it directly:
+ *
+ * - on {@link tlsServer}, a TLS connection: the host its ClientHello names (SNI) is checked as the
+ *   host of a tunnel would be, then the connection is relayed as a tunnel's, never decrypted;
+ * - on {@link httpServer}, a plain HTTP request: sent on to its `Host` as through `HTTP_PROXY`.
+ *
  * Anything else is refused, and so is any private address however it is named: the proxy's
  * loopback, the metadata server, the VPC. A connection from a machine no sandbox holds is refused.
  * The policy is read anew for each connection: allowing a host or adding a credential applies at
@@ -236,6 +252,13 @@ function targetOf(url: string): undefined | URL {
  */
 export class EgressProxy {
   readonly server: Server;
+  /**
+   * Direct TLS connections, from programs that ignore `HTTPS_PROXY`: listened on 443 when the
+   * sandboxes' DNS answers the proxy's address. Not listened on otherwise.
+   */
+  readonly tlsServer: NetServer;
+  /** Direct plain HTTP requests, from programs that ignore `HTTP_PROXY`: listened on 80, likewise. */
+  readonly httpServer: Server;
 
   /** The connections each machine holds open, by its address. */
   private readonly machines = new Map<string, MachineConnections>();
@@ -289,23 +312,35 @@ export class EgressProxy {
     this.server.on('connect', (req: IncomingMessage, socket: Socket, head: Buffer) =>
       this.tunnel(req, socket, head),
     );
+    this.tlsServer = createNetServer((socket) => this.direct(socket));
+    this.httpServer = createServer((req, res) => this.forwardDirect(req, res));
+    this.httpServer.keepAliveTimeout = KEEP_ALIVE_MS;
+    this.httpServer.headersTimeout = KEEP_ALIVE_MS + 1_000;
+    this.httpServer.on('connection', (socket: Socket) => this.count(socket));
   }
 
   close(): void {
     this.server.closeAllConnections();
     this.server.close();
+    this.httpServer.closeAllConnections();
+    this.httpServer.close();
+    // A server never listened answers its `close` with an error: nothing to close then.
+    this.tlsServer.close(() => undefined);
   }
 
   /**
    * Counts the connections of a machine, and refuses one beyond the proxy's limit, or cuts one
    * beyond both the machine's limits together: what it carries is not known yet.
    */
-  private count(socket: Socket): void {
+  private count(socket: Socket, plain = true): boolean {
     const address = socket.remoteAddress ?? '';
     if (this.all.open >= this.totalConnections) {
       this.proxyAtLimit(`${connections(this.all.open)} are open, base URL routes included`);
-      socket.end(`HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n${PROXY_FULL}\n`);
-      return;
+      // A direct TLS connection cannot read an HTTP answer: it is cut.
+      if (plain) {
+        socket.end(`HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n${PROXY_FULL}\n`);
+      } else socket.destroy();
+      return false;
     }
     const machine = this.machines.get(address) ?? { open: 0, commands: 0 };
     if (machine.open >= this.maxConnections + this.routeConnections) {
@@ -315,7 +350,7 @@ export class EgressProxy {
         `${connections(machine.open)} are open, base URL routes included`,
       );
       socket.destroy();
-      return;
+      return false;
     }
     machine.open += 1;
     this.all.open += 1;
@@ -332,6 +367,7 @@ export class EgressProxy {
       this.underLimit(address, machine);
       this.proxyUnderLimit();
     });
+    return true;
   }
 
   /**
@@ -475,6 +511,70 @@ export class EgressProxy {
   }
 
   /**
+   * A TLS connection a program made directly, its host's name resolved to the proxy's address: the
+   * host its ClientHello names (SNI) is allowed as the host of a tunnel would be, then the
+   * connection is relayed to it on 443, never decrypted. One that names no host, or is no TLS, is
+   * cut: there is no HTTP to answer it with.
+   */
+  private direct(socket: Socket): void {
+    socket.on('error', () => socket.destroy());
+    if (!this.count(socket, false)) return;
+    const address = socket.remoteAddress;
+    const policy = this.policyFor(address);
+    if (policy === undefined) {
+      this.refused({ address, why: UNKNOWN });
+      socket.destroy();
+      return;
+    }
+    void clientHello(socket, Buffer.alloc(0)).then(({ bytes, hello }) => {
+      if (socket.destroyed) return;
+      const named = directHost(hello);
+      if ('why' in named) {
+        this.refused({ address, policy, why: named.why });
+        socket.destroy();
+        return;
+      }
+      const { host } = named;
+      const reach = reachability(policy, host);
+      const refusal = isListedHost(policy.allowedHosts, host)
+        ? reach.error
+        : `${host} is not reachable from the sandbox.`;
+      const full = refusal ?? this.commandRefusal(socket);
+      if (full !== undefined) {
+        this.refused({ address, policy, target: host, why: full });
+        socket.destroy();
+        return;
+      }
+      const upstream = connect({ host, port: this.tunnelPort, lookup: reach.lookup }, () => {
+        upstream.write(bytes);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.once('close', () => upstream.destroy());
+    });
+  }
+
+  /**
+   * A plain HTTP request a program sent directly, its host's name resolved to the proxy's
+   * address: sent on to its `Host` as a request through `HTTP_PROXY` would be.
+   */
+  private forwardDirect(req: IncomingMessage, res: ServerResponse): void {
+    const address = req.socket.remoteAddress;
+    const policy = this.policyFor(address);
+    if (policy === undefined) {
+      this.deny(res, { address, why: UNKNOWN });
+      return;
+    }
+    const host = req.headers.host;
+    if (host === undefined || host === '' || !(req.url ?? '').startsWith('/')) {
+      this.deny(res, { address, policy, why: 'A direct HTTP request must name its host (Host).' });
+      return;
+    }
+    this.forwardPlain(req, res, { policy, url: `http://${host}${req.url ?? '/'}` });
+  }
+
+  /**
    * A plain request: a base URL route, its credentials put in, or, through `HTTP_PROXY`, plain HTTP
    * to an allowed host, as package mirrors still serve, with no credential at all.
    */
@@ -487,7 +587,7 @@ export class EgressProxy {
     }
     const route = targetOf(req.url ?? '');
     if (route === undefined) {
-      this.forwardPlain(req, res, policy);
+      this.forwardPlain(req, res, { policy });
       return;
     }
     const refusal = routeRefusal(policy, route);
@@ -500,8 +600,12 @@ export class EgressProxy {
   }
 
   /** A plain HTTP request through `HTTP_PROXY`: sent on to an allowed host, refused otherwise. */
-  private forwardPlain(req: IncomingMessage, res: ServerResponse, policy: EgressPolicy): void {
-    const plain = plainTarget(req.url ?? '');
+  private forwardPlain(
+    req: IncomingMessage,
+    res: ServerResponse,
+    { policy, url = req.url ?? '' }: { policy: EgressPolicy; url?: string },
+  ): void {
+    const plain = plainTarget(url);
     if (plain !== undefined && isListedHost(policy.allowedHosts, plain.hostname)) {
       const full = this.commandRefusal(req.socket);
       if (full !== undefined) {

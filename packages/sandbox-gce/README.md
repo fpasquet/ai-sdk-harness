@@ -642,6 +642,51 @@ Without it, code that calls an outside host with Node.js's `fetch` and has no pr
 
 The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev/docs/packages/harness-plugins) runs in the sandbox get it on their own. The agent sets the variables: a sandbox image built on an earlier version of this package still gives every command `NODE_USE_ENV_PROXY=1`, until it is built again.
 
+To have both, Node.js's `fetch` reaching its hosts and MSW test suites passing, without `NODE_USE_ENV_PROXY`, let the sandboxes reach the proxy directly: see [Programs that ignore the proxy variables](#programs-that-ignore-the-proxy-variables).
+
+### Programs that ignore the proxy variables
+
+Optional. By default, only programs that read `HTTPS_PROXY` or `HTTP_PROXY` leave a sandbox: Node.js's own `fetch` without `NODE_USE_ENV_PROXY`, Go, Java, and any binary that ignores the variables connect directly, and the firewall refuses them. The proxy can take those direct connections too, on 443 for TLS and on 80 for plain HTTP, when every name resolves to its address in the sandboxes:
+
+- **TLS, on 443**: the proxy reads the host the connection's ClientHello names (SNI), lets it through only to an allowed host and a public address, as it does a `CONNECT` tunnel, then relays the bytes to it on 443 without decrypting them;
+- **plain HTTP, on 80**: the proxy reads `Host`, and sends the request on as one through `HTTP_PROXY`;
+- the same connection limits, egress counters and refusal logs as through the proxy variables.
+
+A program then connects to `host:443` as it would anywhere, and reaches the proxy. MSW 3 sees a request it can mock, with no `CONNECT`, and `NODE_USE_ENV_PROXY` is no longer needed for Node.js to reach its hosts. The programs that read the proxy variables go on using them.
+
+To set it up:
+
+1. Have the response policy answer every name with the proxy's address rather than `0.0.0.0`. No query leaves the network, as before:
+
+   ```bash
+   gcloud dns response-policies rules update every-name --response-policy=sandboxes-no-dns \
+     --local-data=name="*.",type=A,ttl=300,rrdatas=10.8.16.2
+   ```
+
+2. Let the sandboxes reach the proxy on 80 and 443 as well:
+
+   ```bash
+   gcloud compute firewall-rules update sandboxes-to-proxy --rules=tcp:3128,tcp:80,tcp:443
+   gcloud compute firewall-rules update proxy-from-sandboxes --rules=tcp:3128,tcp:80,tcp:443
+   ```
+
+3. Add to the `[Service]` section of the proxy's unit, in its startup script, then restart the proxy with no sandbox running (it forgets its sandboxes as it restarts):
+
+   ```ini
+   Environment=SANDBOX_PROXY_TLS_PORT=443
+   Environment=SANDBOX_PROXY_HTTP_PORT=80
+   # Ports below 1024, for a user that is not root.
+   AmbientCapabilities=CAP_NET_BIND_SERVICE
+   ```
+
+Its limits:
+
+- **HTTP/3** (QUIC, over UDP) does not go through: clients fall back to TCP;
+- **a TLS connection that names no host** (no SNI), or that is no TLS, is cut: there is no HTTP to answer it with, and it shows in the proxy's refusals;
+- **credentials** stay on the base URL routes: a direct connection is never decrypted, any more than a `CONNECT` tunnel is, so no request transformation applies to it;
+- **a program that pins IP addresses, or resolves names elsewhere** (its own DNS over HTTPS, `/etc/hosts`), does not reach the proxy, and stays refused by the firewall;
+- **ports other than 80 and 443**: refused by the firewall, as before.
+
 ## Ports
 
 `ports` lists the ports inside the sandbox the harness may reach. `getPortEndpoint()` returns a WebSocket URL on the service, `wss://<service>/v1/sandboxes/<name>/ports/<port>`, with the identity token as a header, read anew at each connection. The service passes the connection on to the machine's agent, with the agent's token in place of the caller's, and the agent on to `127.0.0.1:<port>`. A port outside the list is refused with `HarnessCapabilityUnsupportedError`.
@@ -728,16 +773,18 @@ The MCP servers that [`ai-sdk-harness-plugins`](https://ai-sdk-harness.pages.dev
 
 ### The proxy (`proxy`)
 
-| Variable                          | Default            | Description                                                                                                          |
-| --------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `SANDBOX_PROXY_TOKEN`             | required           | The token the service proves itself with, 16 characters at least                                                     |
-| `SANDBOX_PROXY_PORT`              | `3128`             | The port the sandboxes reach                                                                                         |
-| `SANDBOX_PROXY_ADMIN_PORT`        | `3129`             | The port of the administration API                                                                                   |
-| `SANDBOX_ALLOW_PRIVATE_NETWORK`   | `false`            | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                                  |
-| `SANDBOX_PROXY_MAX_CONNECTIONS`   | `128`              | The most connections the commands of a sandbox hold open through the proxy at once: [Connections](#connections)      |
-| `SANDBOX_PROXY_ROUTE_CONNECTIONS` | `32`               | The connections a sandbox holds beyond those, for its base URL routes alone: [Connections](#connections)             |
-| `SANDBOX_PROXY_TOTAL_CONNECTIONS` | from `LimitNOFILE` | The most connections the proxy holds for all its sandboxes, a tenth kept for the routes: [Connections](#connections) |
-| `HOST`, `LOG_FORMAT`              | `0.0.0.0`          | Where it listens; `text` for plain logs                                                                              |
+| Variable                          | Default            | Description                                                                                                                                    |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SANDBOX_PROXY_TOKEN`             | required           | The token the service proves itself with, 16 characters at least                                                                               |
+| `SANDBOX_PROXY_PORT`              | `3128`             | The port the sandboxes reach                                                                                                                   |
+| `SANDBOX_PROXY_ADMIN_PORT`        | `3129`             | The port of the administration API                                                                                                             |
+| `SANDBOX_PROXY_TLS_PORT`          | none               | Where the proxy takes direct TLS connections, `443`: see [Programs that ignore the proxy variables](#programs-that-ignore-the-proxy-variables) |
+| `SANDBOX_PROXY_HTTP_PORT`         | none               | Where it takes direct plain HTTP requests, `80`, likewise                                                                                      |
+| `SANDBOX_ALLOW_PRIVATE_NETWORK`   | `false`            | For tests only: lets the sandboxes reach private addresses and plain HTTP base URLs                                                            |
+| `SANDBOX_PROXY_MAX_CONNECTIONS`   | `128`              | The most connections the commands of a sandbox hold open through the proxy at once: [Connections](#connections)                                |
+| `SANDBOX_PROXY_ROUTE_CONNECTIONS` | `32`               | The connections a sandbox holds beyond those, for its base URL routes alone: [Connections](#connections)                                       |
+| `SANDBOX_PROXY_TOTAL_CONNECTIONS` | from `LimitNOFILE` | The most connections the proxy holds for all its sandboxes, a tenth kept for the routes: [Connections](#connections)                           |
+| `HOST`, `LOG_FORMAT`              | `0.0.0.0`          | Where it listens; `text` for plain logs                                                                                                        |
 
 ### The agent (`agent`)
 
