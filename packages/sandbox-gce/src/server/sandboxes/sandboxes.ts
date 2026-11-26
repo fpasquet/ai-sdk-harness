@@ -1350,10 +1350,13 @@ export class Sandboxes {
         }
       }
     };
+    const waiting = Date.now();
     const [registerMs, bootMs] = await Promise.all([
       registered(),
       timed(() => this.waitForAgent(name, agent)),
     ]);
+    // The registration runs alongside the boot: only what it took beyond it follows the boot.
+    const registerAfterBootMs = Math.min(registerMs, Date.now() - waiting - bootMs);
     const configuring = Date.now();
     const { home, workingDirectory } = await agent.configure({
       proxy: this.options.proxyUrl,
@@ -1363,7 +1366,7 @@ export class Sandboxes {
     return {
       description: { name, home, workingDirectory },
       bootMs,
-      agentMs: registerMs + Date.now() - configuring,
+      agentMs: registerAfterBootMs + Date.now() - configuring,
     };
   }
 
