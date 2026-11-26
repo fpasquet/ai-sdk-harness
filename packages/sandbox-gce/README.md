@@ -483,6 +483,18 @@ await deleteGceSandboxTemplate({
 
 The sandboxes made from it keep their disk. The next sandbox created from the same template, setup and image builds it again. A template that does not exist is no error.
 
+A template can also be gone without your deleting it: a new base image, a new version of the service or a new harness version each name another template, and old ones get cleaned up. `gceSandboxTemplateExists()` says whether the template a sandbox would boot from is saved, with the same options: build it ahead when it is not, rather than have the next user wait for it.
+
+```ts
+import { gceSandboxTemplateExists } from 'ai-sdk-sandbox-gce';
+
+const ready = await gceSandboxTemplateExists({
+  url: process.env.GCE_SANDBOX_URL!,
+  template: await agent.getSandboxTemplate(),
+  setup,
+});
+```
+
 A template is made from a sandbox no agent ever ran in: the client's throwaway one, where only `setup` and the harness's own installation run. Never save a sandbox an agent worked in as a template, through the API or otherwise: whatever the agent left on its disk, the `agent` service of the machine included, would start in every later sandbox.
 
 Making a template takes a few minutes: the machine boots, the harness installs, Compute Engine saves the disk, and the first sandbox on a new image waits a minute more while Compute Engine spreads it. Make it when you deploy, rather than in the first user's session, with a script that creates a sandbox from the agent's template and deletes it:

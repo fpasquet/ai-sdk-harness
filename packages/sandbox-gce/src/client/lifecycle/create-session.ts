@@ -10,6 +10,7 @@ import type {
   GceSandboxLookupSettings,
   GceSandboxMetricsSettings,
   GceTemplateDeletionSettings,
+  GceTemplateLookupSettings,
 } from '../gce-settings.js';
 import type { GceSandboxEgressUsage, GceSandboxInfo, GceSandboxMetrics } from '../gce-usage.js';
 
@@ -182,6 +183,21 @@ export async function deleteGceSandboxTemplate(
   const source = { template, setup, image };
   forgetTemplate(client, source);
   await client.deleteTemplate(templateId(source), image, abortSignal);
+}
+
+/**
+ * Whether the template that sandboxes created with `template`, `setup` and `image` boot from is
+ * saved on the service, ready to boot from. It is not once the service lost it, or never had it: a
+ * new base image, a new version of the service, or a new `identity` of `template` (another harness
+ * version) each name another template. The next sandbox created from it then builds it first, which
+ * takes minutes: an application can build it ahead, by creating a sandbox from it and deleting it.
+ */
+export async function gceSandboxTemplateExists(
+  options: GceTemplateLookupSettings,
+): Promise<boolean> {
+  const { template, setup = [], image, abortSignal } = options;
+  if (abortSignal?.aborted) throw abortReason(abortSignal);
+  return clientOf(options).templateExists(templateId({ template, setup }), image, abortSignal);
 }
 
 /**

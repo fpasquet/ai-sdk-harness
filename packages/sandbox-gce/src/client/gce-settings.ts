@@ -151,6 +151,9 @@ export interface GcePrepareSettings extends GceConnectionSettings {
 }
 
 /** Options of `deleteGceSandboxTemplate()`: the template, as the sandboxes made from it were. */
+/** What names a template to look up: the same as to delete it. */
+export type GceTemplateLookupSettings = GceTemplateDeletionSettings;
+
 export interface GceTemplateDeletionSettings extends GceConnectionSettings {
   /** The template the sandboxes were created from, `await agent.getSandboxTemplate()`. */
   template: HarnessV1SandboxTemplate;
