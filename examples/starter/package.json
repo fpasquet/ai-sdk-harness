@@ -8,8 +8,8 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@ai-sdk/harness": "^1.0.183",
-    "@ai-sdk/harness-claude-code": "^1.0.187",
+    "@ai-sdk/harness": "^1.0.188",
+    "@ai-sdk/harness-claude-code": "^1.0.192",
     "ai-sdk-sandbox-sbx": "^0.2.4"
   },
   "devDependencies": {
