@@ -164,6 +164,6 @@ One-time setup:
 2. On Cloudflare, **My Profile → API Tokens → Create Token**, with the **Account → Cloudflare Pages → Edit** permission on this account only.
 3. In the repository, **Settings → Secrets and variables → Actions**:
    - secrets `CLOUDFLARE_API_TOKEN` (the token above) and `CLOUDFLARE_ACCOUNT_ID` (shown by `pnpm --filter docs exec wrangler whoami`);
-   - variables, both optional: `NEXT_PUBLIC_SITE_URL` (defaults to `https://ai-sdk-harness.pages.dev`, set it if the project URL differs or a custom domain is attached) and `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`.
+   - variables, both optional: `NEXT_PUBLIC_SITE_URL` (defaults to `https://ai-sdk-harness.suitebase.dev`, set it if the site is served at another domain) and `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`.
 
-The project name lives in `docs.yml` (`CLOUDFLARE_PAGES_PROJECT`). A custom domain is attached on Cloudflare (**Workers & Pages → the project → Custom domains**); update `NEXT_PUBLIC_SITE_URL` to match.
+The project name lives in `docs.yml` (`CLOUDFLARE_PAGES_PROJECT`). The custom domain `ai-sdk-harness.suitebase.dev` is attached on Cloudflare (**Workers & Pages → the project → Custom domains**). `docs/functions/_middleware.ts`, a Pages Function deployed with `docs/out`, redirects `ai-sdk-harness.pages.dev` to it with a 301, path and query kept; preview deployments (`<hash>.ai-sdk-harness.pages.dev`) are not redirected. Change both hostnames there if the domain changes, along with `NEXT_PUBLIC_SITE_URL`.

@@ -58,7 +58,7 @@ jobs:
       - name: Build docs (static export)
         run: pnpm docs:build
         env:
-          # Both optional: lib/constants.ts falls back to the pages.dev URL.
+          # Both optional: lib/constants.ts falls back to the custom domain.
           NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
           NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${{ vars.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }}
 

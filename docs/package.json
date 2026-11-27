@@ -8,11 +8,11 @@
     "build": "fumadocs-mdx && next build",
     "clean": "repo-clean .next .source out",
     "dev": "fumadocs-mdx && next dev --port 3002",
-    "format": "prettier --write \"{app,components,content,lib}/**/*.{ts,tsx,css,json,mdx}\" \"*.{ts,json,mjs}\" \"!next-env.d.ts\"",
-    "format:check": "prettier --check \"{app,components,content,lib}/**/*.{ts,tsx,css,json,mdx}\" \"*.{ts,json,mjs}\" \"!next-env.d.ts\"",
+    "format": "prettier --write \"{app,components,content,functions,lib}/**/*.{ts,tsx,css,json,mdx}\" \"*.{ts,json,mjs}\" \"!next-env.d.ts\"",
+    "format:check": "prettier --check \"{app,components,content,functions,lib}/**/*.{ts,tsx,css,json,mdx}\" \"*.{ts,json,mjs}\" \"!next-env.d.ts\"",
     "lint": "eslint .",
     "start": "next start --port 3002",
-    "typecheck": "fumadocs-mdx && tsc --noEmit --incremental false"
+    "typecheck": "fumadocs-mdx && tsc --noEmit --incremental false && tsc -p functions"
   },
   "dependencies": {
     "fumadocs-core": "^16.19.5",
@@ -28,6 +28,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261125.1",
     "@next/eslint-plugin-next": "^16.4.6",
     "@repo/build": "workspace:*",
     "@repo/eslint-config": "workspace:*",
