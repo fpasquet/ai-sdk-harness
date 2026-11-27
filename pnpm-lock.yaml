@@ -99,6 +99,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^5.20261125.1
+        version: 5.20261125.1
       '@next/eslint-plugin-next':
         specifier: ^16.4.6
         version: 16.4.6(eslint@10.15.0(jiti@2.7.0))
@@ -146,7 +149,7 @@ importers:
         version: 6.0.3
       wrangler:
         specifier: ^4.165.0
-        version: 4.165.0(@types/node@24.19.2)(vitest@5.1.1)
+        version: 4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
 
   examples/starter-next:
     dependencies:
@@ -1228,6 +1231,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-types@5.20261125.1':
+    resolution: {integrity: sha512-FBFIY/srJZZtZjxyH56AerZ0ZDbhr6Ifa5O707q0f7YzHmzqd+2zD3vG6d8cAcSDL/heJvsP7eEAsYRLFd7jpw==}
 
   '@cloudflare/workers-utils@0.55.0':
     resolution: {integrity: sha512-D51hkju35j8pKamLQkD4+L0H830SmX2pwtdnIVX6KX4s+Yz3NlfAh1iWXYmMF770FhLDfYiC6j6ln7zLE8VVcQ==}
@@ -7423,7 +7429,9 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20261118.1':
     optional: true
 
-  '@cloudflare/workers-utils@0.55.0(vitest@5.1.1)':
+  '@cloudflare/workers-types@5.20261125.1': {}
+
+  '@cloudflare/workers-utils@0.55.0(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))':
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       chalk: 5.3.0
@@ -13306,11 +13314,11 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20261118.1
       '@cloudflare/workerd-windows-64': 1.20261118.1
 
-  wrangler@4.165.0(@types/node@24.19.2)(vitest@5.1.1):
+  wrangler@4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.1
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261118.1)
-      '@cloudflare/workers-utils': 0.55.0(vitest@5.1.1)
+      '@cloudflare/workers-utils': 0.55.0(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
       '@cspotcode/source-map-support': 0.8.1
       '@types/yargs': 17.0.24
       cloudflare: 5.2.0
@@ -13322,6 +13330,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20261118.1
     optionalDependencies:
+      '@cloudflare/workers-types': 5.20261125.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - '@types/node'

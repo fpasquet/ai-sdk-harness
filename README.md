@@ -1,7 +1,7 @@
 # ai-sdk-harness
 
 <p align="center">
-  <a href="https://ai-sdk-harness.pages.dev/"><img alt="Documentation" src="https://img.shields.io/badge/docs-ai--sdk--harness.pages.dev-0a7ea4" /></a>
+  <a href="https://ai-sdk-harness.suitebase.dev/"><img alt="Documentation" src="https://img.shields.io/badge/docs-ai--sdk--harness.suitebase.dev-0a7ea4" /></a>
   <a href="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/quality.yml"><img alt="Quality" src="https://github.com/fpasquet/ai-sdk-harness/actions/workflows/quality.yml/badge.svg" /></a>
   <img alt="Node &gt;= 24" src="https://img.shields.io/badge/node-%3E%3D24-3c873a" />
@@ -11,7 +11,7 @@
 
 Community packages for the [Vercel AI SDK harnesses](https://ai-sdk.dev/docs/ai-sdk-harnesses/harness-agent), the `HarnessAgent` that drives Claude Code, Codex, OpenCode and other coding-agent runtimes from your application.
 
-**[Read the documentation](https://ai-sdk-harness.pages.dev/docs)**, or go straight to [Getting started](https://ai-sdk-harness.pages.dev/docs/getting-started).
+**[Read the documentation](https://ai-sdk-harness.suitebase.dev/docs)**, or go straight to [Getting started](https://ai-sdk-harness.suitebase.dev/docs/getting-started).
 
 ![The Next.js starter: Claude Code, running in a Docker Sandbox, wrote a script, ran it and answered with a table](docs/public/screenshots/next-chat/conversation.png)
 
@@ -63,7 +63,7 @@ The packages here run those harnesses on your own machine or in your own Google 
 - **Isolation**: prefer a microVM or a virtual machine for code you do not trust. `sbx`, `microsandbox` (`docker: true`) and `gce` run Docker and Compose in the sandbox too. `runtime` needs no VM nor container, but shares the host's kernel and lets the agent read the host outside your home directory. `just-bash` is enough for a host-side harness such as Pi that only needs a shell and files.
 - **Cost between two turns**: a running sandbox takes resources even when nobody writes to it, so it has to be stopped. [`ai-sdk-harness-sessions`](packages/harness-sessions) stops it once its sessions are idle and resumes it on the next message, with `sandboxPerSession()`, or with `sharedSandbox()` and its `stopWhenUnused` option.
 
-[Choosing a sandbox](https://ai-sdk-harness.pages.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail, and lists the other sandbox packages for `HarnessAgent`, the community's included. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
+[Choosing a sandbox](https://ai-sdk-harness.suitebase.dev/docs/choosing-a-sandbox) compares the packages of this repository in detail, and lists the other sandbox packages for `HarnessAgent`, the community's included. Plugins, sessions, workspaces, approvals and network policies are packages of their own, to add to the sandbox you pick here.
 
 ## Agent skills
 
