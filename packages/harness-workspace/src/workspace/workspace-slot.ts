@@ -2,7 +2,7 @@ import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
 
 import { posix } from 'node:path';
 
-import type { WorkspaceSource } from '../definitions/source.js';
+import type { SourceConnection, WorkspaceSource } from '../definitions/source.js';
 import type {
   WorkspaceCheckout,
   WorkspaceCommandResult,
@@ -73,6 +73,8 @@ export class WorkspaceSlot {
   /** Repository name → the workspace's repository of it in this sandbox. */
   private readonly located = new Map<string, Promise<string>>();
   private checkedOut: undefined | WorkspaceSession;
+  /** Repository name → what its source keeps up for the checkout, while the slot holds it. */
+  private readonly connections = new Map<string, SourceConnection>();
   private released = false;
   /** The session's repositories, asked for once. */
   private resolved: Promise<readonly RepositorySettings[]> | undefined;
@@ -123,11 +125,13 @@ export class WorkspaceSlot {
   /** The session is suspended: its checkouts stay for its resume. */
   release(): void {
     this.released = true;
+    this.disconnect();
   }
 
   /** The session is closed: its checkouts, their branch and their bases go. */
   async remove(): Promise<void> {
     this.released = true;
+    this.disconnect();
     const repositories = await this.repositories();
     const removed = await settled(
       repositories.map(async (repository) => {
@@ -150,6 +154,55 @@ export class WorkspaceSlot {
     if (repositories.every(({ path }) => path === '')) return;
     const root = this.checkedOut?.directory ?? rootOf(removed);
     if (root !== undefined) await removeDirectory(this.sandbox, { path: root });
+  }
+
+  /** Stops what the sources keep up for the checkouts. */
+  private disconnect(): void {
+    for (const connection of this.connections.values()) connection.close?.();
+    this.connections.clear();
+  }
+
+  /**
+   * Has the source of `repository` connect its checkout in `directory` — a remote, its credential —
+   * as the checkout is made and each time the session resumes.
+   */
+  private async connect(
+    repository: RepositorySettings,
+    {
+      located,
+      directory,
+      abortSignal,
+    }: { located: string; directory: string; abortSignal?: AbortSignal },
+  ): Promise<void> {
+    const { source } = repository;
+    if (source.connect === undefined) return;
+    const connection = await source.connect({
+      sandbox: this.sandbox,
+      repository: located,
+      directory,
+      sessionId: this.sessionId,
+      ...(abortSignal !== undefined && { abortSignal }),
+    });
+    this.connections.get(repository.name)?.close?.();
+    if (connection === undefined) this.connections.delete(repository.name);
+    else if (this.released) connection.close?.();
+    else this.connections.set(repository.name, connection);
+  }
+
+  /** Renews the credentials of `names`' connections: every one of them by default. */
+  private async refresh(
+    names: readonly string[] | undefined,
+    abortSignal: AbortSignal | undefined,
+  ): Promise<void> {
+    this.live();
+    const connections = [...this.connections]
+      .filter(([name]) => names === undefined || names.includes(name))
+      .map(([, connection]) => connection);
+    await settled(
+      connections.map(async (connection) =>
+        connection.refresh?.(abortSignal === undefined ? {} : { abortSignal }),
+      ),
+    );
   }
 
   private repositories(abortSignal?: AbortSignal): Promise<readonly RepositorySettings[]> {
@@ -181,6 +234,7 @@ export class WorkspaceSlot {
           repository.path === '' ? undefined : repository.name,
         );
       }
+      await this.connect(repository, { located, directory, abortSignal });
       return { repository, directory, base: commit };
     }
     const fetched = fetchedRef(this.key);
@@ -199,6 +253,7 @@ export class WorkspaceSlot {
       base,
       abortSignal,
     });
+    await this.connect(repository, { located, directory, abortSignal });
     return { repository, directory, base: commit };
   }
 
@@ -313,6 +368,7 @@ export class WorkspaceSlot {
         );
         return lists.flat();
       },
+      refreshCredentials: ({ abortSignal } = {}) => this.refresh(undefined, abortSignal),
     };
   }
 
@@ -345,6 +401,7 @@ export class WorkspaceSlot {
           abortSignal,
         });
       },
+      refreshCredentials: ({ abortSignal } = {}) => this.refresh([repository.name], abortSignal),
     };
   }
 

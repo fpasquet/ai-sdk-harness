@@ -24,6 +24,34 @@ export interface WorkspaceSource {
    * `context.ref` at it. Called each time a session starts afresh, never when it resumes.
    */
   fetch(context: SourceFetchContext): Promise<void>;
+  /**
+   * Prepares a session's checkout to reach the source on its own — a remote, the credential its
+   * fetches take —: called once the checkout is made, and each time the session resumes. What it
+   * returns lives as long as the session: the workspace calls its `close` when the session is
+   * suspended or closed. Left out, the checkout reaches nothing.
+   */
+  connect?(context: SourceConnectContext): Promise<SourceConnection | undefined>;
+}
+
+/** What a {@link WorkspaceSource} connects. */
+export interface SourceConnectContext {
+  /** The sandbox of the session, as its sandbox package gives it. */
+  readonly sandbox: HarnessV1NetworkSandboxSession;
+  /** The workspace's repository in the sandbox, bare: an absolute path. */
+  readonly repository: string;
+  /** The session's checkout of it: an absolute path. */
+  readonly directory: string;
+  /** The session the checkout is for. */
+  readonly sessionId: string;
+  readonly abortSignal?: AbortSignal;
+}
+
+/** What a {@link WorkspaceSource} keeps up for a session's checkout while the session lives. */
+export interface SourceConnection {
+  /** Renews what the checkout's fetches take, such as a credential that expires. */
+  refresh?(options?: { abortSignal?: AbortSignal }): Promise<void>;
+  /** The session is suspended or closed: stops what the connection runs, such as a timer. */
+  close?(): void;
 }
 
 /** What a {@link WorkspaceSource} fetches into. */

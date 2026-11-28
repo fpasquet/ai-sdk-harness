@@ -7,11 +7,13 @@ import type { OutgoingRequest } from './egress-policy.js';
 import { hostsOf, proxyRoute, routeTarget } from '../protocol/proxy-routes.js';
 import {
   appliesTo,
+  carriesStrayPlaceholder,
   injectedCredentials,
   isListedHost,
   isRoutable,
   transformHeaders,
   withoutCredentials,
+  withTransformations,
 } from './egress-policy.js';
 
 const bearer = (placeholder: string, secret: string): HarnessV1RequestTransformation => ({
@@ -159,5 +161,130 @@ describe('injected credentials', () => {
     expect(injectedCredentials([bearer('ph', 'abc')], request('Bearer ph'))).toEqual([
       'Bearer abc',
     ]);
+  });
+});
+
+describe('the rules of a Git read', () => {
+  const placeholder = `Basic ${Buffer.from('x-access-token:ai-sdk-harness-placeholder').toString('base64')}`;
+  const headers = [{ key: { exact: 'Authorization' }, value: { exact: placeholder } }];
+  const transform = { headers: { Authorization: 'Basic real-token-value' } };
+  const rules: HarnessV1RequestTransformation[] = [
+    {
+      match: {
+        host: 'github.com',
+        path: { exact: '/acme/api.git/info/refs' },
+        method: ['GET'],
+        queryString: [{ key: { exact: 'service' }, value: { exact: 'git-upload-pack' } }],
+        headers,
+      },
+      transform,
+    },
+    {
+      match: {
+        host: 'github.com',
+        path: { exact: '/acme/api.git/git-upload-pack' },
+        method: ['POST'],
+        headers,
+      },
+      transform,
+    },
+  ];
+  const sent = (method: string, path: string, host = 'github.com'): OutgoingRequest => ({
+    host,
+    method,
+    path,
+    headers: { authorization: placeholder },
+  });
+
+  it('take a parameter they name with no other value beside it', () => {
+    const [advertisement] = rules;
+
+    expect(
+      appliesTo(advertisement!, sent('GET', '/acme/api.git/info/refs?service=git-upload-pack')),
+    ).toBe(true);
+    for (const query of [
+      'service=git-upload-pack&service=git-receive-pack',
+      'service=git-receive-pack&service=git-upload-pack',
+      'service=git-receive-pack',
+      'other=git-upload-pack',
+      '',
+    ]) {
+      expect(appliesTo(advertisement!, sent('GET', `/acme/api.git/info/refs?${query}`))).toBe(
+        false,
+      );
+    }
+  });
+
+  it('let a request carrying the placeholder through only where one of them applies', () => {
+    const stray = (request: OutgoingRequest) => carriesStrayPlaceholder(rules, request);
+
+    expect(stray(sent('GET', '/acme/api.git/info/refs?service=git-upload-pack'))).toBe(false);
+    expect(stray(sent('POST', '/acme/api.git/git-upload-pack'))).toBe(false);
+    for (const request of [
+      sent('POST', '/acme/api.git/git-receive-pack'),
+      sent('GET', '/acme/api.git/info/refs?service=git-receive-pack'),
+      sent('GET', '/acme/api.git/info/refs?service=git-upload-pack&service=git-receive-pack'),
+      sent('GET', '/acme/api.git/git-upload-pack'),
+      sent('POST', '/acme/api-other.git/git-upload-pack'),
+      sent('POST', '/acme/api.git-other/git-upload-pack'),
+      sent('POST', '//acme/api.git/git-upload-pack'),
+      sent('POST', '/acme%2Fapi.git/git-upload-pack'),
+      sent('POST', '/ACME/api.git/git-upload-pack'),
+      sent('POST', '/acme/api.git/git-upload-pack', 'gitlab.com'),
+      // In another header, the placeholder is refused all the same.
+      { ...sent('POST', '/acme/api.git/git-receive-pack'), headers: { 'x-token': placeholder } },
+    ]) {
+      expect(stray(request)).toBe(true);
+    }
+    // A request without the placeholder is none of their business.
+    expect(stray({ ...sent('POST', '/acme/api.git/git-receive-pack'), headers: {} })).toBe(false);
+  });
+
+  it('take as a placeholder only a long value of a header they replace', () => {
+    const rule = (headers: HarnessV1RequestTransformation['match']['headers']) => ({
+      match: { host: 'api.example.com', path: { exact: '/v1' }, headers },
+      transform: { headers: { authorization: 'Bearer real' } },
+    });
+    const elsewhere: OutgoingRequest = {
+      host: 'api.example.com',
+      method: 'GET',
+      path: '/v2',
+      headers: { 'content-type': 'application/json-of-the-api', authorization: 'Bearer short' },
+    };
+
+    expect(
+      carriesStrayPlaceholder(
+        [
+          rule([
+            { key: { exact: 'content-type' }, value: { exact: 'application/json-of-the-api' } },
+          ]),
+          rule([{ key: { exact: 'authorization' }, value: { exact: 'Bearer short' } }]),
+        ],
+        elsewhere,
+      ),
+    ).toBe(false);
+  });
+
+  it('replace the rules registered before for the same match, rather than pile up', () => {
+    const renewed = rules.map((rule) => ({
+      ...rule,
+      transform: { headers: { Authorization: 'Basic renewed-token' } },
+    }));
+    const other = bearer('other-placeholder', 'sk-other');
+
+    const merged = withTransformations([other, ...rules], renewed);
+
+    expect(merged).toEqual([other, ...renewed]);
+    // Whatever the order of the keys of a match.
+    const reordered = {
+      match: {
+        headers,
+        method: ['POST'],
+        path: { exact: '/acme/api.git/git-upload-pack' },
+        host: 'github.com',
+      },
+      transform: { headers: { Authorization: 'Basic third-token' } },
+    };
+    expect(withTransformations(merged, [reordered])).toEqual([other, renewed[0], reordered]);
   });
 });

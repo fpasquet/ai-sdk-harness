@@ -162,7 +162,7 @@ export class Sandbox implements EgressPolicy {
     for (const [name, value] of Object.entries(env)) {
       variables[name] = name in this.baseUrls ? route(value) : value;
     }
-    return variables;
+    return withGitRoutes(variables, origin);
   }
 
   /** Starts the sandbox, its writable layer the tar at `layer` when given. */
@@ -335,4 +335,21 @@ export class Sandbox implements EgressPolicy {
     child.stdin.write(`${JSON.stringify({ argv, env: variables, ...launch })}\n`);
     return child;
   }
+}
+
+/**
+ * Git over HTTPS through the relay's routes rather than a TLS tunnel, after the command's own
+ * `GIT_CONFIG_*` entries: the service then reads its requests, and swaps in a credential brokered
+ * for the Git server, which a tunnel would carry to it as the placeholder.
+ */
+function withGitRoutes(variables: Record<string, string>, origin: string): Record<string, string> {
+  const count = variables['GIT_CONFIG_COUNT'] ?? '0';
+  // A count git would refuse: the command fails on it whatever is added.
+  if (!/^\d+$/.test(count)) return variables;
+  return {
+    ...variables,
+    GIT_CONFIG_COUNT: String(Number(count) + 1),
+    [`GIT_CONFIG_KEY_${count}`]: `url.${origin}/https/.insteadOf`,
+    [`GIT_CONFIG_VALUE_${count}`]: 'https://',
+  };
 }

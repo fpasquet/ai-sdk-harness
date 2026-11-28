@@ -184,6 +184,14 @@ interface CheckoutOperations {
    * content too with `contents: true`.
    */
   changedFiles(options?: ChangedFilesOptions): Promise<ChangedFile[]>;
+  /**
+   * Renews the credential of the checkout's remote, for a source that keeps one up
+   * (`readOnlyRemote` of `gitRepository()`, its `credentials` a function): the source is asked for
+   * it again, and the token it gives replaces the one the sandbox swaps in. The source already
+   * does so at an interval and at each resume: call it when you know the token changed. Nothing
+   * happens for a checkout without one.
+   */
+  refreshCredentials(options?: { abortSignal?: AbortSignal }): Promise<void>;
   /** Where it all happens. */
   readonly directory: string;
 }

@@ -27,7 +27,28 @@ export interface HostSandbox {
   home: string;
   commands: RanCommand[];
   written: string[];
+  /**
+   * The request transformations it holds: each one added, or, when it declares the scope
+   * `'request'`, each one replacing one added before for the same match, as the proxies of
+   * `ai-sdk-sandbox-gce` and `ai-sdk-sandbox-cloud-run` do.
+   */
   transformations: HarnessV1RequestTransformation[];
+  /** Every call to `addRequestTransformations`, with what it added. */
+  added: HarnessV1RequestTransformation[][];
+}
+
+/** What a transformation matches, comparable whatever the order of its keys. */
+function matchKey({ match }: HarnessV1RequestTransformation): string {
+  const sorted = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value === null || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, item]) => [name, sorted(item)]),
+    );
+  };
+  return JSON.stringify(sorted(match));
 }
 
 const notImplemented = (): never => {
@@ -38,15 +59,29 @@ const notImplemented = (): never => {
 export const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 
 export async function createHostSandbox(
-  options: { brokering?: boolean } = {},
+  options: {
+    brokering?: boolean;
+    /** The `credentialBrokering` the sandbox declares, as `ai-sdk-sandbox-gce` does. */
+    credentialBrokering?: { scope: string };
+    /**
+     * A git configuration every command of the sandbox reads, as its global one: how a sandbox
+     * routes git (`url.<base>.insteadOf`).
+     */
+    gitConfig?: string;
+  } = {},
 ): Promise<HostSandbox> {
   const directory = await mkdtemp(join(tmpdir(), 'harness-workspace-'));
   const home = join(directory, 'home');
   const work = join(directory, 'work');
   await mkdir(home, { recursive: true });
   await mkdir(work, { recursive: true });
-  const record: Recorded = { commands: [], written: [], transformations: [] };
-  const restricted = (): SandboxSession => hostSession({ home, work, record });
+  const record: Recorded = { commands: [], written: [], transformations: [], added: [] };
+  const replaces = options.credentialBrokering?.scope === 'request';
+  const gitEnv =
+    options.gitConfig === undefined
+      ? GIT_ENV
+      : { ...GIT_ENV, GIT_CONFIG_GLOBAL: options.gitConfig };
+  const restricted = (): SandboxSession => hostSession({ home, work, record, gitEnv });
   const sandbox = {
     ...restricted(),
     id: 'host',
@@ -57,9 +92,19 @@ export async function createHostSandbox(
     stop: () => Promise.resolve(),
     destroy: () => Promise.resolve(),
     restricted,
+    ...(options.credentialBrokering !== undefined && {
+      credentialBrokering: options.credentialBrokering,
+    }),
     ...(options.brokering !== false && {
       addRequestTransformations: (added: readonly HarnessV1RequestTransformation[]) => {
-        record.transformations.push(...added);
+        record.added.push([...added]);
+        const held = record.transformations;
+        if (replaces) {
+          const keys = new Set(added.map(matchKey));
+          const kept = held.filter((transformation) => !keys.has(matchKey(transformation)));
+          held.splice(0, held.length, ...kept);
+        }
+        held.push(...added);
         return Promise.resolve();
       },
     }),
@@ -67,17 +112,19 @@ export async function createHostSandbox(
   return { sandbox, directory, home, ...record };
 }
 
-type Recorded = Pick<HostSandbox, 'commands' | 'transformations' | 'written'>;
+type Recorded = Pick<HostSandbox, 'added' | 'commands' | 'transformations' | 'written'>;
 
 /** The commands and files of the stand-in sandbox: on this host, `home` its user's home. */
 function hostSession({
   home,
   work,
   record,
+  gitEnv,
 }: {
   home: string;
   work: string;
   record: Recorded;
+  gitEnv: Record<string, string>;
 }): SandboxSession {
   const write = async (path: string, content: Parameters<typeof writeFile>[1]) => {
     record.written.push(path);
@@ -94,7 +141,7 @@ function hostSession({
           ['-c', command],
           {
             cwd: workingDirectory ?? work,
-            env: { ...process.env, ...GIT_ENV, HOME: home, ...env },
+            env: { ...process.env, ...gitEnv, HOME: home, ...env },
             ...(abortSignal !== undefined && { signal: abortSignal }),
           },
           (error, stdout, stderr) => {

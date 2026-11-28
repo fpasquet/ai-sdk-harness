@@ -4,6 +4,7 @@ import type { ProxyRegistration, ProxyUsage } from '../protocol/proxy.js';
 import type { EgressPolicy } from './egress-policy.js';
 
 import { HttpError } from '../common/http-error.js';
+import { withTransformations } from './egress-policy.js';
 import { normalizeAddress, RegisteredSandbox } from './registered-sandbox.js';
 
 /**
@@ -42,8 +43,10 @@ export class SandboxRegistry {
     this.get(name).allowedHosts = allowedHosts;
   }
 
+  /** Adds `transformations`, each replacing one that matches the same requests. */
   addTransformations(name: string, transformations: HarnessV1RequestTransformation[]): void {
-    this.get(name).transformations.push(...transformations);
+    const sandbox = this.get(name);
+    sandbox.transformations = withTransformations(sandbox.transformations, transformations);
   }
 
   setTransformations(name: string, transformations: HarnessV1RequestTransformation[]): void {
