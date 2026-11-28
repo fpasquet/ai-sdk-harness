@@ -36,4 +36,5 @@ export {
 } from './client/lifecycle/create-session.js';
 export { GCE_SANDBOX_PROVIDER_ID } from './client/provider-id.js';
 export { GceNetworkSandboxSession } from './client/session/gce-network-sandbox-session.js';
+export type { GceCredentialBrokering } from './client/session/gce-network-sandbox-session.js';
 export { GceSandboxSession } from './client/session/gce-sandbox-session.js';

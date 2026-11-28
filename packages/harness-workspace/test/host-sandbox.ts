@@ -38,7 +38,16 @@ const notImplemented = (): never => {
 export const GIT_ENV = { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 
 export async function createHostSandbox(
-  options: { brokering?: boolean } = {},
+  options: {
+    brokering?: boolean;
+    /** The `credentialBrokering` the sandbox declares, as `ai-sdk-sandbox-gce` does. */
+    credentialBrokering?: { scope: string };
+    /**
+     * A git configuration every command of the sandbox reads, as its global one: how a sandbox
+     * routes git (`url.<base>.insteadOf`).
+     */
+    gitConfig?: string;
+  } = {},
 ): Promise<HostSandbox> {
   const directory = await mkdtemp(join(tmpdir(), 'harness-workspace-'));
   const home = join(directory, 'home');
@@ -46,7 +55,11 @@ export async function createHostSandbox(
   await mkdir(home, { recursive: true });
   await mkdir(work, { recursive: true });
   const record: Recorded = { commands: [], written: [], transformations: [] };
-  const restricted = (): SandboxSession => hostSession({ home, work, record });
+  const gitEnv =
+    options.gitConfig === undefined
+      ? GIT_ENV
+      : { ...GIT_ENV, GIT_CONFIG_GLOBAL: options.gitConfig };
+  const restricted = (): SandboxSession => hostSession({ home, work, record, gitEnv });
   const sandbox = {
     ...restricted(),
     id: 'host',
@@ -57,6 +70,9 @@ export async function createHostSandbox(
     stop: () => Promise.resolve(),
     destroy: () => Promise.resolve(),
     restricted,
+    ...(options.credentialBrokering !== undefined && {
+      credentialBrokering: options.credentialBrokering,
+    }),
     ...(options.brokering !== false && {
       addRequestTransformations: (added: readonly HarnessV1RequestTransformation[]) => {
         record.transformations.push(...added);
@@ -74,10 +90,12 @@ function hostSession({
   home,
   work,
   record,
+  gitEnv,
 }: {
   home: string;
   work: string;
   record: Recorded;
+  gitEnv: Record<string, string>;
 }): SandboxSession {
   const write = async (path: string, content: Parameters<typeof writeFile>[1]) => {
     record.written.push(path);
@@ -94,7 +112,7 @@ function hostSession({
           ['-c', command],
           {
             cwd: workingDirectory ?? work,
-            env: { ...process.env, ...GIT_ENV, HOME: home, ...env },
+            env: { ...process.env, ...gitEnv, HOME: home, ...env },
             ...(abortSignal !== undefined && { signal: abortSignal }),
           },
           (error, stdout, stderr) => {

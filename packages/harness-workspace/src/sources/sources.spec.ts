@@ -66,14 +66,33 @@ describe('workspace sources', () => {
 
       const [transformation] = host.transformations;
       const placeholder = transformation!.match.headers![0]!.value as { exact: string };
-      expect(transformation).toMatchObject({
-        match: { host: 'git.example.com', path: { startsWith: '/acme/widgets' } },
-        transform: {
-          headers: {
-            Authorization: `Basic ${Buffer.from('x-access-token:real-token').toString('base64')}`,
+      const authorization = `Basic ${Buffer.from('x-access-token:real-token').toString('base64')}`;
+      const headers = [{ key: { exact: 'Authorization' }, value: placeholder }];
+      // The requests that read the repository, at its exact path: not /acme/widgets-other, nor a
+      // push (git-receive-pack).
+      expect(host.transformations).toEqual(
+        ['/acme/widgets', '/acme/widgets.git'].flatMap((path) => [
+          {
+            match: {
+              host: 'git.example.com',
+              path: { exact: `${path}/info/refs` },
+              method: ['GET'],
+              queryString: [{ key: { exact: 'service' }, value: { exact: 'git-upload-pack' } }],
+              headers,
+            },
+            transform: { headers: { Authorization: authorization } },
           },
-        },
-      });
+          {
+            match: {
+              host: 'git.example.com',
+              path: { exact: `${path}/git-upload-pack` },
+              method: ['POST'],
+              headers,
+            },
+            transform: { headers: { Authorization: authorization } },
+          },
+        ]),
+      );
       expect(Buffer.from(placeholder.exact.slice('Basic '.length), 'base64').toString()).toMatch(
         /^x-access-token:ai-sdk-harness-[0-9a-f-]{36}$/,
       );

@@ -11,6 +11,7 @@ import type { EgressPolicy } from './egress-policy.js';
 import { silentLogger } from '../common/logger.js';
 import { routeTarget } from '../protocol/proxy-routes.js';
 import {
+  carriesStrayPlaceholder,
   injectedCredentials,
   isListedHost,
   isRoutable,
@@ -182,6 +183,13 @@ interface Refusal {
   target?: string;
   why: string;
 }
+
+/**
+ * Why a request that carries a placeholder of the sandbox where none of its rules applies is
+ * refused: the path and query are left out, the log takes this reason as it is.
+ */
+const STRAY_PLACEHOLDER =
+  'The request carries a credential placeholder of the sandbox where no rule of its credential brokering applies (another host, path, method or query): the sandbox may not use that credential here. A credential brokered to read a Git repository never lets it push.';
 
 const refuse = (res: ServerResponse, message: string): void => {
   res.writeHead(403, { 'content-type': 'text/plain' }).end(`${message}\n`);
@@ -651,15 +659,6 @@ export class EgressProxy {
     },
   ): void {
     const reach = reachability(policy, target.hostname);
-    if (reach.error !== undefined) {
-      this.deny(res, {
-        address: req.socket.remoteAddress,
-        policy,
-        target: target.host,
-        why: reach.error,
-      });
-      return;
-    }
     const path = `${target.pathname}${target.search}`;
     const outgoing = {
       host: target.hostname,
@@ -667,6 +666,13 @@ export class EgressProxy {
       path,
       headers: forwardable(req.headers),
     };
+    const why =
+      reach.error ??
+      (carriesStrayPlaceholder(policy.transformations, outgoing) ? STRAY_PLACEHOLDER : undefined);
+    if (why !== undefined) {
+      this.deny(res, { address: req.socket.remoteAddress, policy, target: target.host, why });
+      return;
+    }
     const headers = transformHeaders(transformations, outgoing);
     const credentials = injectedCredentials(transformations, outgoing);
     const request = target.protocol === 'http:' ? httpRequest : httpsRequest;

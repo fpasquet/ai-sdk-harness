@@ -1,4 +1,9 @@
-export type { SourceFetchContext, WorkspaceSource } from './definitions/source.js';
+export type {
+  SourceConnectContext,
+  SourceConnection,
+  SourceFetchContext,
+  WorkspaceSource,
+} from './definitions/source.js';
 export type {
   ChangedFile,
   ChangedFilesOptions,
@@ -23,7 +28,11 @@ export { WorkspaceError } from './errors/workspace-error.js';
 export { WorkspaceLostError } from './errors/workspace-lost-error.js';
 export { WorkspaceSetupError } from './errors/workspace-setup-error.js';
 export { gitRepository } from './sources/git-repository.js';
-export type { GitCredentials, GitRepositoryOptions } from './sources/git-repository.js';
+export type {
+  GitCredentials,
+  GitRepositoryOptions,
+  ReadOnlyRemoteOptions,
+} from './sources/git-repository.js';
 export { hostRepository } from './sources/host-repository.js';
 export type { HostRepositoryOptions } from './sources/host-repository.js';
 export { sandboxRepository } from './sources/sandbox-repository.js';

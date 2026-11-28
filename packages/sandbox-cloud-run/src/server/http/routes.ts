@@ -5,6 +5,7 @@ import type { Sandboxes } from '../sandboxes/sandboxes.js';
 
 import { MAX_INPUT_WRITE_BYTES } from '../../protocol/api.js';
 import { PROTOCOL_VERSION } from '../../protocol/version.js';
+import { withTransformations } from '../egress/egress-policy.js';
 import { PACKAGE_VERSION } from '../package-version.js';
 import { execStream } from './exec-stream.js';
 import { HttpError } from './http-error.js';
@@ -174,7 +175,9 @@ export const ROUTES: Route[] = [
     new RegExp(`^${SANDBOX}/transformations$`),
     async ({ sandboxes, params: [name = ''], request }) => {
       const transformations = transformationList(await readJson(request));
-      sandboxes.get(name).transformations.push(...transformations);
+      const sandbox = sandboxes.get(name);
+      // Each replacing one that matches the same requests: a renewed credential, say.
+      sandbox.transformations = withTransformations(sandbox.transformations, transformations);
       return NO_CONTENT;
     },
   ),

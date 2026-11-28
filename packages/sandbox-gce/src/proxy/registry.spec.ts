@@ -53,4 +53,24 @@ describe('the registry of the egress proxy', () => {
 
     expect(registry.holdsSecret('box', ['abc'])).toBe(false);
   });
+
+  it('replaces a credential added again for the same match, rather than piling it up', () => {
+    const registry = new SandboxRegistry();
+    registry.register('box', registration('10.0.0.3'));
+    const rule = (token: string) => ({
+      match: {
+        host: 'github.com',
+        path: { exact: '/acme/api.git/git-upload-pack' },
+        method: ['POST'],
+        headers: [{ key: { exact: 'Authorization' }, value: { exact: 'Basic placeholder-value' } }],
+      },
+      transform: { headers: { Authorization: `Basic ${token}` } },
+    });
+
+    registry.addTransformations('box', [rule('first-token-value')]);
+    registry.addTransformations('box', [rule('renewed-token-value')]);
+
+    expect(registry.policyFor('10.0.0.3')?.transformations).toEqual([rule('renewed-token-value')]);
+    expect(registry.holdsSecret('box', ['first-token-value'])).toBe(false);
+  });
 });

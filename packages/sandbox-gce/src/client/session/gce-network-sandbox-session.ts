@@ -19,6 +19,7 @@ import type { GceSandboxHandle } from './gce-sandbox-session.js';
 
 import { GceSandboxNotFoundError } from '../errors/gce-sandbox-not-found-error.js';
 import { GCE_SANDBOX_PROVIDER_ID } from '../provider-id.js';
+import { withTransformations } from '../utils/transformations.js';
 import { GceSandboxSession } from './gce-sandbox-session.js';
 
 type Protocol = 'http' | 'https' | 'ws';
@@ -35,6 +36,25 @@ export async function reportUsage(
   }
 }
 type Transformations = ReadonlyArray<HarnessV1RequestTransformation>;
+
+/**
+ * How the sandbox brokers credentials, beyond what `@ai-sdk/harness` says of it: for code that must
+ * know before it hands one over, as `gitRepository({ readOnlyRemote })` of
+ * `ai-sdk-harness-workspace` does. `scope: 'request'`:
+ *
+ * - a request transformation applies only where its host, path, method, query string and headers
+ *   all match: a query parameter it names must have no other value in the request;
+ * - a rule added for exactly the same match as one already registered replaces it: a credential
+ *   renewed for the same placeholder takes the place of the one before;
+ * - a request that carries a placeholder of the sandbox where none of its rules applies is refused
+ *   by the proxy, with a 403, rather than sent on.
+ *
+ * Through a base URL route only: a TLS tunnel goes through unread, and so does a placeholder in it.
+ * Git over HTTPS takes the routes.
+ */
+export interface GceCredentialBrokering {
+  readonly scope: 'request';
+}
 
 /** Where a view stands among the views of one sandbox. */
 interface ViewSettings {
@@ -78,6 +98,8 @@ export class GceNetworkSandboxSession
   extends GceSandboxSession
   implements HarnessV1NetworkSandboxSession
 {
+  /** How it brokers credentials: see {@link GceCredentialBrokering}. */
+  readonly credentialBrokering: GceCredentialBrokering = { scope: 'request' };
   readonly defaultWorkingDirectory: string;
   readonly id: string;
   /**
@@ -121,7 +143,7 @@ export class GceNetworkSandboxSession
    */
   addRequestTransformations = async (transformations: Transformations): Promise<void> => {
     const { credentials } = this.view;
-    credentials.set(this, [...(credentials.get(this) ?? []), ...transformations]);
+    credentials.set(this, withTransformations(credentials.get(this) ?? [], transformations));
     await this.handle.client.addTransformations(this.handle.name, transformations);
   };
 

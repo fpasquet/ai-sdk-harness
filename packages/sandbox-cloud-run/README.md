@@ -333,6 +333,10 @@ await createCloudRunNetworkSandboxSession({
 });
 ```
 
+Git over HTTPS goes the same way: every command gets a `url.<relay>/https/.insteadOf https://` setting, after the command's own `GIT_CONFIG_*` entries, so that a credential brokered for a Git server, such as a repository of [`ai-sdk-harness-workspace`](https://ai-sdk-harness.pages.dev/docs/packages/harness-workspace), is swapped in too. Through the `HTTPS_PROXY` tunnel, which the proxy cannot read, the server would get the placeholder. A `http.<url>.*` setting of git keyed by an `https://` URL no longer matches it: git matches the URL it rewrote.
+
+The proxy applies a transformation to the letter: its host, path, method, query string and headers must all match, and a query parameter it names must have no other value in the request (`?service=git-upload-pack&service=git-receive-pack` matches no rule for `service=git-upload-pack`). A transformation added again for exactly the same match replaces the one before, so that a renewed token takes the place of the old one rather than piling up beside it. A request through a route that carries a placeholder of the sandbox where none of its rules applies — another path, method, query or host — is refused with a 403, rather than sent on. The session says so, for code that must know before it hands a credential over: `session.credentialBrokering` is `{ scope: 'request' }`. That is what lets `gitRepository({ readOnlyRemote: true })` of `ai-sdk-harness-workspace` leave a placeholder in a checkout for the whole session: the token only goes in the requests that read the repository, and a `git push` with the placeholder is refused by the proxy.
+
 ### What keeps a credential from leaking
 
 | Protection                                 | What it prevents                                                                                                                                       |
@@ -341,6 +345,7 @@ await createCloudRunNetworkSandboxSession({
 | **Commands carrying a credential refused** | A real credential entering the sandbox anyway: the service refuses any command whose command line or variables hold one it keeps for the sandbox.      |
 | **Commands through a launcher**            | Credentials, variables or commands in Cloud Run's logs, which record the command line of everything run in a sandbox: that line is `node …/launch.js`. |
 | **One host per credential**                | The credential reaching another host: it is only put in requests to the host it is for.                                                                |
+| **No placeholder out of its rules**        | A placeholder used where no rule of it applies, a push with the placeholder of a credential brokered to read a repository say: refused with a 403.     |
 | **HTTPS only**                             | The credential travelling in clear: a base URL in plain HTTP is refused.                                                                               |
 | **No private address**                     | The sandbox reaching the metadata server, and the service account's token, or the service itself: see [Network](#network).                             |
 | **Forgotten when done**                    | The credential outliving its use: `release()` and `stop()` drop it from the service's memory.                                                          |

@@ -8,6 +8,7 @@ import { connect, isIP } from 'node:net';
 import type { EgressPolicy } from './egress-policy.js';
 
 import {
+  carriesStrayPlaceholder,
   injectedCredentials,
   isListedHost,
   isRoutable,
@@ -47,6 +48,13 @@ function reachability(
   }
   return { lookup: publicOnlyLookup };
 }
+
+/**
+ * Why a request that carries a placeholder of the sandbox where none of its rules applies is
+ * refused: the path and query are left out, the log takes this reason as it is.
+ */
+const STRAY_PLACEHOLDER =
+  'The request carries a credential placeholder of the sandbox where no rule of its credential brokering applies (another host, path, method or query): the sandbox may not use that credential here. A credential brokered to read a Git repository never lets it push.';
 
 const refuse = (res: ServerResponse, message: string): void => {
   res.writeHead(403, { 'content-type': 'text/plain' }).end(`${message}\n`);
@@ -141,6 +149,10 @@ export class EgressProxy {
       path,
       headers: forwardable(req.headers),
     };
+    if (carriesStrayPlaceholder(policy.transformations, outgoing)) {
+      refuse(res, STRAY_PLACEHOLDER);
+      return;
+    }
     const headers = transformHeaders(policy.transformations, outgoing);
     const credentials = injectedCredentials(policy.transformations, outgoing);
     const send = target.protocol === 'http:' ? httpRequest : httpsRequest;

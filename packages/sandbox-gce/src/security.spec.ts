@@ -7,8 +7,10 @@ import { connect, createServer as createTcpServer } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { FakeService } from '../test/fake-service.js';
+import type { GitServer } from '../test/git-server.js';
 
 import { startFakeService } from '../test/fake-service.js';
+import { readRules, startGitServer } from '../test/git-server.js';
 import { createGceNetworkSandboxSession } from './index.js';
 import { agentToken } from './server/sandboxes/agent-client.js';
 
@@ -420,5 +422,138 @@ describe('the service', () => {
 
     expect(response.status).toBe(400);
     expect(fake.compute.calls).toEqual([]);
+  });
+});
+
+describe('a credential brokered to read a Git repository', () => {
+  const basic = (credentials: string) => `Basic ${Buffer.from(credentials).toString('base64')}`;
+  const TOKEN = 'ghs_read_only_token_0123456789';
+  const placeholder = basic('x-access-token:ai-sdk-harness-1b4e28ba-2fa1-41d2-883f-0016d3cca427');
+  let fake: FakeService;
+  let server: GitServer;
+
+  afterEach(async () => {
+    await fake.dispose();
+    await server.close();
+  });
+
+  /**
+   * A sandbox whose checkout has what `gitRepository({ readOnlyRemote })` of
+   * `ai-sdk-harness-workspace` leaves it: an `origin` remote, git sending a placeholder, the rules
+   * of a read registered. Git goes through the proxy's routes, plain HTTP to the loopback here.
+   */
+  async function sandboxWithRemote() {
+    server = await startGitServer(basic(`x-access-token:${TOKEN}`));
+    fake = await startFakeService({ network: { allowedHosts: [], baseUrls: {} } });
+    const session = await createGceNetworkSandboxSession({
+      url: fake.url,
+      auth: 'none',
+      sandboxId: 'box',
+      allowedHosts: ['localhost'],
+    });
+    expect(session.credentialBrokering).toEqual({ scope: 'request' });
+    expect(session.fork({ ports: [] }).credentialBrokering).toEqual({ scope: 'request' });
+    await session.addRequestTransformations(
+      readRules('127.0.0.1', '/acme/api', placeholder, basic(`x-access-token:${TOKEN}`)),
+    );
+    const remote = `http://127.0.0.1:${server.port}/acme/api.git`;
+    const { exitCode, stderr } = await session.run({
+      command: [
+        'git init --quiet repo',
+        'cd repo',
+        `git remote add origin ${remote}`,
+        `git config http.extraHeader "Authorization: ${placeholder}"`,
+        'git config url."$HTTP_PROXY/http/".insteadOf http://',
+      ].join(' && '),
+    });
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: '' });
+    return session;
+  }
+
+  /** A request through the proxy's route to the Git server, the placeholder in it: its status. */
+  const sendPlaceholder = (path: string, method = 'GET', host = '127.0.0.1') =>
+    node(
+      `fetch(process.env.HTTP_PROXY + "/http/${host}:${server.port}${path}", { method: "${method}", headers: { authorization: "${placeholder}" } })` +
+        '.then(async (r) => console.log(r.status, (await r.text()).split("\\n")[0]))',
+    );
+
+  it('reads the repository with the token, which never enters the sandbox, and refuses a push', async () => {
+    const session = await sandboxWithRemote();
+
+    const fetched = await session.run({
+      command:
+        'cd repo && git fetch --quiet origin && git rev-parse origin/main && git ls-remote origin main',
+      workingDirectory: '.',
+    });
+    const pushed = await session.run({
+      command:
+        'cd repo && git checkout --quiet -b x origin/main && git push origin HEAD:refs/heads/x',
+    });
+
+    expect(fetched.stdout.split('\n')[0]).toBe(server.head);
+    expect(fetched.stdout).toContain(`${server.head}\trefs/heads/main`);
+    expect(pushed.exitCode).not.toBe(0);
+    expect(pushed.stderr).toMatch(/403/);
+    // What reached the Git server: reads, with the token, and nothing else.
+    expect(server.requests.length).toBeGreaterThan(0);
+    for (const { path, authorization } of server.requests) {
+      expect(path).toMatch(
+        /^\/acme\/api\.git\/(info\/refs\?service=git-upload-pack|git-upload-pack)$/,
+      );
+      expect(authorization).toBe(basic(`x-access-token:${TOKEN}`));
+    }
+    const { stdout: config } = await session.run({ command: 'cd repo && git config --list; env' });
+    expect(config).not.toContain(TOKEN);
+    expect(config).not.toContain(basic(`x-access-token:${TOKEN}`));
+  });
+
+  it('refuses the placeholder wherever no rule of it applies: a push, another repository, another host', async () => {
+    const session = await sandboxWithRemote();
+
+    const { stdout } = await session.run({
+      command: [
+        sendPlaceholder('/acme/api.git/git-receive-pack', 'POST'),
+        sendPlaceholder('/acme/api.git/info/refs?service=git-receive-pack'),
+        sendPlaceholder('/acme/api.git/info/refs?service=git-upload-pack&service=git-receive-pack'),
+        sendPlaceholder('/acme/api.git/info/refs?service=git-receive-pack&service=git-upload-pack'),
+        sendPlaceholder('/acme/api-other.git/info/refs?service=git-upload-pack'),
+        sendPlaceholder('//acme/api.git/info/refs?service=git-upload-pack'),
+        sendPlaceholder('/acme/api.git/git-upload-pack', 'PUT'),
+        sendPlaceholder('/acme/api.git/info/lfs/objects/batch', 'POST'),
+        sendPlaceholder('/acme/api.git/info/refs?service=git-upload-pack', 'GET', 'localhost'),
+        sendPlaceholder('/acme/api.git/info/refs?service=git-upload-pack'),
+      ].join('; '),
+    });
+
+    const refused =
+      '403 The request carries a credential placeholder of the sandbox where no rule of its credential brokering applies (another host, path, method or query): the sandbox may not use that credential here. A credential brokered to read a Git repository never lets it push.';
+    expect(stdout.trim().split('\n')).toEqual([
+      ...Array.from({ length: 9 }, () => refused),
+      '200 001e# service=git-upload-pack',
+    ]);
+    // Only the read the rules cover reached the server.
+    expect(server.requests.map(({ path }) => path)).toEqual([
+      '/acme/api.git/info/refs?service=git-upload-pack',
+    ]);
+  });
+
+  it('renews the token in place: the rules for the same placeholder replace the ones before', async () => {
+    const session = await sandboxWithRemote();
+    const renewed = basic('x-access-token:ghs_renewed_token_9876543210');
+
+    await session.addRequestTransformations(
+      readRules('127.0.0.1', '/acme/api', placeholder, renewed),
+    );
+    server.accepted = renewed;
+    const { stdout, exitCode } = await session.run({
+      command: 'cd repo && git fetch --quiet origin && git rev-parse origin/main',
+    });
+
+    expect({ exitCode, stdout: stdout.trim() }).toEqual({ exitCode: 0, stdout: server.head });
+    const { transformations } = fake.registry.policyFor('127.0.0.1')!;
+    expect(transformations).toHaveLength(4);
+    expect(transformations.map(({ transform }) => transform.headers['Authorization'])).toEqual(
+      Array.from({ length: 4 }, () => renewed),
+    );
   });
 });

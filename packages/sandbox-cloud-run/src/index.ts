@@ -17,4 +17,5 @@ export {
 } from './client/lifecycle/create-session.js';
 export { CLOUD_RUN_SANDBOX_PROVIDER_ID } from './client/provider-id.js';
 export { CloudRunNetworkSandboxSession } from './client/session/cloud-run-network-sandbox-session.js';
+export type { CloudRunCredentialBrokering } from './client/session/cloud-run-network-sandbox-session.js';
 export { CloudRunSandboxSession } from './client/session/cloud-run-sandbox-session.js';

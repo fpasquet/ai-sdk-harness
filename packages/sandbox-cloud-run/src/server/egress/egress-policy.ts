@@ -49,6 +49,22 @@ const allMatch = (
     pairs.some(([name, v]) => matches(key, name, caseInsensitiveKeys) && matches(value, v)),
   );
 
+/**
+ * Whether every matcher of the query string finds a parameter that satisfies it, and, when it
+ * names its key, no parameter of that key that does not: `?service=git-upload-pack&service=
+ * git-receive-pack` satisfies no rule for `service=git-upload-pack`, whichever of the two the
+ * server reads.
+ */
+const queryMatches = (
+  matchers: readonly KeyValueMatcher[] = [],
+  pairs: [string, string][],
+): boolean =>
+  matchers.every(({ key, value }) => {
+    if (key === undefined) return pairs.some(([, v]) => matches(value, v));
+    const named = pairs.filter(([name]) => matches(key, name));
+    return named.length > 0 && named.every(([, v]) => matches(value, v));
+  });
+
 /** Whether `transformation` applies to `request`: every condition it sets must hold. */
 export function appliesTo(
   transformation: HarnessV1RequestTransformation,
@@ -63,8 +79,82 @@ export function appliesTo(
   }
   return (
     allMatch(headers, headerPairs(request.headers), true) &&
-    allMatch(queryString, [...url.searchParams.entries()], false)
+    queryMatches(queryString, [...url.searchParams.entries()])
   );
+}
+
+/** Shorter than this, a header value a rule matches is no placeholder: it could be sent by chance. */
+const MIN_PLACEHOLDER_LENGTH = 16;
+
+/**
+ * The placeholders a transformation swaps: the exact value it matches in a header it replaces,
+ * long enough to have been made for it.
+ */
+function placeholdersOf({ match, transform }: HarnessV1RequestTransformation): string[] {
+  const replaced = new Set(Object.keys(transform.headers).map((name) => name.toLowerCase()));
+  return (match.headers ?? []).flatMap(({ key, value }) =>
+    key !== undefined &&
+    'exact' in key &&
+    replaced.has(key.exact.toLowerCase()) &&
+    value !== undefined &&
+    'exact' in value &&
+    value.exact.length >= MIN_PLACEHOLDER_LENGTH
+      ? [value.exact]
+      : [],
+  );
+}
+
+/**
+ * Whether `request` carries a placeholder of a transformation, in any header, where no
+ * transformation for that placeholder applies: another path, method, query or host than its rules
+ * name, such as a push with the placeholder of a credential brokered for reading a repository.
+ * The proxy refuses it rather than send it on: no rule covers it, and none must ever be widened
+ * by what the sandbox sends.
+ */
+export function carriesStrayPlaceholder(
+  transformations: readonly HarnessV1RequestTransformation[],
+  request: OutgoingRequest,
+): boolean {
+  const sent = new Set(headerPairs(request.headers).map(([, value]) => value));
+  const stray = new Set<string>();
+  const covered = new Set<string>();
+  for (const transformation of transformations) {
+    const carried = placeholdersOf(transformation).filter((placeholder) => sent.has(placeholder));
+    if (carried.length === 0) continue;
+    const into = appliesTo(transformation, request) ? covered : stray;
+    for (const placeholder of carried) into.add(placeholder);
+  }
+  return [...stray].some((placeholder) => !covered.has(placeholder));
+}
+
+/** What a rule matches, comparable: its matchers, whatever the order of their keys. */
+function matchKey({ match }: HarnessV1RequestTransformation): string {
+  const sorted = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value === null || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, item]) => [name, sorted(item)]),
+    );
+  };
+  return JSON.stringify(sorted(match));
+}
+
+/**
+ * `existing`, then `added`, each added rule replacing one that matches exactly the same requests:
+ * a credential renewed for the same placeholder takes the place of the one before, rather than
+ * piling up beside it.
+ */
+export function withTransformations(
+  existing: readonly HarnessV1RequestTransformation[],
+  added: readonly HarnessV1RequestTransformation[],
+): HarnessV1RequestTransformation[] {
+  const replaced = new Set(added.map(matchKey));
+  const kept = existing.filter((transformation) => !replaced.has(matchKey(transformation)));
+  // The last of several added rules for one match wins, as it would added one after the other.
+  const last = new Map(added.map((transformation) => [matchKey(transformation), transformation]));
+  return [...kept, ...last.values()];
 }
 
 /**

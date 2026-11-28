@@ -125,6 +125,31 @@ gitRepository({
 
 Each new session fetches the repository in the sandbox. A private repository's token never enters it: the workspace registers it with the sandbox's credential brokering (`addRequestTransformations`, which [`ai-sdk-sandbox-sbx`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-sbx), [`ai-sdk-sandbox-microsandbox`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-microsandbox), [`ai-sdk-sandbox-cloud-run`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-cloud-run) and [`ai-sdk-sandbox-runtime`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-runtime) have), and git sends a placeholder the sandbox's proxy swaps for it on the way out. A sandbox without credential brokering is refused rather than handed the token. `username` defaults to `x-access-token`, what GitHub takes with an app's installation token; GitLab takes `oauth2`, Bitbucket `x-token-auth`.
 
+The token only goes in the requests that read the repository, at its exact path on its host: `GET <path>/info/refs?service=git-upload-pack` and `POST <path>/git-upload-pack`, `<path>` with and without `.git`. `/acme/widgets` does not cover `/acme/widgets-other`, nor does a push (`git-receive-pack`), nor Git LFS. A sandbox whose brokering matches the host alone (`ai-sdk-sandbox-sbx`, `ai-sdk-sandbox-microsandbox`, `ai-sdk-sandbox-runtime`) applies the token to any request to the host that carries the placeholder: see [Security](#security).
+
+#### A read-only remote: `readOnlyRemote`
+
+By default, a checkout has no remote: the agent cannot `git fetch`, read another branch, or update its own. `readOnlyRemote` gives each session's checkout an `origin` remote, the repository's URL, its branches fetched with the checkout into `refs/remotes/origin/*`:
+
+```ts
+gitRepository({
+  url: 'https://github.com/acme/private.git',
+  credentials: async () => ({ token: await installationToken('acme/private') }),
+  readOnlyRemote: true, // or { refreshIntervalMs: 600_000 }
+});
+```
+
+For as long as the session lives, the agent can `git fetch`, `git ls-remote`, `git rebase origin/main` or `git checkout -b fix origin/fix`. The local branch is the workspace's `branch` (`session/<sessionId>` by default): name it after the work with `createWorkspace({ branch: (sessionId) => … })`.
+
+It only reads. The checkout's own git configuration (`git config --worktree`, so that each session has its own) holds `http.<url>.extraHeader` with a placeholder made for that session, never the token: the sandbox's credential brokering swaps it for the token in the requests that read the repository, and refuses it on any other. A `git push` is refused by the sandbox before it reaches the host, and would carry no token if it did.
+
+- **It needs a sandbox whose brokering matches whole requests.** A placeholder that lasts the session is readable by every process of the sandbox, so its rules must be applied to the letter: method, path and query string, a rule renewed for the same placeholder replacing the one before, and a request carrying a placeholder where none of its rules applies refused. A sandbox says so with `credentialBrokering.scope === 'request'`, as [`ai-sdk-sandbox-gce`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-gce) and [`ai-sdk-sandbox-cloud-run`](https://ai-sdk-harness.pages.dev/docs/packages/sandbox-cloud-run) do. Any other sandbox, one of yours included, is refused with a `WorkspaceError` (`step: 'remote'`) before the token is handed over: the checkout without a remote still works on it.
+- **The token is renewed in place.** Short-lived tokens expire — a GitHub App's installation token after an hour. While a session lives, `credentials`, a function, is asked again every `refreshIntervalMs` (15 minutes by default: return a token that lasts at least that long), at each resume, and whenever you call `workspace.session(id)?.refreshCredentials()`; the rules of the session's placeholder are registered again with the new token, which replaces the old one. The timer stops when the session is suspended or closed, and a view of a shared sandbox withdraws its credentials when it is released.
+- **Give it a read-only token**, as a layer of its own: a GitHub App's installation token limited to `contents: read` and to the repositories the agent needs, say. The sandbox already keeps it to reads, the token keeps it there whatever happens to the sandbox.
+- **Without `credentials`**, a public repository: the remote sends no header, on any sandbox.
+
+Git LFS objects are not fetched with the token: the rules cover Git's own protocol only.
+
 #### Your server: `hostRepository()`
 
 ```ts
@@ -347,7 +372,8 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 
 ## Security
 
-- **Credentials.** `gitRepository()` keeps a token out of the sandbox, but while a fetch runs its placeholder is in the environment of git, which another process of the sandbox could read, and use with the sandbox's proxy for as long as the session's sandbox holds the credential. Give a token that can read the repository and nothing else, short-lived — a GitHub App's installation token. `hostRepository()` and `sandboxRepository()` involve no credential at all.
+- **Credentials.** `gitRepository()` keeps a token out of the sandbox, but while a fetch runs its placeholder is in the environment of git, which another process of the sandbox could read, and use with the sandbox's proxy for as long as the session's sandbox holds the credential: to read the repository, on a sandbox whose brokering matches whole requests (`ai-sdk-sandbox-gce`, `ai-sdk-sandbox-cloud-run`); for any request to the repository's host, a push included, on one that matches the host alone. Give a token that can read the repository and nothing else, short-lived — a GitHub App's installation token. `hostRepository()` and `sandboxRepository()` involve no credential at all.
+- **A read-only remote** (`readOnlyRemote`) keeps its placeholder in the checkout's configuration for the whole session, where any process of the sandbox reads it: it is only taken on a sandbox whose brokering applies the rules of a read to the letter, and refuses the placeholder on any other request (`credentialBrokering.scope === 'request'`). The token never enters the sandbox: neither its git configuration, its environment, its files nor its commands.
 - **Sessions of one sandbox trust each other.** They share the repository: an agent can reach the objects, branches and configuration of the others. Give sessions that must not see each other a sandbox each (`sandboxPerSession()`).
 - **A patch is what the agent made it.** Read it before you apply it on your server, and apply it with `git apply`, which refuses paths outside the repository.
 
@@ -357,17 +383,17 @@ Everything about a session's checkout derives from its id, so a resume finds it 
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `createWorkspace(options)`           | A workspace: `source` and `repositoryPath`, or `repositories`, fixed or per session; `setup`, `setupEnv`, `setupTimeoutMs`, `branch`, `committer` |
 | `withWorkspace(settings, workspace)` | The settings of a `HarnessAgent`, with the `onSession` that checks the workspace out                                                              |
-| `gitRepository(options)`             | A source served by a Git server: `url`, `ref`, `depth`, `credentials`, `name`                                                                     |
+| `gitRepository(options)`             | A source served by a Git server: `url`, `ref`, `depth`, `credentials`, `name`, `readOnlyRemote`                                                   |
 | `hostRepository(options)`            | A source on your server, sent as Git bundles: `path`, `ref`, `name`                                                                               |
 | `sandboxRepository(options)`         | A source already in the sandbox: `path`, `ref`, `name`                                                                                            |
 
-A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, and a `fetch()` that points a ref of the repository at the commit to check out — for another origin.
+A `Workspace` has `sandboxes(sandboxes)`, `open({ sessionId, sandboxSession, resume })`, `onSession(input)`, `hosts({ sessionId, abortSignal })`, `session(sessionId)` and `fromSandbox(sandbox)`. A `WorkspaceSession`, the checkouts of a live session, has `sessionId`, `directory`, `branch`, `run(command, { env, timeoutMs, abortSignal })`, `writeLocalFile(path, content)`, `changes()`, `changedFiles({ contents })`, `refreshCredentials()`, `repositories` and `repository(name)` — and `base`, with one repository. A `WorkspaceCheckout`, one repository's, has `name`, `directory`, `branch`, `base` and the same methods. Write a `WorkspaceSource` of your own — a `name`, the `hosts` its fetch reaches, a `fetch()` that points a ref of the repository at the commit to check out, and, if the checkout reaches the source on its own, a `connect()` called once it is made and at each resume — for another origin.
 
 ### Errors
 
 Each has an `isInstance()` that recognizes it whichever copy of the package threw it, as Next.js may load two.
 
-- `WorkspaceError`: a step failed in the sandbox — `step` says which (`fetch`, `checkout`, `changes`…), `stderr` what git said. The others extend it.
+- `WorkspaceError`: a step failed in the sandbox — `step` says which (`fetch`, `checkout`, `remote`, `changes`…), `stderr` what git said — or a sandbox cannot be trusted with what the step needs, as a read-only remote on a sandbox whose brokering matches the host alone. The others extend it.
 - `WorkspaceLostError`: a session resumes, but its checkout is gone from its sandbox — removed, or the sandbox was. Close the session and start another. Carries `sessionId`, and with several repositories the `repository` whose checkout is gone.
 - `WorkspaceSetupError`: a `setup` command failed, or ran out of time, in a new checkout: the session does not start. Carries `command`, `exitCode` and `output`.
 

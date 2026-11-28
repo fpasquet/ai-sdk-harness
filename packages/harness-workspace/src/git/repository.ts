@@ -8,6 +8,7 @@ import {
   CHANGED_FILES,
   CHANGES,
   CHECKOUT,
+  CONNECT_REMOTE,
   FETCH,
   INIT,
   KEEP_LOCAL,
@@ -52,7 +53,10 @@ export async function initRepository(
   });
 }
 
-/** Fetches `revision` of `from` into `ref` of the repository. */
+/**
+ * Fetches `revision` of `from` into `ref` of the repository; with `remoteBranches`, the branches of
+ * `from` too, into `refs/remotes/origin/*`.
+ */
 export async function fetchInto(
   sandbox: SandboxSession,
   {
@@ -62,6 +66,7 @@ export async function fetchInto(
     ref,
     depth,
     env,
+    remoteBranches = false,
     ...options
   }: Signal & {
     repository: string;
@@ -70,12 +75,40 @@ export async function fetchInto(
     ref: string;
     depth?: number | undefined;
     env?: Record<string, string>;
+    remoteBranches?: boolean;
   },
 ): Promise<void> {
   await checkScript(sandbox, 'fetch', {
     script: FETCH,
-    args: [repository, from, revision, ref, depth === undefined ? '' : String(depth)],
+    args: [
+      repository,
+      from,
+      revision,
+      ref,
+      depth === undefined ? '' : String(depth),
+      remoteBranches ? 'yes' : '',
+    ],
     ...(env !== undefined && { env }),
+    ...signal(options),
+  });
+}
+
+/**
+ * Gives the repository of the checkout in `directory` the remote `origin` at `url`, and the
+ * checkout alone `header` on its requests to it: none without one.
+ */
+export async function connectRemote(
+  sandbox: SandboxSession,
+  {
+    directory,
+    url,
+    header,
+    ...options
+  }: Signal & { directory: string; url: string; header?: string | undefined },
+): Promise<void> {
+  await checkScript(sandbox, 'remote', {
+    script: CONNECT_REMOTE,
+    args: [directory, url, header ?? ''],
     ...signal(options),
   });
 }

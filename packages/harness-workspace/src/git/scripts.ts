@@ -23,11 +23,45 @@ export const INIT = [
 
 /**
  * Fetches revision `$3` of `$2` — a URL, a repository's path, a bundle — into ref `$4` of the
- * repository `$1`, `$5` commits deep when set.
+ * repository `$1`, `$5` commits deep when set; with `$6` set, its branches too, into the
+ * remote-tracking branches of `origin`.
  */
 export const FETCH = [
-  'git -C "$1" fetch --quiet --no-tags --no-write-fetch-head ${5:+"--depth=$5"} "$2" "+$3:$4"',
+  'git -C "$1" fetch --quiet --no-tags --no-write-fetch-head ${5:+"--depth=$5"} "$2" "+$3:$4" \\',
+  '  ${6:+"+refs/heads/*:refs/remotes/origin/*"}',
   'git -C "$1" rev-parse --verify --quiet "$4^{commit}" >/dev/null',
+].join('\n');
+
+/**
+ * Gives the repository of the checkout `$1` the remote `origin`, at URL `$2`, its branches fetched
+ * into `refs/remotes/origin/*`; and the checkout alone the header `$3` on its requests to that
+ * URL, none when `$3` is empty. The header goes in the checkout's own configuration
+ * (`extensions.worktreeConfig`, `core.bare` moved out of the shared one first, as git asks), so
+ * that each session's checkout has its own; it is keyed by the URL as given and as git rewrites it
+ * (`url.<base>.insteadOf`, through which a sandbox may route git), which is what git matches it
+ * on.
+ */
+export const CONNECT_REMOTE = [
+  'dir=$1 url=$2 header=$3',
+  'common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)',
+  'git -C "$common" config remote.origin.url "$url"',
+  'git -C "$common" config --replace-all remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"',
+  'if [ "$(git -C "$common" config --bool extensions.worktreeConfig 2>/dev/null)" != true ]; then',
+  // In this order, so that no checkout ever reads `core.bare = true` with the extension on.
+  '  if [ "$(git -C "$common" config --bool core.bare 2>/dev/null)" = true ]; then',
+  '    git config --file "$common/config.worktree" core.bare true',
+  '    git -C "$common" config --unset core.bare',
+  '  fi',
+  '  git -C "$common" config core.repositoryformatversion 1',
+  '  git -C "$common" config extensions.worktreeConfig true',
+  'fi',
+  'routed=$(git -C "$dir" ls-remote --get-url "$url")',
+  'for key in "http.$url.extraHeader" "http.$routed.extraHeader"; do',
+  '  git -C "$dir" config --worktree --unset-all "$key" 2>/dev/null || true',
+  'done',
+  '[ -n "$header" ] || exit 0',
+  'git -C "$dir" config --worktree "http.$url.extraHeader" "$header"',
+  '[ "$routed" = "$url" ] || git -C "$dir" config --worktree "http.$routed.extraHeader" "$header"',
 ].join('\n');
 
 /**
