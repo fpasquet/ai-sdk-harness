@@ -1,10 +1,13 @@
-import type { HarnessV1NetworkSandboxSession } from '@ai-sdk/harness';
+import type {
+  HarnessV1NetworkSandboxSession,
+  HarnessV1RequestTransformation,
+} from '@ai-sdk/harness';
 
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { HostSandbox } from '../../test/host-sandbox.js';
 import type {
@@ -53,6 +56,10 @@ async function filesUnder(directory: string): Promise<string[]> {
 
 describe('the read-only remote of gitRepository()', () => {
   let source: string;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   beforeEach(async () => {
     source = await createSourceRepository();
@@ -226,6 +233,8 @@ describe('the read-only remote of gitRepository()', () => {
     });
 
     it('renews the token for the same placeholder, at an interval, on demand and at a resume, until the session is suspended', async () => {
+      // The renewal's timer only: git and the sandbox's commands keep the real clock.
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
       const host = await createHostSandbox({
         credentialBrokering: { scope: 'request' },
         gitConfig,
@@ -234,49 +243,76 @@ describe('the read-only remote of gitRepository()', () => {
         source: gitRepository({
           url: URL_OF_SERVER,
           credentials,
-          readOnlyRemote: { refreshIntervalMs: 20 },
+          readOnlyRemote: { refreshIntervalMs: 60_000 },
         }),
       });
+      /** Lets the renewals the timer started settle: they ask for a token, then register it. */
+      const tick = async (ms: number) => {
+        await vi.advanceTimersByTimeAsync(ms);
+        await new Promise((resolve) => setImmediate(resolve));
+      };
+      const headerIn = async (directory: string) =>
+        (
+          await run(host, directory, `git config --get "http.${URL_OF_SERVER}.extraHeader"`)
+        ).replace(/^Authorization: /, '');
+      const holds = (value: string) => (transformation: HarnessV1RequestTransformation) =>
+        transformation.match.headers?.some(
+          (header) => header.value && 'exact' in header.value && header.value.exact === value,
+        ) === true;
+      const rulesFor = (value: string) => host.transformations.filter(holds(value));
+      const batchesFor = (value: string) => host.added.filter((batch) => batch.some(holds(value)));
+      const lastToken = () => basic(`x-access-token:${tokens.at(-1)!}`);
+
       const { lease, directory } = await start(host, workspace, 'a');
-      const placeholder = (
-        await run(host, directory, `git config --get "http.${URL_OF_SERVER}.extraHeader"`)
-      ).replace(/^Authorization: /, '');
-      const rulesFor = (value: string) =>
-        host.transformations.filter(({ match }) =>
-          match.headers?.some(
-            (header) => header.value && 'exact' in header.value && header.value.exact === value,
-          ),
-        );
+      const placeholder = await headerIn(directory);
+      // The fetch's token, then the remote's.
+      expect(tokens).toHaveLength(2);
+      expect(batchesFor(placeholder)).toHaveLength(1);
 
-      await vi.waitFor(() => expect(rulesFor(placeholder).length).toBeGreaterThanOrEqual(12));
+      await tick(59_999);
+      expect(tokens).toHaveLength(2);
+      await tick(1);
+      await tick(60_000);
+      await tick(60_000);
+      expect(tokens).toHaveLength(5);
       await workspace.session('a')!.refreshCredentials();
+      expect(tokens).toHaveLength(6);
 
-      // Each renewal registers the same four rules again, the placeholder unchanged: a sandbox
-      // whose brokering matches whole requests replaces them, the new token with them.
-      const rules = rulesFor(placeholder);
-      expect(rules.length % 4).toBe(0);
-      const first = rules.slice(0, 4).map(({ match }) => match);
-      for (let index = 0; index < rules.length; index += 4) {
-        expect(rules.slice(index, index + 4).map(({ match }) => match)).toEqual(first);
+      // Each renewal registered the same four rules again, the placeholder unchanged; the sandbox
+      // replaced them: one set of rules for the placeholder, holding the last token.
+      const batches = batchesFor(placeholder);
+      expect(batches).toHaveLength(5);
+      for (const batch of batches) {
+        expect(batch.map(({ match }) => match)).toEqual(batches[0]!.map(({ match }) => match));
       }
-      expect(rules.at(-1)!.transform.headers.Authorization).toBe(
-        basic(`x-access-token:${tokens.at(-1)!}`),
+      expect(rulesFor(placeholder)).toHaveLength(4);
+      expect(rulesFor(placeholder).map(({ transform }) => transform.headers.Authorization)).toEqual(
+        Array.from({ length: 4 }, lastToken),
       );
 
+      // Suspended: no renewal any more.
       await lease.suspend();
-      const asked = tokens.length;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(tokens.length).toBe(asked);
+      await tick(600_000);
+      expect(tokens).toHaveLength(6);
 
-      // A resume asks for a token again, with a new placeholder in the checkout.
+      // A resume asks for a token again, with a new placeholder in the checkout, and renews it.
       const again = await start(host, workspace, 'a', { resume: true });
-      const resumed = (
-        await run(host, directory, `git config --get "http.${URL_OF_SERVER}.extraHeader"`)
-      ).replace(/^Authorization: /, '');
+      const resumed = await headerIn(directory);
       expect(resumed).not.toBe(placeholder);
+      expect(tokens).toHaveLength(7);
       expect(rulesFor(resumed)).toHaveLength(4);
-      expect(tokens.length).toBe(asked + 1);
+      await tick(60_000);
+      expect(tokens).toHaveLength(8);
+      expect(batchesFor(resumed)).toHaveLength(2);
+      expect(rulesFor(resumed)).toHaveLength(4);
+      expect(rulesFor(resumed).map(({ transform }) => transform.headers.Authorization)).toEqual(
+        Array.from({ length: 4 }, lastToken),
+      );
+
+      // Closed: no renewal any more either.
       await again.lease.close();
+      await tick(600_000);
+      expect(tokens).toHaveLength(8);
     });
 
     it.each([

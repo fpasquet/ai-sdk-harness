@@ -27,7 +27,28 @@ export interface HostSandbox {
   home: string;
   commands: RanCommand[];
   written: string[];
+  /**
+   * The request transformations it holds: each one added, or, when it declares the scope
+   * `'request'`, each one replacing one added before for the same match, as the proxies of
+   * `ai-sdk-sandbox-gce` and `ai-sdk-sandbox-cloud-run` do.
+   */
   transformations: HarnessV1RequestTransformation[];
+  /** Every call to `addRequestTransformations`, with what it added. */
+  added: HarnessV1RequestTransformation[][];
+}
+
+/** What a transformation matches, comparable whatever the order of its keys. */
+function matchKey({ match }: HarnessV1RequestTransformation): string {
+  const sorted = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value === null || typeof value !== 'object') return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, item]) => [name, sorted(item)]),
+    );
+  };
+  return JSON.stringify(sorted(match));
 }
 
 const notImplemented = (): never => {
@@ -54,7 +75,8 @@ export async function createHostSandbox(
   const work = join(directory, 'work');
   await mkdir(home, { recursive: true });
   await mkdir(work, { recursive: true });
-  const record: Recorded = { commands: [], written: [], transformations: [] };
+  const record: Recorded = { commands: [], written: [], transformations: [], added: [] };
+  const replaces = options.credentialBrokering?.scope === 'request';
   const gitEnv =
     options.gitConfig === undefined
       ? GIT_ENV
@@ -75,7 +97,14 @@ export async function createHostSandbox(
     }),
     ...(options.brokering !== false && {
       addRequestTransformations: (added: readonly HarnessV1RequestTransformation[]) => {
-        record.transformations.push(...added);
+        record.added.push([...added]);
+        const held = record.transformations;
+        if (replaces) {
+          const keys = new Set(added.map(matchKey));
+          const kept = held.filter((transformation) => !keys.has(matchKey(transformation)));
+          held.splice(0, held.length, ...kept);
+        }
+        held.push(...added);
         return Promise.resolve();
       },
     }),
@@ -83,7 +112,7 @@ export async function createHostSandbox(
   return { sandbox, directory, home, ...record };
 }
 
-type Recorded = Pick<HostSandbox, 'commands' | 'transformations' | 'written'>;
+type Recorded = Pick<HostSandbox, 'added' | 'commands' | 'transformations' | 'written'>;
 
 /** The commands and files of the stand-in sandbox: on this host, `home` its user's home. */
 function hostSession({
