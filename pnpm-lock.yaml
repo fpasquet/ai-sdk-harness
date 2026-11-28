@@ -149,7 +149,7 @@ importers:
         version: 6.0.3
       wrangler:
         specifier: ^4.165.0
-        version: 4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
+        version: 4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1)
 
   examples/starter-next:
     dependencies:
@@ -223,13 +223,13 @@ importers:
         specifier: ^0.4.4
         version: link:../../packages/harness-sessions
       ai-sdk-harness-workspace:
-        specifier: ^0.1.4
+        specifier: ^0.2.0
         version: link:../../packages/harness-workspace
       ai-sdk-sandbox-cloud-run:
-        specifier: ^0.4.3
+        specifier: ^0.5.0
         version: link:../../packages/sandbox-cloud-run
       ai-sdk-sandbox-gce:
-        specifier: ^0.7.0
+        specifier: ^0.8.0
         version: link:../../packages/sandbox-gce
       ai-sdk-sandbox-microsandbox:
         specifier: ^0.1.4
@@ -7431,7 +7431,7 @@ snapshots:
 
   '@cloudflare/workers-types@5.20261125.1': {}
 
-  '@cloudflare/workers-utils@0.55.0(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))':
+  '@cloudflare/workers-utils@0.55.0(vitest@5.1.1)':
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       chalk: 5.3.0
@@ -13314,11 +13314,11 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20261118.1
       '@cloudflare/workerd-windows-64': 1.20261118.1
 
-  wrangler@4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))):
+  wrangler@4.165.0(@cloudflare/workers-types@5.20261125.1)(@types/node@24.19.2)(vitest@5.1.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.1
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261118.1)
-      '@cloudflare/workers-utils': 0.55.0(vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.2(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)))
+      '@cloudflare/workers-utils': 0.55.0(vitest@5.1.1)
       '@cspotcode/source-map-support': 0.8.1
       '@types/yargs': 17.0.24
       cloudflare: 5.2.0
